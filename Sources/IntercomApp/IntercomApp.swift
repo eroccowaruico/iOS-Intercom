@@ -1,5 +1,4 @@
 import SwiftUI
-import IntercomCore
 
 @main
 struct IntercomApp: App {

@@ -1,5 +1,4 @@
 import SwiftUI
-import IntercomCore
 
 struct ContentView: View {
     var body: some View {
