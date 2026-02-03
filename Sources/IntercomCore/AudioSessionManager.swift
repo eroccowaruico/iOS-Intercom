@@ -4,10 +4,12 @@ public struct AudioSessionConfiguration: Sendable {
     public let category: AVAudioSession.Category
     public let mode: AVAudioSession.Mode
     public let options: AVAudioSession.CategoryOptions
-    public static var defaultOptions: AVAudioSession.CategoryOptions {
-        var options: AVAudioSession.CategoryOptions = [.mixWithOthers, .allowBluetooth]
+    public static func defaultOptions(for category: AVAudioSession.Category) -> AVAudioSession.CategoryOptions {
+        var options: AVAudioSession.CategoryOptions = [.mixWithOthers]
         #if os(iOS) || os(tvOS)
-        options.insert(.allowBluetoothA2DP)
+        if category == .playback {
+            options.insert(.allowBluetoothA2DP)
+        }
         #endif
         return options
     }
@@ -15,7 +17,7 @@ public struct AudioSessionConfiguration: Sendable {
     public init(
         category: AVAudioSession.Category = .playAndRecord,
         mode: AVAudioSession.Mode = .voiceChat,
-        options: AVAudioSession.CategoryOptions = AudioSessionConfiguration.defaultOptions
+        options: AVAudioSession.CategoryOptions = AudioSessionConfiguration.defaultOptions(for: category)
     ) {
         self.category = category
         self.mode = mode
