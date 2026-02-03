@@ -1,0 +1,272 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 60;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000000000000100000001 /* IntercomApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000200000001 /* IntercomApp.swift */; };
+		A10000000000000100000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000200000002 /* ContentView.swift */; };
+		A10000000000000100000003 /* AudioFrame.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000200000003 /* AudioFrame.swift */; };
+		A10000000000000100000004 /* AudioSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000200000004 /* AudioSessionManager.swift */; };
+		A10000000000000100000005 /* ControlMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000200000005 /* ControlMessage.swift */; };
+		A10000000000000100000006 /* GroupSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000200000006 /* GroupSession.swift */; };
+		A10000000000000100000007 /* LocalTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000200000007 /* LocalTransport.swift */; };
+		A10000000000000100000008 /* Transport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000200000008 /* Transport.swift */; };
+		A10000000000000100000009 /* VAD.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000200000009 /* VAD.swift */; };
+		A1000000000000010000000A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000000000000020000000A /* Assets.xcassets */; };
+		A1000000000000010000000B /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1000000000000020000000B /* AVFoundation.framework */; };
+		A1000000000000010000000C /* MultipeerConnectivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1000000000000020000000C /* MultipeerConnectivity.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A10000000000000200000000 /* IntercomApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = IntercomApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000200000001 /* IntercomApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntercomApp.swift; sourceTree = "<group>"; };
+		A10000000000000200000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		A10000000000000200000003 /* AudioFrame.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioFrame.swift; sourceTree = "<group>"; };
+		A10000000000000200000004 /* AudioSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSessionManager.swift; sourceTree = "<group>"; };
+		A10000000000000200000005 /* ControlMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlMessage.swift; sourceTree = "<group>"; };
+		A10000000000000200000006 /* GroupSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupSession.swift; sourceTree = "<group>"; };
+		A10000000000000200000007 /* LocalTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTransport.swift; sourceTree = "<group>"; };
+		A10000000000000200000008 /* Transport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Transport.swift; sourceTree = "<group>"; };
+		A10000000000000200000009 /* VAD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VAD.swift; sourceTree = "<group>"; };
+		A10000000000000200000010 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A1000000000000020000000A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A1000000000000020000000B /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
+		A1000000000000020000000C /* MultipeerConnectivity.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MultipeerConnectivity.framework; path = System/Library/Frameworks/MultipeerConnectivity.framework; sourceTree = SDKROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A10000000000000300000000 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000000000000010000000B /* AVFoundation.framework in Frameworks */,
+				A1000000000000010000000C /* MultipeerConnectivity.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A10000000000000400000000 = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000400000001 /* IntercomApp */,
+				A10000000000000400000002 /* IntercomCore */,
+				A10000000000000400000004 /* Frameworks */,
+				A10000000000000400000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A10000000000000400000001 /* IntercomApp */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000200000001 /* IntercomApp.swift */,
+				A10000000000000200000002 /* ContentView.swift */,
+				A1000000000000020000000A /* Assets.xcassets */,
+				A10000000000000200000010 /* Info.plist */,
+			);
+			path = Sources/IntercomApp;
+			sourceTree = "<group>";
+		};
+		A10000000000000400000002 /* IntercomCore */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000200000003 /* AudioFrame.swift */,
+				A10000000000000200000004 /* AudioSessionManager.swift */,
+				A10000000000000200000005 /* ControlMessage.swift */,
+				A10000000000000200000006 /* GroupSession.swift */,
+				A10000000000000200000007 /* LocalTransport.swift */,
+				A10000000000000200000008 /* Transport.swift */,
+				A10000000000000200000009 /* VAD.swift */,
+			);
+			path = Sources/IntercomCore;
+			sourceTree = "<group>";
+		};
+		A10000000000000400000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000200000000 /* IntercomApp.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A10000000000000400000004 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				A1000000000000020000000B /* AVFoundation.framework */,
+				A1000000000000020000000C /* MultipeerConnectivity.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A10000000000000500000000 /* IntercomApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000000000000600000000 /* Build configuration list for PBXNativeTarget "IntercomApp" */;
+			buildPhases = (
+				A10000000000000300000001 /* Sources */,
+				A10000000000000300000000 /* Frameworks */,
+				A10000000000000300000002 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = IntercomApp;
+			productName = IntercomApp;
+			productReference = A10000000000000200000000 /* IntercomApp.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A10000000000000700000000 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					A10000000000000500000000 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = A10000000000000600000001 /* Build configuration list for PBXProject "IntercomApp" */;
+			compatibilityVersion = "Xcode 15.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A10000000000000400000000;
+			productRefGroup = A10000000000000400000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A10000000000000500000000 /* IntercomApp */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A10000000000000300000002 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000000000000010000000A /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A10000000000000300000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000100000001 /* IntercomApp.swift in Sources */,
+				A10000000000000100000002 /* ContentView.swift in Sources */,
+				A10000000000000100000003 /* AudioFrame.swift in Sources */,
+				A10000000000000100000004 /* AudioSessionManager.swift in Sources */,
+				A10000000000000100000005 /* ControlMessage.swift in Sources */,
+				A10000000000000100000006 /* GroupSession.swift in Sources */,
+				A10000000000000100000007 /* LocalTransport.swift in Sources */,
+				A10000000000000100000008 /* Transport.swift in Sources */,
+				A10000000000000100000009 /* VAD.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A10000000000000800000000 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Sources/IntercomApp/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.intercom;
+				PRODUCT_NAME = IntercomApp;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A10000000000000800000001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Sources/IntercomApp/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.intercom;
+				PRODUCT_NAME = IntercomApp;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		A10000000000000800000002 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.intercom;
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		A10000000000000800000003 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.intercom;
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A10000000000000600000000 /* Build configuration list for PBXNativeTarget "IntercomApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000000000000800000000 /* Debug */,
+				A10000000000000800000001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		A10000000000000600000001 /* Build configuration list for PBXProject "IntercomApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000000000000800000002 /* Debug */,
+				A10000000000000800000003 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A10000000000000700000000 /* Project object */;
+}
