@@ -7,7 +7,7 @@ public final class LocalTransport: NSObject, Transport {
     private let serviceType: String
     private let myPeerID: MCPeerID
     private let session: MCSession
-    private let advertiser: MCNearbyServiceAdvertiser
+    private var advertiser: MCNearbyServiceAdvertiser
     private let browser: MCNearbyServiceBrowser
     private var activeGroupHash: String?
 
@@ -25,7 +25,13 @@ public final class LocalTransport: NSObject, Transport {
 
     public func connect(group: GroupSession) async throws {
         activeGroupHash = group.groupHash
-        advertiser.discoveryInfo = ["groupHash": group.groupHash]
+        advertiser.stopAdvertisingPeer()
+        advertiser = MCNearbyServiceAdvertiser(
+            peer: myPeerID,
+            discoveryInfo: ["groupHash": group.groupHash],
+            serviceType: serviceType
+        )
+        advertiser.delegate = self
         advertiser.startAdvertisingPeer()
         browser.startBrowsingForPeers()
     }
