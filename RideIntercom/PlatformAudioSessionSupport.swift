@@ -1,0 +1,190 @@
+import Foundation
+import AVFAudio
+
+#if os(macOS)
+import CoreAudio
+#endif
+
+final class SystemAudioSessionAdapter: AudioSessionApplying {
+    #if os(iOS)
+    private let session: AVAudioSession
+
+    init(session: AVAudioSession = .sharedInstance()) {
+        self.session = session
+    }
+    #else
+    init() {}
+    #endif
+
+    func apply(_ configuration: AudioSessionConfiguration) throws {
+        #if os(iOS)
+        try session.setCategory(
+            configuration.avCategory,
+            mode: configuration.avMode,
+            options: configuration.avOptions
+        )
+        #endif
+    }
+
+    func setActive(_ active: Bool) throws {
+        #if os(iOS)
+        try session.setActive(active)
+        #endif
+    }
+
+    var availableInputPorts: [AudioPortInfo] {
+        #if os(iOS)
+        let inputs = session.availableInputs ?? []
+        return [.systemDefault] + inputs.map { AudioPortInfo(id: $0.uid, name: $0.portName) }
+        #else
+        return coreAudioPorts(scope: kAudioDevicePropertyScopeInput)
+        #endif
+    }
+
+    var availableOutputPorts: [AudioPortInfo] {
+        #if os(iOS)
+        var ports: [AudioPortInfo] = [
+            .systemDefault,
+            AudioPortInfo(id: "__speaker__", name: "Speaker"),
+        ]
+        let btHFP = (session.availableInputs ?? []).filter { $0.portType == .bluetoothHFP }
+        ports += btHFP.map { AudioPortInfo(id: $0.uid, name: $0.portName) }
+        return ports
+        #else
+        return coreAudioPorts(scope: kAudioDevicePropertyScopeOutput)
+        #endif
+    }
+
+    func setPreferredInputPort(_ port: AudioPortInfo) throws {
+        #if os(iOS)
+        if port == .systemDefault {
+            try session.setPreferredInput(nil)
+        } else {
+            guard let avPort = session.availableInputs?.first(where: { $0.uid == port.id }) else { return }
+            try session.setPreferredInput(avPort)
+        }
+        #else
+        if let deviceID = AudioDeviceID(port.id) {
+            setMacDevice(deviceID, selector: kAudioHardwarePropertyDefaultInputDevice)
+        }
+        #endif
+    }
+
+    func setPreferredOutputPort(_ port: AudioPortInfo) throws {
+        #if os(iOS)
+        switch port.id {
+        case AudioPortInfo.systemDefault.id:
+            try session.overrideOutputAudioPort(.none)
+        case "__speaker__":
+            try session.overrideOutputAudioPort(.speaker)
+        default:
+            if let btPort = session.availableInputs?.first(where: { $0.uid == port.id }) {
+                try session.setPreferredInput(btPort)
+            }
+            try session.overrideOutputAudioPort(.none)
+        }
+        #else
+        if let deviceID = AudioDeviceID(port.id) {
+            setMacDevice(deviceID, selector: kAudioHardwarePropertyDefaultOutputDevice)
+        }
+        #endif
+    }
+}
+
+#if os(iOS)
+private extension AudioSessionConfiguration {
+    var avCategory: AVAudioSession.Category {
+        switch category {
+        case .playAndRecord:
+            .playAndRecord
+        }
+    }
+
+    var avMode: AVAudioSession.Mode {
+        switch mode {
+        case .default:
+            .default
+        case .voiceChat:
+            .voiceChat
+        }
+    }
+
+    var avOptions: AVAudioSession.CategoryOptions {
+        var mapped: AVAudioSession.CategoryOptions = []
+        if options.contains(.mixWithOthers) {
+            mapped.insert(.mixWithOthers)
+        }
+        if options.contains(.allowBluetooth) {
+            mapped.insert(.allowBluetoothHFP)
+        }
+        if options.contains(.allowBluetoothA2DP) {
+            mapped.insert(.allowBluetoothA2DP)
+        }
+        if options.contains(.defaultToSpeaker) {
+            mapped.insert(.defaultToSpeaker)
+        }
+        return mapped
+    }
+}
+#endif
+
+#if os(macOS)
+private extension SystemAudioSessionAdapter {
+    func coreAudioPorts(scope: AudioObjectPropertyScope) -> [AudioPortInfo] {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var dataSize: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &dataSize
+        ) == noErr else { return [.systemDefault] }
+        let count = Int(dataSize) / MemoryLayout<AudioDeviceID>.size
+        var deviceIDs = [AudioDeviceID](repeating: 0, count: count)
+        guard AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &dataSize, &deviceIDs
+        ) == noErr else { return [.systemDefault] }
+        let devices = deviceIDs.compactMap { id -> AudioPortInfo? in
+            guard deviceHasStreams(id, scope: scope), let name = deviceName(id) else { return nil }
+            return AudioPortInfo(id: "\(id)", name: name)
+        }
+        return [.systemDefault] + devices
+    }
+
+    func deviceName(_ deviceID: AudioDeviceID) -> String? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceNameCFString,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var name: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &name) == noErr else { return nil }
+        return name?.takeUnretainedValue() as String?
+    }
+
+    func deviceHasStreams(_ deviceID: AudioDeviceID, scope: AudioObjectPropertyScope) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreams,
+            mScope: scope,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var size: UInt32 = 0
+        return AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &size) == noErr && size > 0
+    }
+
+    func setMacDevice(_ deviceID: AudioDeviceID, selector: AudioObjectPropertySelector) {
+        var address = AudioObjectPropertyAddress(
+            mSelector: selector,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var id = deviceID
+        AudioObjectSetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil,
+            UInt32(MemoryLayout<AudioDeviceID>.size), &id
+        )
+    }
+}
+#endif

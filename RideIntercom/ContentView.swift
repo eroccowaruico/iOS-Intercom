@@ -1,0 +1,877 @@
+import SwiftUI
+
+struct ContentView: View {
+    @State private var viewModel = IntercomViewModel.makeForCurrentProcess()
+    @State private var selectedTab: AppTab = AppTab.initialForCurrentProcess
+
+    var body: some View {
+        let _ = viewModel.uiEventRevision
+
+        TabView(selection: $selectedTab) {
+            NavigationStack {
+                GroupSelectionView(viewModel: viewModel) {
+                    selectedTab = .call
+                }
+                .navigationTitle("Groups")
+            }
+            .tabItem {
+                Label("Groups", systemImage: "person.3.fill")
+                    .accessibilityIdentifier("groupsTab")
+            }
+            .tag(AppTab.groups)
+
+            NavigationStack {
+                CallView(viewModel: viewModel)
+                    .navigationTitle(viewModel.selectedGroup?.name ?? "Call")
+                    .toolbar {
+                        ToolbarItem(placement: .navigation) {
+                            Button {
+                                selectedTab = .groups
+                            } label: {
+                                Label("Groups", systemImage: "person.3.fill")
+                            }
+                            .accessibilityIdentifier("showGroupsButton")
+                        }
+                    }
+            }
+            .tabItem {
+                Label("Call", systemImage: "waveform.circle.fill")
+                    .accessibilityIdentifier("callTab")
+            }
+            .tag(AppTab.call)
+
+            NavigationStack {
+                DiagnosticsView(viewModel: viewModel)
+                    .navigationTitle("Diagnostics")
+            }
+            .tabItem {
+                Label("Diagnostics", systemImage: "gauge")
+                    .accessibilityIdentifier("diagnosticsTab")
+            }
+            .tag(AppTab.diagnostics)
+        }
+        .onOpenURL { url in
+            if (try? viewModel.acceptInviteURL(url)) != nil {
+                selectedTab = .call
+            }
+        }
+    }
+}
+
+private enum AppTab: Hashable {
+    case groups
+    case call
+    case diagnostics
+
+    static var initialForCurrentProcess: AppTab {
+        if ProcessInfo.processInfo.arguments.contains("--start-on-diagnostics") {
+            return .diagnostics
+        }
+        return .groups
+    }
+}
+
+private struct GroupSelectionView: View {
+    @Bindable var viewModel: IntercomViewModel
+    let onGroupSelected: () -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                Button {
+                    viewModel.createTrailGroup()
+                    onGroupSelected()
+                } label: {
+                    Label("Create Trail Group", systemImage: "plus.circle.fill")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("createGroupButton")
+
+                Text("Recent Groups")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+
+                VStack(spacing: 10) {
+                    ForEach(viewModel.groups) { group in
+                        HStack(spacing: 10) {
+                            Button {
+                                viewModel.selectGroup(group)
+                                onGroupSelected()
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(group.name)
+                                            .font(.headline)
+                                        Text("\(group.members.count) members")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                    }
+
+                                    Spacer()
+
+                                    Image(systemName: "chevron.right")
+                                        .font(.footnote.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(group.name)
+                            .accessibilityIdentifier("groupRow-\(group.name)")
+
+                            Button {
+                                viewModel.deleteGroup(group.id)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .frame(width: 34, height: 34)
+                            }
+                            .buttonStyle(.bordered)
+                            .accessibilityLabel("Delete \(group.name)")
+                            .accessibilityIdentifier("deleteGroupButton-\(group.name)")
+                        }
+                        .padding(14)
+                        .background(.thinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                }
+
+            }
+            .padding()
+        }
+        .accessibilityIdentifier("groupSelectionList")
+    }
+}
+
+private struct CallView: View {
+    @Bindable var viewModel: IntercomViewModel
+
+    var body: some View {
+        Group {
+            if viewModel.selectedGroup == nil {
+                CallPlaceholderView(viewModel: viewModel)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        statusHeader
+                        if let localMember {
+                            LocalMicrophonePanel(
+                                member: localMember,
+                                isMuted: viewModel.isMuted,
+                                onToggleMute: { viewModel.toggleMute() }
+                            )
+                        }
+                        controls
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Participants")
+                                .font(.headline)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
+                            ForEach(Array(viewModel.selectedGroupSlots.enumerated()), id: \.offset) { index, member in
+                                ParticipantSlotView(
+                                    index: index,
+                                    member: member,
+                                    canRemove: member.map { viewModel.canRemoveMember($0.id) } ?? false
+                                ) {
+                                    guard let selectedGroup = viewModel.selectedGroup,
+                                          let member else { return }
+                                    viewModel.removeMember(member.id, from: selectedGroup.id)
+                                }
+                                    .accessibilityIdentifier("participantSlot\(index)")
+                            }
+                        }
+
+                        if let audioErrorMessage = viewModel.audioErrorMessage {
+                            Text(audioErrorMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                                .accessibilityIdentifier("audioErrorLabel")
+                        }
+                    }
+                    .padding()
+                }
+                .accessibilityIdentifier("callScrollView")
+            }
+        }
+        .accessibilityIdentifier("callScreen")
+    }
+
+    private var statusHeader: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: connectionIconName)
+                Text(viewModel.callPresenceLabel)
+                    .font(.headline)
+                    .accessibilityIdentifier("connectionStatusLabel")
+
+                Spacer()
+
+                Text(viewModel.routeLabel)
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(.thinMaterial, in: Capsule())
+                    .accessibilityIdentifier("routeLabel")
+            }
+
+            HStack {
+                Image(systemName: "person.badge.key.fill")
+                    .foregroundStyle(.secondary)
+                Text("Owner: \(viewModel.ownerName)")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("ownerLabel")
+
+                Spacer()
+
+                Label(viewModel.isAudioReady ? "Audio Ready" : "Audio Idle", systemImage: viewModel.isAudioReady ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(viewModel.isAudioReady ? .green : .secondary)
+                    .accessibilityIdentifier("audioStatusLabel")
+
+                Text(viewModel.audioDebugSummary)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("audioFlowLabel")
+            }
+
+            HStack(spacing: 6) {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text(viewModel.localNetworkDebugSummary(now: context.date.timeIntervalSince1970))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("localNetworkDebugSummaryLabel")
+                }
+                Spacer()
+            }
+
+            HStack(spacing: 6) {
+                Text(viewModel.inviteDebugSummary)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("inviteDebugSummaryLabel")
+                Spacer()
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text(viewModel.realDeviceCallDebugSummary(now: context.date.timeIntervalSince1970))
+                        .accessibilityIdentifier("realDeviceCallDebugSummaryLabel")
+                }
+                Text(viewModel.localMemberDebugSummary)
+                    .accessibilityIdentifier("localMemberDebugSummaryLabel")
+                Text(viewModel.selectedGroupDebugSummary)
+                    .accessibilityIdentifier("selectedGroupDebugSummaryLabel")
+                Text(viewModel.groupHashDebugSummary)
+                    .accessibilityIdentifier("groupHashDebugSummaryLabel")
+            }
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+        }
+    }
+
+    private var localMember: GroupMember? {
+        viewModel.selectedGroup?.members.first
+    }
+
+    private var controls: some View {
+        VStack(spacing: 12) {
+            if viewModel.canDisconnectCall {
+                Button {
+                    viewModel.disconnect()
+                } label: {
+                    Label("Disconnect", systemImage: "xmark.circle.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("disconnectButton")
+            } else {
+                Button {
+                    viewModel.connectLocal()
+                } label: {
+                    Label("Connect Local", systemImage: "antenna.radiowaves.left.and.right")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("connectButton")
+
+                Text("Waiting automatically")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("automaticStandbyLabel")
+            }
+
+            if let inviteURL = viewModel.selectedGroupInviteURL {
+                ShareLink(
+                    item: inviteURL,
+                    subject: Text("RideIntercom Invite"),
+                    message: Text("Join \(viewModel.selectedGroup?.name ?? "RideIntercom")")
+                ) {
+                    Label("Invite Group", systemImage: "square.and.arrow.up")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .simultaneousGesture(TapGesture().onEnded {
+                    viewModel.reserveInviteMemberSlot()
+                })
+                .accessibilityLabel("Invite Group")
+                .accessibilityIdentifier("inviteButton")
+            }
+
+            HStack(spacing: 12) {
+                if viewModel.availableOutputPorts.count > 1 {
+                    Picker("Output", selection: Binding(
+                        get: { viewModel.selectedOutputPort },
+                        set: { viewModel.setOutputPort($0) }
+                    )) {
+                        ForEach(viewModel.availableOutputPorts) { port in
+                            Text(port.name).tag(port)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("callAudioOutputPicker")
+                }
+                if viewModel.availableInputPorts.count > 1 {
+                    Picker("Input", selection: Binding(
+                        get: { viewModel.selectedInputPort },
+                        set: { viewModel.setInputPort($0) }
+                    )) {
+                        ForEach(viewModel.availableInputPorts) { port in
+                            Text(port.name).tag(port)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("callAudioInputPicker")
+                }
+            }
+            .accessibilityIdentifier("audioDevicePickerRow")
+        }
+    }
+
+    private var connectionIconName: String {
+        switch viewModel.connectionState {
+        case .idle:
+            "circle"
+        case .localConnecting, .internetConnecting:
+            "antenna.radiowaves.left.and.right"
+        case .localConnected, .internetConnected:
+            "checkmark.circle.fill"
+        case .reconnectingOffline:
+            "exclamationmark.triangle.fill"
+        }
+    }
+}
+
+private struct CallPlaceholderView: View {
+    @Bindable var viewModel: IntercomViewModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                Text("No Group Selected")
+                    .font(.title2.weight(.semibold))
+                Text("Choose a group or create one to start a call.")
+                    .foregroundStyle(.secondary)
+                Button {
+                    viewModel.createTrailGroup()
+                } label: {
+                    Label("Create Trail Group", systemImage: "plus.circle.fill")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("createGroupButton")
+            }
+            .padding()
+        }
+        .accessibilityIdentifier("callScrollView")
+    }
+}
+
+private struct DiagnosticsView: View {
+    @Bindable var viewModel: IntercomViewModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                AudioCheckPanel(viewModel: viewModel)
+                DiagnosticRow(icon: "waveform.path.ecg", value: viewModel.audioDebugSummary)
+                    .accessibilityIdentifier("audioDebugSummaryLabel")
+                DiagnosticRow(icon: "slider.horizontal.3", value: viewModel.audioInputProcessingSummary)
+                    .accessibilityIdentifier("audioInputProcessingSummaryLabel")
+                DiagnosticRow(icon: "waveform.badge.magnifyingglass", value: viewModel.audioCheckSummary)
+                    .accessibilityIdentifier("audioCheckSummaryLabel")
+                DiagnosticRow(icon: "person.2.fill", value: viewModel.connectionDebugSummary)
+                    .accessibilityIdentifier("connectionDebugSummaryLabel")
+                DiagnosticRow(icon: "checkmark.seal.fill", value: viewModel.authenticationDebugSummary)
+                    .accessibilityIdentifier("authenticationDebugSummaryLabel")
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    DiagnosticRow(icon: "checklist", value: viewModel.realDeviceCallDebugSummary(now: context.date.timeIntervalSince1970))
+                        .accessibilityIdentifier("realDeviceCallDebugSummaryLabel")
+                }
+                DiagnosticRow(icon: "person.text.rectangle.fill", value: viewModel.localMemberDebugSummary)
+                    .accessibilityIdentifier("localMemberDebugSummaryLabel")
+                DiagnosticRow(icon: "network", value: viewModel.transportDebugSummary)
+                    .accessibilityIdentifier("transportDebugSummaryLabel")
+                DiagnosticRow(icon: "person.3.sequence.fill", value: viewModel.selectedGroupDebugSummary)
+                    .accessibilityIdentifier("selectedGroupDebugSummaryLabel")
+                DiagnosticRow(icon: "number", value: viewModel.groupHashDebugSummary)
+                    .accessibilityIdentifier("groupHashDebugSummaryLabel")
+                DiagnosticRow(icon: "square.and.arrow.up", value: viewModel.inviteDebugSummary)
+                    .accessibilityIdentifier("inviteDebugSummaryLabel")
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    DiagnosticRow(icon: "antenna.radiowaves.left.and.right", value: viewModel.localNetworkDebugSummary(now: context.date.timeIntervalSince1970))
+                        .accessibilityIdentifier("localNetworkDebugSummaryLabel")
+                }
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    DiagnosticRow(icon: "clock.arrow.circlepath", value: viewModel.receptionDebugSummary(now: context.date.timeIntervalSince1970))
+                        .accessibilityIdentifier("receptionDebugSummaryLabel")
+                }
+            }
+            .padding()
+        }
+        .accessibilityIdentifier("diagnosticsScrollView")
+    }
+}
+
+private struct AudioCheckPanel: View {
+    @Bindable var viewModel: IntercomViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Audio Check", systemImage: "waveform")
+                    .font(.headline)
+                Spacer()
+                Text(viewModel.audioCheckPhase.rawValue)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(statusColor)
+                    .accessibilityIdentifier("audioCheckPhaseLabel")
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Microphone Input", systemImage: "mic.fill")
+                    .font(.subheadline)
+                VoiceMeterView(
+                    level: viewModel.audioCheckInputLevel,
+                    peakLevel: viewModel.audioCheckInputPeakLevel,
+                    isMuted: false
+                )
+                .accessibilityIdentifier("audioCheckInputMeter")
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Speaker Output", systemImage: "speaker.wave.2.fill")
+                    .font(.subheadline)
+                VoiceMeterView(
+                    level: viewModel.audioCheckOutputLevel,
+                    peakLevel: viewModel.audioCheckOutputPeakLevel,
+                    isMuted: false
+                )
+                .accessibilityIdentifier("audioCheckOutputMeter")
+            }
+
+            Text(viewModel.audioCheckStatusMessage)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("audioCheckStatusLabel")
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Voice Activity Detection Threshold")
+                    Spacer()
+                    Text(String(format: "%.2f", viewModel.voiceActivityDetectionThreshold))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                Slider(
+                    value: Binding(
+                        get: { Double(viewModel.voiceActivityDetectionThreshold) },
+                        set: { viewModel.setVoiceActivityDetectionThreshold(Float($0)) }
+                    ),
+                    in: Double(VoiceActivityDetector.minThreshold)...Double(VoiceActivityDetector.maxThreshold),
+                    step: 0.01
+                )
+                .accessibilityIdentifier("voiceActivityDetectionThresholdSlider")
+            }
+
+            if viewModel.supportsSoundIsolation {
+                Toggle(
+                    "Sound Isolation",
+                    isOn: Binding(
+                        get: { viewModel.isSoundIsolationEnabled },
+                        set: { viewModel.setSoundIsolationEnabled($0) }
+                    )
+                )
+                .accessibilityIdentifier("soundIsolationToggle")
+            }
+
+            Picker("Codec", selection: Binding(
+                get: { viewModel.audioCheckCodecMode },
+                set: { viewModel.setAudioCheckCodecMode($0) }
+            )) {
+                ForEach(AudioCheckCodecMode.allCases, id: \.self) { mode in
+                    Text(mode.rawValue).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .disabled(viewModel.audioCheckPhase == .recording || viewModel.audioCheckPhase == .playing)
+            .accessibilityIdentifier("audioCheckCodecPicker")
+
+            if viewModel.availableOutputPorts.count > 1 {
+                Picker("Output", selection: Binding(
+                    get: { viewModel.selectedOutputPort },
+                    set: { viewModel.setOutputPort($0) }
+                )) {
+                    ForEach(viewModel.availableOutputPorts) { port in
+                        Text(port.name).tag(port)
+                    }
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("audioCheckOutputPicker")
+            }
+            if viewModel.availableInputPorts.count > 1 {
+                Picker("Input", selection: Binding(
+                    get: { viewModel.selectedInputPort },
+                    set: { viewModel.setInputPort($0) }
+                )) {
+                    ForEach(viewModel.availableInputPorts) { port in
+                        Text(port.name).tag(port)
+                    }
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("audioCheckInputPicker")
+            }
+
+            Button {
+                viewModel.startAudioCheck()
+            } label: {
+                Label("Record 5s and Play", systemImage: "record.circle")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(viewModel.audioCheckPhase == .recording || viewModel.audioCheckPhase == .playing)
+            .accessibilityIdentifier("audioCheckButton")
+        }
+        .padding(12)
+        .background(.background)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .accessibilityIdentifier("audioCheckPanel")
+    }
+
+    private var statusColor: Color {
+        switch viewModel.audioCheckPhase {
+        case .idle:
+            .secondary
+        case .recording:
+            .red
+        case .playing:
+            .green
+        case .completed:
+            .blue
+        case .failed:
+            .red
+        }
+    }
+}
+
+private struct DiagnosticRow: View {
+    let icon: String
+    let value: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .frame(width: 24)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.body.monospacedDigit())
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(12)
+        .background(.thinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct LocalMicrophonePanel: View {
+    let member: GroupMember
+    let isMuted: Bool
+    let onToggleMute: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: isMuted ? "mic.slash.fill" : "mic.fill")
+                    .foregroundStyle(isMuted ? .red : .green)
+                Text("Your Microphone")
+                    .font(.headline)
+                Spacer()
+                Text(isMuted ? "Muted" : "Live")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(isMuted ? .red : .green)
+                    .accessibilityIdentifier("localMicrophoneStateLabel")
+            }
+
+            HStack(alignment: .center, spacing: 12) {
+                VoiceMeterView(
+                    level: isMuted ? 0 : member.voiceLevel,
+                    peakLevel: isMuted ? 0 : member.voicePeakLevel,
+                    isMuted: isMuted
+                )
+                .accessibilityIdentifier("localMicrophoneMeter")
+
+                Button(action: onToggleMute) {
+                    Image(systemName: isMuted ? "mic.slash.fill" : "mic.fill")
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.bordered)
+                .tint(isMuted ? .red : .accentColor)
+                .accessibilityLabel(isMuted ? "Unmute" : "Mute")
+                .accessibilityIdentifier("localMicrophoneMuteButton")
+            }
+        }
+        .padding(12)
+        .background(.background)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(isMuted ? Color.red.opacity(0.6) : Color.green.opacity(0.35), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .accessibilityIdentifier("localMicrophonePanel")
+    }
+}
+
+private struct VoiceMeterView: View {
+    let level: Float
+    let peakLevel: Float
+    let isMuted: Bool
+
+    private var indicator: VoiceLevelIndicatorState {
+        VoiceLevelIndicatorState(level: level, peakLevel: peakLevel)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.secondary.opacity(0.16))
+                    Capsule()
+                        .fill(meterColor)
+                        .frame(width: geometry.size.width * CGFloat(indicator.displayLevel))
+                    Rectangle()
+                        .fill(.primary)
+                        .frame(width: 2, height: 16)
+                        .offset(x: max(0, geometry.size.width * CGFloat(indicator.displayPeakLevel) - 1))
+                }
+            }
+            .frame(height: 16)
+
+            Text(isMuted ? "MUTED" : "LEVEL \(indicator.levelPercent)  PEAK \(indicator.peakPercent)")
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(isMuted ? .red : meterColor)
+                .accessibilityIdentifier("voiceMeterValueLabel")
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private var meterColor: Color {
+        if isMuted {
+            return .red
+        }
+
+        switch indicator.intensity {
+        case .silent:
+            return .secondary
+        case .low:
+            return .blue
+        case .medium:
+            return .green
+        case .high:
+            return .orange
+        }
+    }
+}
+
+private struct ParticipantSlotView: View {
+    let index: Int
+    let member: GroupMember?
+    let canRemove: Bool
+    let onRemove: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(member?.displayName ?? "Empty")
+                    .font(.headline)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .accessibilityIdentifier("participantName\(index)")
+
+                Spacer()
+
+                if member != nil, canRemove {
+                    Button(action: onRemove) {
+                        Image(systemName: "trash")
+                            .frame(width: 30, height: 30)
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel("Remove \(member?.displayName ?? "Participant")")
+                    .accessibilityIdentifier("removeParticipantButton\(index)")
+                } else {
+                    Image(systemName: member?.isMuted == true ? "mic.slash.fill" : "mic.fill")
+                        .foregroundStyle(member == nil ? .secondary : .primary)
+                }
+            }
+
+            HStack(spacing: 6) {
+                Image(systemName: statusIconName)
+                Text(member?.connectionState.rawValue ?? "Available")
+                    .accessibilityIdentifier("participantState\(index)")
+            }
+            .font(.subheadline)
+            .foregroundStyle(statusColor)
+
+            HStack(spacing: 6) {
+                Image(systemName: authenticationIconName)
+                Text(member?.authenticationState.rawValue ?? "AUTH EMPTY")
+                    .accessibilityIdentifier("participantAuthenticationState\(index)")
+            }
+            .font(.caption)
+            .foregroundStyle(authenticationColor)
+
+            HStack(spacing: 6) {
+                Image(systemName: audioPipelineIconName)
+                Text(member?.audioPipelineState.rawValue ?? AudioPipelineState.idle.rawValue)
+            }
+            .font(.caption)
+            .foregroundStyle(audioPipelineColor)
+            .accessibilityIdentifier("participantAudioPipelineState\(index)")
+
+            Text(member?.audioPipelineSummary ?? "RX 0 / PLAY 0 / JIT 0")
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("participantAudioPipelineSummary\(index)")
+
+            HStack(spacing: 6) {
+                Image(systemName: member?.isMuted == true ? "mic.slash.fill" : "mic.fill")
+                Text(member?.isMuted == true ? "Muted" : "Mic Live")
+            }
+            .font(.caption)
+            .foregroundStyle(member?.isMuted == true ? .red : .secondary)
+            .accessibilityIdentifier("participantMuteState\(index)")
+
+            VoiceMeterView(
+                level: member?.isMuted == true ? 0 : indicator.level,
+                peakLevel: member?.isMuted == true ? 0 : indicator.peakLevel,
+                isMuted: member?.isMuted == true
+            )
+            .accessibilityIdentifier("participantVoiceLevel\(index)")
+        }
+        .frame(maxWidth: .infinity, minHeight: 154, alignment: .topLeading)
+        .padding(12)
+        .background(.background)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(member == nil ? Color.secondary.opacity(0.25) : Color.accentColor.opacity(0.35), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var indicator: VoiceLevelIndicatorState {
+        VoiceLevelIndicatorState(level: member?.voiceLevel ?? 0, peakLevel: member?.voicePeakLevel ?? 0)
+    }
+
+    private var statusIconName: String {
+        switch member?.connectionState {
+        case .connected:
+            "checkmark.circle.fill"
+        case .connecting:
+            "clock.fill"
+        case .offline:
+            "circle"
+        case nil:
+            "plus.circle"
+        }
+    }
+
+    private var audioPipelineIconName: String {
+        switch member?.audioPipelineState {
+        case .receiving:
+            "arrow.down.circle.fill"
+        case .playing:
+            "speaker.wave.2.fill"
+        case .received:
+            "tray.and.arrow.down.fill"
+        case .idle, nil:
+            "speaker.slash.fill"
+        }
+    }
+
+    private var audioPipelineColor: Color {
+        switch member?.audioPipelineState {
+        case .receiving:
+            .blue
+        case .playing:
+            .green
+        case .received:
+            .orange
+        case .idle, nil:
+            .secondary
+        }
+    }
+
+    private var statusColor: Color {
+        switch member?.connectionState {
+        case .connected:
+            .green
+        case .connecting:
+            .orange
+        case .offline, nil:
+            .secondary
+        }
+    }
+
+    private var authenticationIconName: String {
+        switch member?.authenticationState {
+        case .open:
+            "lock.open.fill"
+        case .pending:
+            "hourglass"
+        case .authenticated:
+            "checkmark.seal.fill"
+        case .offline:
+            "lock.slash.fill"
+        case nil:
+            "person.crop.circle.badge.plus"
+        }
+    }
+
+    private var authenticationColor: Color {
+        switch member?.authenticationState {
+        case .authenticated:
+            .green
+        case .pending:
+            .orange
+        case .open, .offline, nil:
+            .secondary
+        }
+    }
+}
+
+#Preview {
+    ContentView()
+}

@@ -1,18 +1,165 @@
 # 実装ステータス
 
-本リポジトリでは、仕様書のフェーズ順に実装を進める。
+本リポジトリでは、仕様書のフェーズ順にTDDで実装を進める。
 
 ## Phase 1: Local 2人通話（体験の核）
 
-- Transport抽象とLocal(MC)実装: `Transport` / `LocalTransport`
-- オーディオセッション設定: `AudioSessionManager`
-- VAD状態機械＋プレロール保持: `VoiceActivityDetector`
-- KEEPALIVEはControlMessageの型を用意（送出は上位レイヤーで統合予定）
+- Transport抽象: `Transport`
+- Local/Internetのシミュレーション実装: `LocalTransport` / `InternetTransport`
+- Transport経路の状態表現: `TransportRoute` / `CallConnectionState`
+- Handoverの最小状態遷移: `HandoverController`
+- Audio session設定: `AudioSessionManager`
+  - iPhoneでは `AVAudioSession` を `playAndRecord` / `voiceChat` / `mixWithOthers` / Bluetooth対応で有効化
+  - UIテストでは no-op adapter で同じ設定値を検証
+- Audio input監視: `AudioInputMonitoring`
+  - iPhone/macOS通常起動では `AVAudioEngine` input tap でマイク入力レベルをRMS計算
+  - macOS/iOSとも実マイク開始前に `AVCaptureDevice.authorizationStatus(for: .audio)` を確認し、未承認なら `requestAccess(for: .audio)` で明示的に権限ダイアログを出す
+  - input tap からPCMサンプルを抽出し、VOICE packet payloadへ載せる
+  - UIテストでは `NoOpAudioInputMonitor` で同じ経路をシミュレーション
+- VAD状態機械: `VoiceActivityDetector`
+- マイク入力レベルからVADを更新し、UIの `Talking/Silent` と自分の参加者枠へ反映
+- マイク/受信VOICEのRMSレベルを各参加者枠の `voiceLevel` へ反映
+- プレロールとKEEPALIVE送出判定: `AudioTransmissionController`
+- マイク入力レベルから `VOICE` / `KEEPALIVE` を生成し、現在のTransportへ送出
+- VOICE packet payload: `AudioPacketEnvelope.samples`
+  - VADの通常VOICEとプレロールVOICEにPCMサンプルを保持
+  - encode/decode後もサンプルを保持
+- 実音声codec境界: `PCMAudioCodec` / `EncodedVoicePacket`
+  - 生成した440Hz sine波をInt16 PCMへencode/decodeする自動テストを追加
+  - RMSとサンプル誤差を検証し、実マイク/スピーカーに依存しない音声TDDを維持
+  - 将来のOpus差し替え用に `AudioCodecIdentifier` / `AudioEncoding` を導入
+  - `PCMAudioEncoding` を最初の `AudioEncoding` 実装として追加
+  - `OpusAudioEncoding` はバックエンド未導入時に `codecUnavailable(.opus)` を返す境界として追加
+  - `AudioEncodingSelector` はOpus未対応環境ではPCMへfallbackし、既存の実音声TDD経路を維持
+  - `EncodedVoicePacket` は任意の `AudioEncoding` 実装を注入可能
+  - `AudioPacketEnvelope` のVOICE payloadを `EncodedVoicePacket` 優先に移行
+  - 既存のsamples APIはdecode済み互換経路として維持
+- MC/GK送信用packet envelope: `AudioPacketEnvelope` / `AudioPacketCodec` / `AudioPacketSequencer`
+  - `groupID` / `streamID` / `sequenceNumber` を含め、後続の重複排除に利用可能
+- MultipeerConnectivity実機用Local transport: `MultipeerLocalTransport`
+  - iPhone/macOS通常起動時はMC advertiser/browser/sessionを利用
+  - UIテストでは従来のシミュレーションtransportを利用
+  - Info.plist に local network usage と Bonjour service を追加
+  - MC状態を `LocalNetworkStatus` として `idle` / `advertising+browsing` / `invited` / `invitation` / `connected` / `rejected(reason)` / `unavailable` でViewModelへ通知
+  - グループ選択時に音声開始なしでローカル待受を開始し、双方が同時にConnectしなくても探索/招待/handshakeへ進める
+  - 同じグループで通話接続済みの場合、再選択しても待受専用モードへ戻さず既存の音声接続を維持する
+  - rejected理由は `group mismatch` / `handshake invalid` をUI診断へ表示
+  - MC診断には対象peer名とイベント経過秒を含められる
+  - 1 peerのrejectは既存の接続済み/authenticated peer一覧を消さず、他peerの受信音声処理を継続
+  - authenticated peerが存在する状態では、未認証peerの音声packetをViewModel/MC transportで破棄
+  - authenticated peerが途中切断された場合、そのpeerだけをAUTHから外し、Talking/LEVELを0へ戻す
+  - 残っているauthenticated peerの受信音声処理は継続
+  - 通常iPhone/macOS起動ではUserDefaults-backedの安定したローカルmember IDを生成・再利用し、MC peer名にも同じIDを使う
+  - 接続/handshakeで見つかった実peerが既存グループに未登録でも、空き枠があれば参加者として追加し、個人ごとの接続/認証/音量表示に反映
+- 同一グループ探索フィルタ: `GroupAccessCredential` / `LocalDiscoveryInfo`
+  - `GroupID + secret` から CryptoKit SHA256 の `groupHash` を生成
+  - MC discovery info にはGroupID/secretの生値ではなく `groupHash` のみを載せる
+  - browser側は `groupHash` が一致するpeerだけ招待する
+- 接続後handshake: `HandshakeMessage`
+  - `groupHash` / `memberID` / `nonce` をHMAC-SHA256で署名
+  - 同じGroupID/secretのcredentialだけ検証成功
+  - Multipeer control payloadではhandshakeをreliable送信する
+  - MC接続時にhandshakeを送信し、受信handshakeを `HandshakeRegistry` で検証
+  - MC接続直後のhandshakeは接続イベントの対象peerへ直接送信し、`session.connectedPeers` 反映タイミングに依存しない
+  - 不正handshakeのpeerは接続をキャンセルする
+  - handshake検証済みpeerを `TransportEvent.authenticated` でViewModelへ通知
+- 音声packet暗号化: `EncryptedAudioPacketCodec`
+  - `GroupID + secret` からAES-GCM用の対称鍵を導出
+  - `AudioPacketEnvelope` をAES-GCM combined sealed boxとして暗号化
+  - 正しいcredentialだけ復号でき、別secretでは復号に失敗
+  - Multipeer音声payloadはcredentialがある場合に暗号化して送受信
+- 受信packet filter: `ReceivedAudioPacketFilter`
+  - `AudioPacketCodec.decode` 後に groupID を検証
+  - `streamID + sequenceNumber` で重複packetを破棄
+  - malformed VOICE packet を破棄
+  - MC受信delegateから同じfilterを利用
+- 受信packet event連携: `TransportEvent.receivedPacket`
+  - VOICE受信時に該当peerの参加者枠を `Talking` に更新
+  - KEEPALIVE受信では発話状態を変更しない
+  - remote peerの最終VOICE受信時刻を保持し、timeout後に `Silent` へ戻す
+  - 接続中のperiodic tickでtimeoutを自動評価
+- ジッタバッファ: `JitterBuffer`
+  - VOICEのみを蓄積し、KEEPALIVEは再生対象から除外
+  - `streamID + sequenceNumber` で重複投入を抑止
+  - ready時刻に達したVOICEをsequence順に `AudioFramePlaying` へ渡す
+  - 古すぎるpacketは再生せず破棄
+  - queued frame数とdrop数をViewModelへ公開し、実機デバッグで確認可能
+- Audio output: `AudioFramePlaying` / `AudioOutputRendering`
+  - ジッタ後のVOICEサンプルを再生rendererへ渡す
+  - 複数peerのreadyフレームは `AudioMixer` でミックスしてからrendererへ渡す
+  - サンプル長差は0埋め相当で扱い、出力は -1...1 にクリップ
+  - iPhone/macOS通常起動では `AVAudioPlayerNode` にPCM bufferをschedule
+  - UIテストでは no-op renderer で同じ経路を検証
+- 実機デバッグ用カウンタ
+  - `TX` / `RX` / `PLAY` をViewModelで保持
+  - `PEERS` / `AUTH` をViewModelで保持し、接続済みpeerとhandshake検証済みpeerを分けて確認可能
+  - `MC` 状態は参加者枠ではなく通話全体の診断として表示
+  - `LAST RX` / `DROP` / `JIT` をViewModelで保持し、受信・破棄・ジッタ滞留を確認可能
+  - 各参加者枠に音量バーと `LEVEL` / `PEAK` 表示を追加し、誰の音声がどの強さで届いているかを確認可能
+  - 送信/受信とも音声サンプルRMSから現在レベルを更新し、ピーク値は直近約2秒分のフレーム窓で保持
+  - 音量インジケータは silent / low / medium / high の強度分類を持ち、UI上の色分けに利用
+  - 自分のマイク状態は参加者一覧とは別に通話画面上部へ常時表示し、ミュート時は赤い状態表示とメーター停止で示す
+  - ミュート中はマイク入力サンプルが来てもVOICEを送信せず、自分のLEVEL/PEAKを0に保つ
+  - 起動直後のGroups画面とDiagnostics画面に `Audio Check` を追加し、通話接続なしで5秒録音/5秒再生を試せる
+  - `Audio Check` はMicrophone InputとSpeaker Outputを別メーターで表示し、どちらで止まっているかを切り分け可能
+  - 各参加者枠に `AUTH OPEN` / `AUTH PENDING` / `AUTH OK` / `AUTH OFF` を表示し、個人ごとのhandshake状態を確認可能
+  - 各参加者枠に `Receiving` / `Playing` と `RX` / `PLAY` / `JIT` を表示し、受信・ジッタ待ち・再生済みを個人ごとに切り分け可能
+  - 参加者枠はユーザーごとに必要な表示（名前、接続状態、認証状態、ミュート状態、発話状態、音量、音声パイプライン状態）に限定
+  - 通話画面に短いカウンタ行として表示し、UIテストで表示を検証
+  - 用語メモ: ここでいう「同期」は手動同期ではなく「イベント同期反映」を指す
+  - 通信イベント受信時はMainActor上で直列に状態更新し、Call/Diagnosticsへ即時反映する
+  - 追加の非同期再委譲を避け、イベント処理内で状態更新を完結させる
+  - Diagnosticsに `TRANSPORT ...` を表示し、通常起動が実MCかUIテスト用模擬Transportかを即確認可能
+- Info.plist: microphone/local network usage description と background audio mode を追加
+- macOS sandbox audio input entitlementを追加し、Mac通常起動でも実マイク入力を使う
+- 実MC通信、実オーディオ入力、受信VOICEのジッタ後再生renderer接続までは実装済み
+- Opus実バックエンド、実機2台での通話検証は未実装
+- 現時点のUIはTransportシミュレーション経由で音声準備、接続、handoverを試せる
 
-## Phase 2: Local 6人通話（固定UI）
+## Phase 2: Local 最大6人通話
 
-- UI/ミキサーは今後追加予定。
+- 起動導線: 空のグループ一覧 / 新規Trail Group作成
+- 通話画面: 最大6人までの現在参加者を表示し、空枠は表示しない
+- iOS UI構造: `Groups` / `Call` / `Diagnostics` のTabViewへ分離
+  - タブバーはトップレベルナビゲーション専用にし、接続やミュート等の操作はCall画面内へ配置
+  - 各タブは縦方向ScrollViewを1本だけ持つ構成にし、同方向のネストスクロールを避ける
+  - 実機で確認したい診断値はDiagnosticsタブへ分離し、Call画面は接続操作と参加者状態を優先表示
+- UIで試せる操作: Trail Group作成、Rider追加、Local接続、ミュート表示、VAD表示切替、Internet handoverシミュレーション
+- グループ一覧からグループ削除、通話画面から自分以外の参加者削除を実行可能
+- join/leaveの実通信反映は未実装
 
 ## Phase 3+: グループ永続化/招待/Internet移行/セキュリティ
 
-- データ永続化、招待トークン、GK transport、暗号化等は今後のフェーズで実装予定。
+- Owner選出の最小ロジック: `OwnerElection`
+- groupHash探索フィルタの最小ロジック: `GroupAccessCredential` / `LocalDiscoveryInfo`
+- 招待トークン: `GroupInviteToken` / `GroupInviteTokenCodec`
+  - `GroupID` / `GroupSecret` / `InviterMemberID` / 期限 / 署名を含む `rideintercom://join?token=...` URLを生成
+  - URL decode時に署名を検証し、改ざんされたtokenを拒否
+  - 通話画面から `ShareLink` で共有シートを開ける
+  - `rideintercom://join` URL schemeを登録し、受信した招待URLからグループを追加・選択可能
+  - 期限切れ招待は拒否し、同じGroupIDの招待は重複追加せず更新
+  - 招待token由来の `GroupSecret` は `GroupCredentialStoring` に保存し、MC discovery / handshake / 音声暗号化と再共有URLへ反映
+  - `KeychainGroupCredentialStore` を追加し、通常iPhone起動ではKeychain-backed storeを利用
+  - UIテスト/単体テストでは `InMemoryGroupCredentialStore` またはfake keychainで同じ契約を検証
+  - Call画面の招待導線を `Invite Group` の明示的な共有ボタンにし、AirDrop/メッセージ共有を実機で試しやすくした
+  - Call/Diagnosticsで `LOCAL` member ID、`GROUP` ID、groupHash短縮値、`INVITE` 状態を確認可能
+  - 実機通話判定用に `CALL ... / AUDIO ... / AUTH ... / LAST RX ... / DROP ... / JIT ...` をCall/Diagnosticsへ表示
+  - 実機通話判定用サマリーに `TX` / `RX` / `PLAY` を含め、送信・受信・再生のどこで止まっているかを常時確認可能
+  - 通話画面の状態表示は `TimelineView` で自動更新し、手動更新なしでMC状態や最終受信時刻を追える
+  - 通話画面はグループを開いたら自動待受状態として表示しつつ、実機で自動接続が進まない場合の明示操作として `Connect Local` を残す
+  - 通話画面の手動更新に見える `Simulate Handover` デバッグボタンを通常UIから外す
+  - 自分のマイク枠のレベルメーター横へミュート操作を移動し、同じ意味の表示と操作を同じ場所にまとめる
+  - 入力/出力デバイス選択は横並びで表示する
+  - `Add Rider` は通常Call UIから外し、参加者追加は招待/実peer検出に寄せる
+  - 認証済みpeerは接続済みpeer一覧の反映順に依存せず `AUTH OK` / `Connected` へ上げ、音声受信許可にも乗せる
+  - 待受中に認証済みpeerを検出したら、手動 `Connect Local` なしでマイク/スピーカー/通話tickを起動し、通話状態へ移行する
+  - `Silent` / 手動音声検出ボタンは通話画面から外し、発話の有無はマイクメーターと送受信カウンタで確認する
+  - 仮想2端末の双方向音声統合テストを追加し、生成音声がA→B/B→Aで送信、受信、Talking/LEVEL反映、ジッタ後再生まで進むことを検証
+  - 仮想2端末テストをhandshake control payloadと暗号化audio payload経由にも拡張し、手動 `Connect Local` なしで送受信できることを検証
+  - 5秒相当の連続発話フレームを自動テストし、発話中はVOICE送信が継続することを検証
+  - 15フレーム連続無音を自動テストし、VOICEを送らずKEEPALIVEだけを送ることを検証
+  - 2人のremote peerから同時刻に届いたVOICEをViewModel経由でミックスし、1つの再生bufferとしてscheduleする統合テストを追加
+  - 招待URL受信後は `JOINED <group name>` を表示し、参加側でjoin処理が通ったことを確認可能
+  - `UserDefaultsGroupStore` を追加し、通常iPhone起動では作成/招待/実peer追加後のグループ表示情報を再起動後も復元
+  - グループ表示情報の永続化では `accessSecret` を保存せず、secretはcredential store側へ分離
+- SwiftData永続化、GameKit transport、Opus実装への差し替えは今後のフェーズで実装予定

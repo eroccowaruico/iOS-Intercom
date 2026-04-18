@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct IntercomApp: App {
+struct RideIntercomApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
