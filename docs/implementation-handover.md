@@ -45,6 +45,16 @@
 - 既存テスト経路で Fake/NoOp 実装を維持できる。
 - セキュリティ/音声品質の改善を定量で説明できる。
 
+## 実行時トグル
+
+- Internet relay 接続先:
+  - 環境変数 RIDEINTERCOM_INTERNET_URL に WebSocket URL を設定すると InternetTransport が URLSession adapter を利用する。
+  - 未設定時は Loopback adapter を使う。
+
+- Opus backend:
+  - 環境変数 RIDEINTERCOM_ENABLE_SYSTEM_OPUS=1 を設定すると System Opus backend の導入を試行する。
+  - 導入できない環境では既存の fallback（PCM への降格）を維持する。
+
 ## Adapter 追加条件
 
 - 追加先は Platform 層に限定する。

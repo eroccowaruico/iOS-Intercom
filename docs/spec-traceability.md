@@ -14,7 +14,7 @@
 | A-F-005 | IntercomViewModel.markConnectedMembers | viewModelUpdatesConnectionStateFromTransportEvents, remoteMuteStateEventUpdatesOnlyTargetParticipant | covered |
 | A-F-006 | LocalTransport, LocalNetworkConfiguration | localNetworkConfigurationUsesValidBonjourServiceValues, localTransportEmitsConnectedAndRecordsPackets | covered |
 | A-F-007 | MultipeerPayloadBuilder.makePayload(mode: unreliable) | multipeerPayloadBuilderEncodesVoiceWithEnvelopeMetadata | covered |
-| A-F-008 | IntercomViewModel.handleTransportEvent(.linkFailed), InternetTransport.connect | viewModelUpdatesConnectionStateFromTransportEvents | covered |
+| A-F-008 | IntercomViewModel.handleTransportEvent(.linkFailed), InternetTransport.connect, InternetTransportAdapter | viewModelUpdatesConnectionStateFromTransportEvents, internetTransportForwardsAudioPayloadToAdapter, internetTransportMapsAdapterIncomingPayloadToReceivedPacketEvent | covered |
 | A-F-009 | IntercomViewModel.connectionState, localNetworkStatus | viewModelMovesToOfflineReconnectStateWhenLocalFailsWithoutInternet | covered |
 | A-F-010 | HandoverController.localCandidateDidPassProbe | handoverMovesFromLocalToInternetOrOffline | covered |
 | A-F-011 | HandoverController (state machine for probing-ready architecture) | handoverMovesFromLocalToInternetOrOffline | covered |
@@ -34,6 +34,7 @@
 | A-NF-001 | GroupAccessCredential, HandshakeRegistry | handshakeMessageVerifiesMatchingGroupCredentialOnly, handshakeRegistryAcceptsValidPeerAndRejectsInvalidPeer | covered |
 | A-NF-002 | GroupInviteToken signature verification | groupInviteTokenRoundTripsAsJoinURLAndRejectsTampering | covered |
 | A-NF-003 | EncryptedAudioPacketCodec.decode validation | encryptedAudioPacketCodecRoundTripsWithMatchingCredentialOnly | covered |
+| A-NF-004 | Application/UI 層への OS 分岐逆流防止 | applicationAndUISourcesDoNotContainOSConditionalCompilationBranches | covered |
 
 ## Operational Rule
 
