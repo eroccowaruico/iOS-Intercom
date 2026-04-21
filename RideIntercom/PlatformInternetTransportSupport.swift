@@ -115,7 +115,7 @@ final class URLSessionInternetTransportAdapter: NSObject, InternetTransportAdapt
         case .audio(let payload):
             emit(.receivedAudioPayload(data: payload.payload, peerID: payload.peerID))
         case .control(let payload):
-            guard let message = try? MultipeerPayloadBuilder.decodeControlPayload(payload.payload) else { return }
+            guard (try? MultipeerPayloadBuilder.decodeControlPayload(payload.payload)) != nil else { return }
             switch payload.message {
             case .keepalive:
                 break

@@ -576,7 +576,7 @@ struct HandshakeMessage: Codable, Equatable {
     let nonce: String
     let mac: String
 
-    static func make(
+    nonisolated static func make(
         credential: GroupAccessCredential,
         memberID: String,
         nonce: String = UUID().uuidString
@@ -612,7 +612,7 @@ struct HandshakeMessage: Codable, Equatable {
 }
 
 enum HandshakeService {
-    static func makeMessage(
+    nonisolated static func makeMessage(
         credential: GroupAccessCredential,
         memberID: String,
         nonce: String = UUID().uuidString
@@ -620,7 +620,7 @@ enum HandshakeService {
         HandshakeMessage.make(credential: credential, memberID: memberID, nonce: nonce)
     }
 
-    static func verifyMessage(_ message: HandshakeMessage, credential: GroupAccessCredential) -> Bool {
+    nonisolated static func verifyMessage(_ message: HandshakeMessage, credential: GroupAccessCredential) -> Bool {
         message.verify(credential: credential)
     }
 }
@@ -664,10 +664,9 @@ struct HandshakeRegistry {
 
 enum LocalDiscoveryInfo {
     nonisolated static let groupHashKey = "groupHash"
-    private nonisolated static let credentialProvider: any GroupCredentialProviding = DefaultGroupCredentialProvider()
 
     nonisolated static func credential(for group: IntercomGroup) -> GroupAccessCredential {
-        credentialProvider.credential(for: group, store: nil)
+        GroupAccessCredential(groupID: group.id, secret: group.accessSecret ?? "local-dev-\(group.id.uuidString)")
     }
 
     nonisolated static func makeDiscoveryInfo(for credential: GroupAccessCredential) -> [String: String] {
