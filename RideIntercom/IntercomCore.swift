@@ -2852,17 +2852,17 @@ final class IntercomViewModel {
         nextAudioFrameID += 1
 
         setLocalVoiceLevel(level)
-        let packets = audioTransmissionController.process(frameID: frameID, level: level, samples: samples)
-        for packet in packets {
+        let result = HandleMicrophoneInputUseCase.execute(
+            controller: &audioTransmissionController,
+            frameID: frameID,
+            level: level,
+            samples: samples
+        )
+        for packet in result.packets {
             send(packet)
         }
 
-        setVoiceActive(packets.contains { packet in
-            if case .voice = packet {
-                return true
-            }
-            return false
-        })
+        setVoiceActive(result.isVoiceActive)
     }
 
     private func processAudioCheckInput(level: Float, samples: [Float]) {

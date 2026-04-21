@@ -3115,6 +3115,51 @@ struct RideIntercomTests {
         #expect(nextPackets == [.voice(frameID: 5, samples: [0.5])])
     }
 
+    @Test func handleMicrophoneInputUseCaseSetsVoiceActiveWhenVoicePacketsExist() {
+        var controller = AudioTransmissionController(preRollLimit: 2, keepaliveIntervalFrames: 100)
+
+        _ = HandleMicrophoneInputUseCase.execute(
+            controller: &controller,
+            frameID: 1,
+            level: 0,
+            samples: [0.01]
+        )
+        _ = HandleMicrophoneInputUseCase.execute(
+            controller: &controller,
+            frameID: 2,
+            level: 0,
+            samples: [0.02]
+        )
+        let result = HandleMicrophoneInputUseCase.execute(
+            controller: &controller,
+            frameID: 3,
+            level: 0.5,
+            samples: [0.3]
+        )
+
+        #expect(result.isVoiceActive)
+        #expect(result.packets.contains { packet in
+            if case .voice = packet {
+                return true
+            }
+            return false
+        })
+    }
+
+    @Test func handleMicrophoneInputUseCaseAllowsSilentKeepaliveWithoutVoiceActive() {
+        var controller = AudioTransmissionController(keepaliveIntervalFrames: 1)
+
+        let result = HandleMicrophoneInputUseCase.execute(
+            controller: &controller,
+            frameID: 1,
+            level: 0,
+            samples: []
+        )
+
+        #expect(result.isVoiceActive == false)
+        #expect(result.packets == [.keepalive])
+    }
+
     @Test func vadMinimumThresholdDoesNotTriggerOnSteadyBackgroundNoise() {
         var detector = VoiceActivityDetector(
             threshold: VoiceActivityDetector.minThreshold,
