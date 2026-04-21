@@ -1,0 +1,152 @@
+## Plan: iOS優先・mac同一処理ベースの全面修正
+
+この計画は「iOSで正しく動く実装を基準」にしつつ、macOSも可能な限り同一ロジックを使い、OS API差分だけを最小抽象化する。  
+目的は次の要望を全て満たすこと。
+
+## 要望カバレッジチェック
+
+1. iOSで受話口が使えない不具合を直す。イヤホン/ヘッドホン/大スピーカーも全対応する。  
+2. 通信先メンバーのミュート表示を正しく出す。  
+3. オーディオI/O切替はDiagnostics画面のみに配置し、リアルタイム反映する。  
+4. 重複デバッグUIのうち低リアルタイム項目はDiagnosticsのみへ移動し、アイコン表示は可能な限り残す。  
+5. iOS HIG準拠でグループ削除を標準スワイプ削除へ統一する。macOSは同原則で最適化する。  
+6. リスト行は文字と矢印だけでなく、行全体をタップ可能にする。  
+7. iOS HIG準拠でメンバー削除をワンタップ即削除にしない。確認導線かリスト型導線にする。  
+8. 接続/招待ボタンの密度を普通のアプリらしい余白へ調整する。  
+9. Diagnosticsのマイク/スピーカーインジケーターを常時表示にする。  
+10. UIテストを毎回起動でなく、1回起動で複数ケース実行できる構成にする。  
+
+## 共通化方針（最重要）
+
+原則として、処理はmac/iOSで同一化する。  
+分けるのは「OS APIが本質的に違って同一呼び出しが不可能な箇所」だけ。
+
+### 共通化ルール
+
+1. ViewModelロジックは完全共通。  
+2. 画面構造・状態管理・アクセシビリティIDは完全共通。  
+3. 削除導線、タップ領域、ボタン密度のUIポリシーは共通。  
+4. ルーティングAPI、デバイス列挙APIなどOS依存点のみAdapterで吸収。  
+5. 条件分岐は View ではなく Platform Adapter 層に寄せる。  
+
+## 変更対象（ファイル固定）
+
+1. RideIntercom/IntercomCore.swift  
+2. RideIntercom/PlatformAudioSessionSupport.swift  
+3. RideIntercom/ContentView.swift  
+4. RideIntercomTests/RideIntercomTests.swift  
+5. RideIntercomUITests/RideIntercomUITests.swift  
+6. docs/implementation-status.md  
+
+## 超具体ステップ（低レベルモデル向け）
+
+### Step 1: 先に失敗テストを追加
+
+RideIntercomTests/RideIntercomTests.swift に次を追加。まず失敗させる。
+
+1. iOS通話設定で defaultToSpeaker を常時強制しないこと。  
+2. availableOutputPorts に Auto/Receiver/Speaker/BT/有線（接続時）が並ぶこと。  
+3. setOutputPort(receiver) で override none が呼ばれること。  
+4. setOutputPort(speaker) で override speaker が呼ばれること。  
+5. setOutputPort(bt) で必要な input/output 切替が行われること。  
+6. peerMuteState を受けたとき、対象メンバーだけ isMuted が変わること。  
+7. Audio I/O picker が Call画面に存在しないこと。  
+8. Audio I/O picker が Diagnostics画面に存在し、選択が即時反映されること。  
+
+### Step 2: AudioPort定義を整理
+
+RideIntercom/IntercomCore.swift で AudioPortInfo を拡張。
+
+1. Auto を systemDefault として維持。  
+2. Receiver を明示IDで追加。  
+3. Speaker を明示IDで追加。  
+4. 有線/BTは実デバイスUIDで表現。  
+5. 表示名は UI依存でなくPort側で保持。  
+
+### Step 3: iOS/mac差分をAdapterに限定
+
+RideIntercom/PlatformAudioSessionSupport.swift を修正。
+
+1. availableOutputPorts の生成を統一関数で行う。  
+2. iOS: AVAudioSession由来の情報から Receiver/Speaker/BT/有線を重複なく構成。  
+3. macOS: CoreAudio由来の情報を同じ AudioPortInfo 形式へ変換。  
+4. setPreferredOutputPort は port id で明示分岐し、無名default分岐をなくす。  
+5. setPreferredInputPort/OutputPort の呼び出し順を固定し、再現性を持たせる。  
+
+### Step 4: iOSで電話のように使える出力制御へ戻す
+
+1. 通話初期値は Auto。  
+2. Receiver選択で受話口に行くよう override を明示。  
+3. Speakerは明示選択時だけ有効化。  
+4. BT/有線接続時は選択候補を即時更新。  
+
+### Step 5: ミュート表示修正
+
+RideIntercom/IntercomCore.swift と RideIntercom/ContentView.swift を修正。
+
+1. peerMuteState 受信から selectedGroup.members 反映までを1ルートに統一。  
+2. ParticipantSlotView が member.isMuted を必ず描画参照することを確認。  
+3. ローカル状態で上書きしないよう優先順位を固定。  
+
+### Step 6: Audio I/OをDiagnostics専用に寄せる
+
+RideIntercom/ContentView.swift を修正。
+
+1. Call画面のInput/Output pickerを削除。  
+2. Diagnostics画面にのみInput/Output pickerを残す。  
+3. Picker変更で viewModel.setInputPort/setOutputPort を即時実行。  
+
+### Step 7: デバッグUI整理（アイコン優先）
+
+1. 低リアルタイムで重複するテキスト情報はDiagnosticsへ移動。  
+2. 通話画面ではHIGに沿ってアイコン中心表示を維持し、可読性を損なう過剰な文言は置かない。  
+3. 既存の認証/音声パイプライン等の状態は、可能な限りアイコンで残す。  
+
+### Step 8: HIG準拠の削除導線
+
+RideIntercom/ContentView.swift を修正。
+
+1. グループ一覧は標準スワイプ削除を使用。  
+2. メンバー削除はワンタップ即削除を禁止し、「確認ダイアログ付きアイコン削除」を採用する。  
+3. リスト行全体をタップ可能にする。  
+
+### Step 9: ボタン密度調整
+
+1. Connect/Inviteボタンの padding, frame, spacing を調整。  
+2. iOS標準アプリに近い余白密度へ寄せる。  
+
+### Step 10: Diagnosticsインジケーター常時表示
+
+1. マイク/スピーカーメーターを常時表示する。  
+2. 音声チェック停止中でも表示枠を維持する。  
+
+### Step 11: UIテストを1回起動へ最適化
+
+RideIntercomUITests/RideIntercomUITests.swift を修正。
+
+1. クラス単位で XCUIApplication を1回 launch。  
+2. 各テストは画面状態だけリセットし、アプリ再起動しない。  
+3. RUN_UI_TESTS=1 の既存ガードは維持。  
+
+## Definition of Done
+
+1. 上記10要望すべてに対応済み。  
+2. RideIntercomTests が全通。  
+3. RUN_UI_TESTS=1 でRideIntercomUITestsが全通。  
+4. iPhone実機で Receiver/Speaker/BT/有線の切替が確認できる。  
+5. docs/implementation-status.md に変更点と制約を記録。  
+
+## 確定方針
+
+1. UI方針は iOS HIG 準拠を最優先にする。  
+2. メンバー削除導線は「確認ダイアログ付きアイコン削除」で固定する。  
+3. macOS は iOS 原則を維持した上で、右クリックメニュー併設を許容する。  
+
+## 実行コマンド
+
+1. xcodebuild test -scheme RideIntercom -destination "platform=iOS Simulator,name=iPhone 16" -only-testing:RideIntercomTests  
+2. RUN_UI_TESTS=1 xcodebuild test -scheme RideIntercom -destination "platform=iOS Simulator,name=iPhone 16" -only-testing:RideIntercomUITests  
+
+## 未確定事項（要確認質問）
+
+現時点の未確定事項はなし。

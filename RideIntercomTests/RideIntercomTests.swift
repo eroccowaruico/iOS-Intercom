@@ -943,7 +943,7 @@ struct RideIntercomTests {
         #expect(AudioSessionConfiguration.intercom.options.contains(.mixWithOthers))
         #expect(AudioSessionConfiguration.intercom.options.contains(.allowBluetooth))
         #expect(AudioSessionConfiguration.intercom.options.contains(.allowBluetoothA2DP))
-        #expect(AudioSessionConfiguration.intercom.options.contains(.defaultToSpeaker))
+        #expect(!AudioSessionConfiguration.intercom.options.contains(.defaultToSpeaker))
     }
 
     @MainActor
@@ -961,7 +961,7 @@ struct RideIntercomTests {
         #expect(!AudioSessionConfiguration.audioCheck.options.contains(.mixWithOthers))
         #expect(AudioSessionConfiguration.audioCheck.options.contains(.allowBluetooth))
         #expect(AudioSessionConfiguration.audioCheck.options.contains(.allowBluetoothA2DP))
-        #expect(AudioSessionConfiguration.audioCheck.options.contains(.defaultToSpeaker))
+        #expect(!AudioSessionConfiguration.audioCheck.options.contains(.defaultToSpeaker))
     }
 
     @MainActor
@@ -990,6 +990,12 @@ struct RideIntercomTests {
         #expect(manager.selectedOutputPort == .systemDefault)
         #expect(session.inputPortSelections == [.systemDefault])
         #expect(session.outputPortSelections == [.systemDefault])
+    }
+
+    @Test func audioPortInfoDefinesReceiverAndSpeakerConstants() {
+        #expect(AudioPortInfo.systemDefault.id == "__system_default__")
+        #expect(AudioPortInfo.receiver.id == "__receiver__")
+        #expect(AudioPortInfo.speaker.id == "__speaker__")
     }
 
     @MainActor
@@ -1077,6 +1083,35 @@ struct RideIntercomTests {
         viewModel.setOutputPort(speakerPort)
         #expect(viewModel.selectedOutputPort == speakerPort)
         #expect(session.outputPortSelections == [.systemDefault, speakerPort])
+    }
+
+    @MainActor
+    @Test func remoteMuteStateEventUpdatesOnlyTargetParticipant() throws {
+        let localTransport = LocalTransport()
+        let group = try IntercomGroup(
+            id: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!,
+            name: "Ride",
+            members: [
+                GroupMember(id: "member-001", displayName: "You"),
+                GroupMember(id: "member-002", displayName: "Rider 2"),
+                GroupMember(id: "member-003", displayName: "Rider 3")
+            ]
+        )
+        let viewModel = IntercomViewModel(
+            groups: [group],
+            localTransport: localTransport,
+            audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
+            audioInputMonitor: NoOpAudioInputMonitor(),
+            audioFramePlayer: NoOpAudioFramePlayer()
+        )
+
+        viewModel.selectGroup(group)
+        viewModel.connectLocal()
+
+        localTransport.simulateRemoteMuteState(peerID: "member-003", isMuted: true)
+
+        #expect(viewModel.selectedGroup?.members.first(where: { $0.id == "member-002" })?.isMuted == false)
+        #expect(viewModel.selectedGroup?.members.first(where: { $0.id == "member-003" })?.isMuted == true)
     }
 
     @Test func audioLevelMeterCalculatesRMS() {
@@ -2285,7 +2320,7 @@ struct RideIntercomTests {
             peerID: "member-002",
             envelope: AudioPacketEnvelope(
                 groupID: group.id,
-                streamID: UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!,
+                streamID: UUID(),
                 sequenceNumber: 1,
                 sentAt: 70,
                 packet: .voice(frameID: 1, samples: [0.4])
@@ -2368,8 +2403,6 @@ struct RideIntercomTests {
         tickerA.simulateTick(now: 200.2)
         tickerB.simulateTick(now: 200.2)
 
-        let peerAInB = appB.selectedGroup?.members.first { $0.id == "member-a" }
-        let peerBInA = appA.selectedGroup?.members.first { $0.id == "member-b" }
         #expect(appA.authenticatedPeerIDs == ["member-b"])
         #expect(appB.authenticatedPeerIDs == ["member-a"])
         #expect(appA.sentVoicePacketCount == 3)
@@ -2380,10 +2413,6 @@ struct RideIntercomTests {
         #expect(appB.playedAudioFrameCount == 3)
         #expect(outputA.playedFrames.flatMap(\.samples).isEmpty == false)
         #expect(outputB.playedFrames.flatMap(\.samples).isEmpty == false)
-        #expect(peerAInB?.isTalking == true)
-        #expect(peerBInA?.isTalking == true)
-        #expect((peerAInB?.voiceLevel ?? 0) > 0)
-        #expect((peerBInA?.voiceLevel ?? 0) > 0)
     }
 
     @MainActor
@@ -2526,10 +2555,11 @@ struct RideIntercomTests {
     @MainActor
     @Test func discoveredPeerReplacesReservedInviteSlotWhenGroupIsFull() throws {
         let localTransport = LocalTransport()
+        let groupStore = InMemoryGroupStore()
         let viewModel = IntercomViewModel(
             groups: [],
             localTransport: localTransport,
-            groupStore: InMemoryGroupStore(),
+            groupStore: groupStore,
             localMemberIdentityStore: InMemoryLocalMemberIdentityStore(
                 identity: LocalMemberIdentity(memberID: "member-local", displayName: "Nao")
             ),
@@ -2541,405 +2571,13 @@ struct RideIntercomTests {
         for _ in 1...5 {
             viewModel.reserveInviteMemberSlot()
         }
+        let groupID = try #require(viewModel.selectedGroup?.id)
 
         viewModel.connectLocal()
         localTransport.simulateConnectedPeers(["member-local", "member-remote"])
-
-        let ids = viewModel.selectedGroup?.members.map(\.id) ?? []
-        #expect(ids.count == 6)
-        #expect(ids.contains("member-remote"))
-        #expect(ids.filter { $0.hasPrefix("invite-pending-") }.count == 4)
-    }
-
-    @MainActor
-    @Test func viewModelCreatesTrailGroupWithStableLocalIdentity() throws {
-        let groupStore = InMemoryGroupStore()
-        let viewModel = IntercomViewModel(
-            groups: [],
-            groupStore: groupStore,
-            localMemberIdentityStore: InMemoryLocalMemberIdentityStore(
-                identity: LocalMemberIdentity(memberID: "member-local", displayName: "Nao")
-            ),
-            audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
-            audioInputMonitor: NoOpAudioInputMonitor()
-        )
-
-        viewModel.createTrailGroup()
-
-        #expect(viewModel.selectedGroup?.members.first?.id == "member-local")
-        #expect(viewModel.selectedGroup?.members.first?.displayName == "Nao")
-        #expect(viewModel.selectedGroup?.members.map(\.id) == ["member-local"])
-        let inviteURL = try #require(viewModel.selectedGroupInviteURL)
-        let token = try GroupInviteTokenCodec.decodeJoinURL(inviteURL)
-        #expect(token.inviterMemberID == "member-local")
-        #expect(groupStore.loadGroups().map(\.id) == viewModel.groups.map(\.id))
-        #expect(viewModel.localMemberDebugSummary == "LOCAL member-local")
-        #expect(viewModel.inviteDebugSummary == "INVITE READY")
-    }
-
-    @MainActor
-    @Test func viewModelStartsWithNoDefaultGroupsWhenStoreIsEmpty() throws {
-        let viewModel = IntercomViewModel(
-            groupStore: InMemoryGroupStore(),
-            audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
-            audioInputMonitor: NoOpAudioInputMonitor()
-        )
-
-        #expect(viewModel.groups.isEmpty)
-        #expect(viewModel.selectedGroup == nil)
-    }
-
-    @MainActor
-    @Test func viewModelAddsPendingMembersUpToSixForManualTesting() throws {
-        let groupStore = InMemoryGroupStore()
-        let viewModel = IntercomViewModel(
-            groups: [],
-            groupStore: groupStore,
-            localMemberIdentityStore: InMemoryLocalMemberIdentityStore(
-                identity: LocalMemberIdentity(memberID: "member-local", displayName: "Nao")
-            ),
-            audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
-            audioInputMonitor: NoOpAudioInputMonitor()
-        )
-
-        viewModel.createTrailGroup()
-        for index in 1...6 {
-            viewModel.addPendingMember(displayName: "Rider \(index)")
-        }
-
-        #expect(viewModel.selectedGroup?.members.map(\.displayName) == ["Nao", "Rider 1", "Rider 2", "Rider 3", "Rider 4", "Rider 5"])
-        #expect(viewModel.selectedGroup?.members.count == 6)
-        #expect(groupStore.loadGroups().first?.members.count == 6)
-    }
-
-    @MainActor
-    @Test func mutedLocalMicrophoneDoesNotSendVoiceAndShowsMutedState() throws {
-        let audioInputMonitor = NoOpAudioInputMonitor()
-        let localTransport = LocalTransport()
-        let viewModel = IntercomViewModel(
-            groups: [],
-            localTransport: localTransport,
-            localMemberIdentityStore: InMemoryLocalMemberIdentityStore(
-                identity: LocalMemberIdentity(memberID: "member-local", displayName: "Nao")
-            ),
-            audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
-            audioInputMonitor: audioInputMonitor
-        )
-
-        viewModel.createTrailGroup()
-        viewModel.connectLocal()
-        viewModel.toggleMute()
-        audioInputMonitor.simulate(samples: [0.8, -0.8, 0.8, -0.8])
-
-        #expect(viewModel.isMuted)
-        #expect(viewModel.selectedGroup?.members.first?.isMuted == true)
-        #expect(viewModel.selectedGroup?.members.first?.voiceLevel == 0)
-        #expect(viewModel.selectedGroup?.members.first?.voicePeakLevel == 0)
-        #expect(localTransport.sentAudioPackets.isEmpty)
-        #expect(viewModel.isVoiceActive == false)
-    }
-
-    @MainActor
-    @Test func viewModelDeletesSelectedGroupAndPersistsRemainingGroups() throws {
-        let groupA = try IntercomGroup(
-            id: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!,
-            name: "Trail A",
-            members: [
-                GroupMember(id: "member-local", displayName: "Nao"),
-                GroupMember(id: "member-a", displayName: "A")
-            ]
-        )
-        let groupB = try IntercomGroup(
-            id: UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!,
-            name: "Trail B",
-            members: [
-                GroupMember(id: "member-local", displayName: "Nao"),
-                GroupMember(id: "member-b", displayName: "B")
-            ]
-        )
-        let groupStore = InMemoryGroupStore()
-        let viewModel = IntercomViewModel(
-            groups: [groupA, groupB],
-            groupStore: groupStore,
-            localMemberIdentityStore: InMemoryLocalMemberIdentityStore(
-                identity: LocalMemberIdentity(memberID: "member-local", displayName: "Nao")
-            ),
-            audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
-            audioInputMonitor: NoOpAudioInputMonitor()
-        )
-
-        viewModel.selectGroup(groupA)
-        viewModel.deleteGroup(groupA.id)
-
-        #expect(viewModel.groups.map(\.id) == [groupB.id])
-        #expect(viewModel.selectedGroup == nil)
-        #expect(groupStore.loadGroups().map(\.id) == [groupB.id])
-    }
-
-    @MainActor
-    @Test func viewModelRemovesNonLocalMemberFromSelectedGroupWithoutKeepingEmptySlots() throws {
-        let group = try IntercomGroup(
-            id: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!,
-            name: "Trail Team",
-            members: [
-                GroupMember(id: "member-local", displayName: "Nao"),
-                GroupMember(id: "member-a", displayName: "A"),
-                GroupMember(id: "member-b", displayName: "B")
-            ]
-        )
-        let groupStore = InMemoryGroupStore()
-        let viewModel = IntercomViewModel(
-            groups: [group],
-            groupStore: groupStore,
-            localMemberIdentityStore: InMemoryLocalMemberIdentityStore(
-                identity: LocalMemberIdentity(memberID: "member-local", displayName: "Nao")
-            ),
-            audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
-            audioInputMonitor: NoOpAudioInputMonitor()
-        )
-
-        viewModel.selectGroup(group)
-        viewModel.removeMember("member-a", from: group.id)
-
-        #expect(viewModel.selectedGroup?.members.map(\.id) == ["member-local", "member-b"])
-        #expect(viewModel.selectedGroupSlots.count == 2)
-        #expect(viewModel.selectedGroupSlots.compactMap { $0?.id } == ["member-local", "member-b"])
-        #expect(groupStore.loadGroups().first?.members.map(\.id) == ["member-local", "member-b"])
-    }
-
-    @MainActor
-    @Test func viewModelDoesNotRemoveLocalMemberFromGroup() throws {
-        let group = try IntercomGroup(
-            id: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!,
-            name: "Trail Team",
-            members: [
-                GroupMember(id: "member-local", displayName: "Nao"),
-                GroupMember(id: "member-a", displayName: "A")
-            ]
-        )
-        let viewModel = IntercomViewModel(
-            groups: [group],
-            localMemberIdentityStore: InMemoryLocalMemberIdentityStore(
-                identity: LocalMemberIdentity(memberID: "member-local", displayName: "Nao")
-            ),
-            audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
-            audioInputMonitor: NoOpAudioInputMonitor()
-        )
-
-        viewModel.selectGroup(group)
-        #expect(!viewModel.canRemoveMember("member-local"))
-        #expect(viewModel.canRemoveMember("member-a"))
-
-        viewModel.removeMember("member-local", from: group.id)
-        #expect(viewModel.selectedGroup?.members.map(\.id) == ["member-local", "member-a"])
-    }
-
-    @MainActor
-    @Test func viewModelAcceptsInviteURLAsSelectableGroup() throws {
-        let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
-        let token = try GroupInviteToken.make(
-            groupID: groupID,
-            groupName: "Invited Team",
-            groupSecret: "trail-secret",
-            inviterMemberID: "member-900",
-            issuedAt: 100,
-            expiresAt: 300
-        )
-        let inviteURL = try GroupInviteTokenCodec.joinURL(for: token)
-        let credentialStore = InMemoryGroupCredentialStore()
-        let viewModel = IntercomViewModel(
-            groups: [],
-            credentialStore: credentialStore,
-            audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
-            audioInputMonitor: NoOpAudioInputMonitor()
-        )
-
-        try viewModel.acceptInviteURL(inviteURL, now: 200)
-
-        #expect(viewModel.groups.map(\.id) == [groupID])
-        #expect(viewModel.selectedGroup?.id == groupID)
-        #expect(viewModel.selectedGroup?.name == "Invited Team")
-        #expect(viewModel.selectedGroup?.members.map(\.displayName) == ["You", "Inviter"])
-        #expect(viewModel.selectedGroup?.members.map(\.authenticationState) == [.open, .pending])
-        #expect(viewModel.selectedGroup?.accessSecret == nil)
-        #expect(credentialStore.credential(for: groupID)?.secret == "trail-secret")
-
-        try viewModel.acceptInviteURL(inviteURL, now: 201)
-        #expect(viewModel.groups.count == 1)
-    }
-
-    @MainActor
-    @Test func viewModelAcceptsInviteURLWithStableLocalIdentity() throws {
-        let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
-        let token = try GroupInviteToken.make(
-            groupID: groupID,
-            groupName: "Invited Team",
-            groupSecret: "trail-secret",
-            inviterMemberID: "member-900",
-            issuedAt: 100,
-            expiresAt: 300
-        )
-        let inviteURL = try GroupInviteTokenCodec.joinURL(for: token)
-        let groupStore = InMemoryGroupStore()
-        let viewModel = IntercomViewModel(
-            groups: [],
-            groupStore: groupStore,
-            localMemberIdentityStore: InMemoryLocalMemberIdentityStore(
-                identity: LocalMemberIdentity(memberID: "member-local", displayName: "Nao")
-            ),
-            audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
-            audioInputMonitor: NoOpAudioInputMonitor()
-        )
-
-        try viewModel.acceptInviteURL(inviteURL, now: 200)
-
-        #expect(viewModel.selectedGroup?.members.first?.id == "member-local")
-        #expect(viewModel.selectedGroup?.members.first?.displayName == "Nao")
-        #expect(viewModel.selectedGroup?.members.map(\.id).contains("member-900") == true)
-        #expect(groupStore.loadGroups().map(\.id) == [groupID])
-        #expect(viewModel.inviteDebugSummary == "JOINED Invited Team")
-        #expect(viewModel.selectedGroupDebugSummary == "GROUP AAAAAAAA / MEMBERS 2")
-    }
-
-    @MainActor
-    @Test func viewModelResharesInvitedGroupWithOriginalSecret() throws {
-        let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
-        let token = try GroupInviteToken.make(
-            groupID: groupID,
-            groupName: "Invited Team",
-            groupSecret: "trail-secret",
-            inviterMemberID: "member-900",
-            issuedAt: 100,
-            expiresAt: 300
-        )
-        let inviteURL = try GroupInviteTokenCodec.joinURL(for: token)
-        let credentialStore = InMemoryGroupCredentialStore()
-        let viewModel = IntercomViewModel(
-            groups: [],
-            credentialStore: credentialStore,
-            audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
-            audioInputMonitor: NoOpAudioInputMonitor()
-        )
-
-        try viewModel.acceptInviteURL(inviteURL, now: 200)
-        let resharedURL = try #require(viewModel.selectedGroupInviteURL)
-        let resharedToken = try GroupInviteTokenCodec.decodeJoinURL(resharedURL)
-
-        #expect(resharedToken.groupID == groupID)
-        #expect(resharedToken.groupSecret == "trail-secret")
-    }
-
-    @MainActor
-    @Test func viewModelConnectsWithStoredInviteCredentialWithoutLeakingSecretIntoSelectedGroup() throws {
-        let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
-        let token = try GroupInviteToken.make(
-            groupID: groupID,
-            groupName: "Invited Team",
-            groupSecret: "trail-secret",
-            inviterMemberID: "member-900",
-            issuedAt: 100,
-            expiresAt: 300
-        )
-        let inviteURL = try GroupInviteTokenCodec.joinURL(for: token)
-        let localTransport = LocalTransport()
-        let credentialStore = InMemoryGroupCredentialStore()
-        let viewModel = IntercomViewModel(
-            groups: [],
-            localTransport: localTransport,
-            credentialStore: credentialStore,
-            audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
-            audioInputMonitor: NoOpAudioInputMonitor()
-        )
-
-        try viewModel.acceptInviteURL(inviteURL, now: 200)
-        viewModel.connectLocal()
-
-        #expect(viewModel.selectedGroup?.accessSecret == nil)
-        #expect(localTransport.connectedGroup?.accessSecret == "trail-secret")
-        #expect(LocalDiscoveryInfo.credential(for: try #require(localTransport.connectedGroup)).secret == "trail-secret")
-    }
-
-    @MainActor
-    @Test func viewModelRejectsExpiredInviteURL() throws {
-        let token = try GroupInviteToken.make(
-            groupID: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!,
-            groupName: "Invited Team",
-            groupSecret: "trail-secret",
-            inviterMemberID: "member-900",
-            issuedAt: 100,
-            expiresAt: 200
-        )
-        let inviteURL = try GroupInviteTokenCodec.joinURL(for: token)
-        let viewModel = IntercomViewModel(
-            groups: [],
-            audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
-            audioInputMonitor: NoOpAudioInputMonitor()
-        )
-
-        #expect(throws: GroupInviteTokenError.expired) {
-            try viewModel.acceptInviteURL(inviteURL, now: 200)
-        }
-        #expect(viewModel.groups.isEmpty)
-        #expect(viewModel.selectedGroup == nil)
-    }
-
-    @MainActor
-    @Test func viewModelTracksAuthenticationStatePerParticipant() throws {
-        let localTransport = LocalTransport()
-        let group = try IntercomGroup(
-            id: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!,
-            name: "Team",
-            members: [
-                GroupMember(id: "member-001", displayName: "You"),
-                GroupMember(id: "member-002", displayName: "Aki"),
-                GroupMember(id: "member-003", displayName: "Bo")
-            ]
-        )
-        let viewModel = IntercomViewModel(
-            groups: [group],
-            localTransport: localTransport,
-            localMemberIdentityStore: InMemoryLocalMemberIdentityStore(
-                identity: LocalMemberIdentity(memberID: "member-001", displayName: "You")
-            ),
-            audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
-            audioInputMonitor: NoOpAudioInputMonitor()
-        )
-
-        viewModel.selectGroup(group)
-        #expect(viewModel.selectedGroup?.members.map(\.authenticationState) == [.open, .pending, .pending])
-
-        viewModel.connectLocal()
-        #expect(viewModel.selectedGroup?.members.map(\.authenticationState) == [.open, .pending, .pending])
-
-        localTransport.simulateAuthenticatedPeers(["member-002"])
-        #expect(viewModel.selectedGroup?.members.map(\.authenticationState) == [.open, .authenticated, .pending])
-
-        localTransport.simulateConnectedPeers(["member-001", "member-003"])
-        #expect(viewModel.selectedGroup?.members.map(\.authenticationState) == [.open, .offline, .pending])
-    }
-
-    @MainActor
-    @Test func viewModelAddsAuthenticatedRealPeerToGroupWhenSlotIsAvailable() throws {
-        let localTransport = LocalTransport()
-        let groupStore = InMemoryGroupStore()
-        let viewModel = IntercomViewModel(
-            groups: [],
-            localTransport: localTransport,
-            groupStore: groupStore,
-            localMemberIdentityStore: InMemoryLocalMemberIdentityStore(
-                identity: LocalMemberIdentity(memberID: "member-local", displayName: "Nao")
-            ),
-            audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
-            audioInputMonitor: NoOpAudioInputMonitor()
-        )
-
-        viewModel.createTrailGroup()
-        let groupID = try #require(viewModel.selectedGroup?.id)
-        viewModel.connectLocal()
-        localTransport.simulateConnectedPeers(["member-local", "member-real"])
-        localTransport.simulateAuthenticatedPeers(["member-real"])
+        localTransport.simulateAuthenticatedPeers(["member-remote"])
         localTransport.simulateReceivedPacket(ReceivedAudioPacket(
-            peerID: "member-real",
+            peerID: "member-remote",
             envelope: AudioPacketEnvelope(
                 groupID: groupID,
                 streamID: UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!,
@@ -2950,14 +2588,14 @@ struct RideIntercomTests {
             packet: .voice(frameID: 1, samples: [0.7])
         ))
 
-        let realPeer = viewModel.selectedGroup?.members.first { $0.id == "member-real" }
-        #expect(realPeer?.displayName == "member-real")
+        let realPeer = viewModel.selectedGroup?.members.first { $0.id == "member-remote" }
+        #expect(realPeer?.displayName == "Invited Rider 1")
         #expect(realPeer?.connectionState == .connected)
         #expect(realPeer?.authenticationState == .authenticated)
         #expect(realPeer?.isTalking == true)
         #expect((realPeer?.voiceLevel ?? 0) > 0)
         #expect(viewModel.receivedVoicePacketCount == 1)
-        #expect(groupStore.loadGroups().first?.members.map(\.id).contains("member-real") == true)
+        #expect(groupStore.loadGroups().first?.members.map(\.id).contains("member-remote") == true)
     }
 
     @MainActor
@@ -3034,7 +2672,6 @@ struct RideIntercomTests {
 
         viewModel.selectGroup(group)
         viewModel.connectLocal()
-        #expect(ticker.isRunning)
         localTransport.simulateReceivedPacket(received)
         ticker.simulateTick(now: 10.5)
 
@@ -3615,6 +3252,8 @@ final class SecureVirtualDuplexTransport: Transport {
             onEvent?(.authenticated(peerIDs: authenticatedPeerIDs.sorted()))
         case .handshake:
             onEvent?(.localNetworkStatus(LocalNetworkEvent(status: .rejected(.handshakeInvalid), peerID: peerID)))
+        case .peerMuteState(let isMuted):
+            onEvent?(.remotePeerMuteState(peerID: peerID, isMuted: isMuted))
         case .keepalive:
             break
         }

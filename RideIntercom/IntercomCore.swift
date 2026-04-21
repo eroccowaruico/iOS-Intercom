@@ -696,6 +696,8 @@ struct AudioPortInfo: Identifiable, Equatable, Hashable {
     let id: String
     let name: String
     static let systemDefault = AudioPortInfo(id: "__system_default__", name: "Auto")
+    static let receiver = AudioPortInfo(id: "__receiver__", name: "Receiver")
+    static let speaker = AudioPortInfo(id: "__speaker__", name: "Speaker")
 }
 
 struct AudioSessionConfiguration: Equatable {
@@ -706,13 +708,13 @@ struct AudioSessionConfiguration: Equatable {
     static let intercom = AudioSessionConfiguration(
         category: .playAndRecord,
         mode: .voiceChat,
-        options: [.mixWithOthers, .allowBluetooth, .allowBluetoothA2DP, .defaultToSpeaker]
+        options: [.mixWithOthers, .allowBluetooth, .allowBluetoothA2DP]
     )
 
     static let audioCheck = AudioSessionConfiguration(
         category: .playAndRecord,
         mode: .default,
-        options: [.allowBluetooth, .allowBluetoothA2DP, .defaultToSpeaker]
+        options: [.allowBluetooth, .allowBluetoothA2DP]
     )
 }
 
@@ -994,6 +996,7 @@ private extension UInt8 {
 enum ControlMessage: Equatable {
     case keepalive
     case handshake(HandshakeMessage)
+    case peerMuteState(isMuted: Bool)
 }
 
 struct LocalNetworkConfiguration {
@@ -1060,10 +1063,12 @@ struct MultipeerPayload: Equatable {
 struct ControlPayloadEnvelope: Codable, Equatable {
     let kind: Kind
     let handshake: HandshakeMessage?
+    let peerMuteStateIsMuted: Bool?
 
     enum Kind: String, Codable {
         case keepalive
         case handshake
+        case peerMuteState
     }
 
     init(message: ControlMessage) {
@@ -1071,9 +1076,15 @@ struct ControlPayloadEnvelope: Codable, Equatable {
         case .keepalive:
             kind = .keepalive
             handshake = nil
+            peerMuteStateIsMuted = nil
         case .handshake(let handshake):
             kind = .handshake
             self.handshake = handshake
+            peerMuteStateIsMuted = nil
+        case .peerMuteState(let isMuted):
+            kind = .peerMuteState
+            handshake = nil
+            peerMuteStateIsMuted = isMuted
         }
     }
 
@@ -1083,6 +1094,8 @@ struct ControlPayloadEnvelope: Codable, Equatable {
             .keepalive
         case .handshake:
             handshake.map(ControlMessage.handshake)
+        case .peerMuteState:
+            peerMuteStateIsMuted.map { .peerMuteState(isMuted: $0) }
         }
     }
 }
@@ -1110,7 +1123,7 @@ enum MultipeerPayloadBuilder {
         switch message {
         case .keepalive:
             mode = .unreliable
-        case .handshake:
+        case .handshake, .peerMuteState:
             mode = .reliable
         }
         return MultipeerPayload(data: data, mode: mode)
@@ -1132,6 +1145,7 @@ enum TransportEvent: Equatable {
     case localNetworkStatus(LocalNetworkEvent)
     case connected(peerIDs: [String])
     case authenticated(peerIDs: [String])
+    case remotePeerMuteState(peerID: String, isMuted: Bool)
     case disconnected
     case linkFailed(internetAvailable: Bool)
     case receivedPacket(ReceivedAudioPacket)
@@ -1188,6 +1202,10 @@ final class LocalTransport: Transport {
 
     func simulateConnectedPeers(_ peerIDs: [String]) {
         emit(.connected(peerIDs: peerIDs))
+    }
+
+    func simulateRemoteMuteState(peerID: String, isMuted: Bool) {
+        emit(.remotePeerMuteState(peerID: peerID, isMuted: isMuted))
     }
 
     func simulateLocalNetworkStatus(
@@ -2445,6 +2463,7 @@ final class IntercomViewModel {
         }
         selectedGroup = group
         replaceSelectedGroup(group)
+        activeTransport?.sendControl(.peerMuteState(isMuted: isMuted))
     }
 
     func toggleVoiceActivity() {
@@ -2726,6 +2745,8 @@ final class IntercomViewModel {
             }
             markConnectedMembers(peerIDs: connectedPeerIDs)
             startActiveCallAfterAuthenticatedPeer(route: route)
+        case .remotePeerMuteState(let peerID, let isMuted):
+            setRemotePeerMuteState(peerID: peerID, isMuted: isMuted)
         case .disconnected:
             connectedPeerIDs = []
             authenticatedPeerIDs = []
@@ -2822,6 +2843,20 @@ final class IntercomViewModel {
             group.members[memberIndex].voiceLevel = 0
             group.members[memberIndex].voicePeakLevel = 0
             remoteVoicePeakWindows.removeValue(forKey: peerID)
+        }
+        selectedGroup = group
+        replaceSelectedGroup(group)
+    }
+
+    private func setRemotePeerMuteState(peerID: String, isMuted: Bool) {
+        guard var group = selectedGroup,
+              let memberIndex = group.members.firstIndex(where: { $0.id == peerID }) else { return }
+
+        group.members[memberIndex].isMuted = isMuted
+        if isMuted {
+            group.members[memberIndex].isTalking = false
+            group.members[memberIndex].voiceLevel = 0
+            group.members[memberIndex].voicePeakLevel = 0
         }
         selectedGroup = group
         replaceSelectedGroup(group)

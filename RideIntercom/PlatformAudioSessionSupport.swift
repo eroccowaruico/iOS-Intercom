@@ -45,10 +45,23 @@ final class SystemAudioSessionAdapter: AudioSessionApplying {
         #if os(iOS)
         var ports: [AudioPortInfo] = [
             .systemDefault,
-            AudioPortInfo(id: "__speaker__", name: "Speaker"),
+            .receiver,
+            .speaker,
         ]
-        let btHFP = (session.availableInputs ?? []).filter { $0.portType == .bluetoothHFP }
-        ports += btHFP.map { AudioPortInfo(id: $0.uid, name: $0.portName) }
+        let routeCandidates = (session.availableInputs ?? []).filter {
+            switch $0.portType {
+            case .bluetoothHFP, .headsetMic, .usbAudio, .carAudio, .lineIn:
+                return true
+            default:
+                return false
+            }
+        }
+        for port in routeCandidates {
+            let candidate = AudioPortInfo(id: port.uid, name: port.portName)
+            if !ports.contains(candidate) {
+                ports.append(candidate)
+            }
+        }
         return ports
         #else
         return coreAudioPorts(scope: kAudioDevicePropertyScopeOutput)
@@ -74,12 +87,16 @@ final class SystemAudioSessionAdapter: AudioSessionApplying {
         #if os(iOS)
         switch port.id {
         case AudioPortInfo.systemDefault.id:
+            try session.setPreferredInput(nil)
             try session.overrideOutputAudioPort(.none)
-        case "__speaker__":
+        case AudioPortInfo.receiver.id:
+            try session.setPreferredInput(nil)
+            try session.overrideOutputAudioPort(.none)
+        case AudioPortInfo.speaker.id:
             try session.overrideOutputAudioPort(.speaker)
         default:
-            if let btPort = session.availableInputs?.first(where: { $0.uid == port.id }) {
-                try session.setPreferredInput(btPort)
+            if let avPort = session.availableInputs?.first(where: { $0.uid == port.id }) {
+                try session.setPreferredInput(avPort)
             }
             try session.overrideOutputAudioPort(.none)
         }

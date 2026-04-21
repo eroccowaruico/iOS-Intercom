@@ -84,7 +84,7 @@ final class MultipeerLocalTransport: NSObject, Transport {
         switch message {
         case .keepalive:
             send(OutboundAudioPacket.keepalive)
-        case .handshake:
+        case .handshake, .peerMuteState:
             send(message)
         }
     }
@@ -244,6 +244,9 @@ extension MultipeerLocalTransport: MCSessionDelegate {
                 notify(.localNetworkStatus(LocalNetworkEvent(status: .rejected(.handshakeInvalid), peerID: peerID.displayName)))
                 session.cancelConnectPeer(peerID)
             }
+            return true
+        case .peerMuteState(let isMuted):
+            notify(.remotePeerMuteState(peerID: peerID.displayName, isMuted: isMuted))
             return true
         }
     }

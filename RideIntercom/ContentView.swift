@@ -76,68 +76,66 @@ private struct GroupSelectionView: View {
     let onGroupSelected: () -> Void
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                Button {
-                    viewModel.createTrailGroup()
-                    onGroupSelected()
-                } label: {
-                    Label("Create Trail Group", systemImage: "plus.circle.fill")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.borderedProminent)
-                .accessibilityIdentifier("createGroupButton")
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                viewModel.createTrailGroup()
+                onGroupSelected()
+            } label: {
+                Label("Create Trail Group", systemImage: "plus.circle.fill")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .accessibilityIdentifier("createGroupButton")
 
-                Text("Recent Groups")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
+            Text("Recent Groups")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal)
 
-                VStack(spacing: 10) {
-                    ForEach(viewModel.groups) { group in
-                        HStack(spacing: 10) {
-                            Button {
-                                viewModel.selectGroup(group)
-                                onGroupSelected()
-                            } label: {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(group.name)
-                                            .font(.headline)
-                                        Text("\(group.members.count) members")
-                                            .font(.subheadline)
-                                            .foregroundStyle(.secondary)
-                                    }
-
-                                    Spacer()
-
-                                    Image(systemName: "chevron.right")
-                                        .font(.footnote.weight(.semibold))
-                                        .foregroundStyle(.secondary)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
+            List {
+                ForEach(viewModel.groups) { group in
+                    Button {
+                        viewModel.selectGroup(group)
+                        onGroupSelected()
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(group.name)
+                                    .font(.headline)
+                                Text("\(group.members.count) members")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(group.name)
-                            .accessibilityIdentifier("groupRow-\(group.name)")
 
-                            Button {
-                                viewModel.deleteGroup(group.id)
-                            } label: {
-                                Image(systemName: "trash")
-                                    .frame(width: 34, height: 34)
-                            }
-                            .buttonStyle(.bordered)
-                            .accessibilityLabel("Delete \(group.name)")
-                            .accessibilityIdentifier("deleteGroupButton-\(group.name)")
+                            Spacer()
+
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.secondary)
                         }
-                        .padding(14)
-                        .background(.thinMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(group.name)
+                    .accessibilityIdentifier("groupRow-\(group.name)")
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            viewModel.deleteGroup(group.id)
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
+                    .contextMenu {
+                        Button(role: .destructive) {
+                            viewModel.deleteGroup(group.id)
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
                     }
                 }
-
             }
-            .padding()
+            .listStyle(.plain)
         }
         .accessibilityIdentifier("groupSelectionList")
     }
@@ -204,9 +202,9 @@ private struct CallView: View {
         VStack(spacing: 8) {
             HStack(spacing: 10) {
                 Image(systemName: connectionIconName)
-                Text(viewModel.callPresenceLabel)
-                    .font(.headline)
-                    .accessibilityIdentifier("connectionStatusLabel")
+                    .imageScale(.large)
+                    .accessibilityLabel(viewModel.callPresenceLabel)
+                    .accessibilityIdentifier("connectionStatusIcon")
 
                 Spacer()
 
@@ -217,62 +215,6 @@ private struct CallView: View {
                     .background(.thinMaterial, in: Capsule())
                     .accessibilityIdentifier("routeLabel")
             }
-
-            HStack {
-                Image(systemName: "person.badge.key.fill")
-                    .foregroundStyle(.secondary)
-                Text("Owner: \(viewModel.ownerName)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("ownerLabel")
-
-                Spacer()
-
-                Label(viewModel.isAudioReady ? "Audio Ready" : "Audio Idle", systemImage: viewModel.isAudioReady ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                    .font(.subheadline)
-                    .foregroundStyle(viewModel.isAudioReady ? .green : .secondary)
-                    .accessibilityIdentifier("audioStatusLabel")
-
-                Text(viewModel.audioDebugSummary)
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("audioFlowLabel")
-            }
-
-            HStack(spacing: 6) {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text(viewModel.localNetworkDebugSummary(now: context.date.timeIntervalSince1970))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("localNetworkDebugSummaryLabel")
-                }
-                Spacer()
-            }
-
-            HStack(spacing: 6) {
-                Text(viewModel.inviteDebugSummary)
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("inviteDebugSummaryLabel")
-                Spacer()
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text(viewModel.realDeviceCallDebugSummary(now: context.date.timeIntervalSince1970))
-                        .accessibilityIdentifier("realDeviceCallDebugSummaryLabel")
-                }
-                Text(viewModel.localMemberDebugSummary)
-                    .accessibilityIdentifier("localMemberDebugSummaryLabel")
-                Text(viewModel.selectedGroupDebugSummary)
-                    .accessibilityIdentifier("selectedGroupDebugSummaryLabel")
-                Text(viewModel.groupHashDebugSummary)
-                    .accessibilityIdentifier("groupHashDebugSummaryLabel")
-            }
-            .font(.caption.monospacedDigit())
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-
         }
     }
 
@@ -281,31 +223,25 @@ private struct CallView: View {
     }
 
     private var controls: some View {
-        VStack(spacing: 12) {
+        HStack(spacing: 10) {
             if viewModel.canDisconnectCall {
                 Button {
                     viewModel.disconnect()
                 } label: {
                     Label("Disconnect", systemImage: "xmark.circle.fill")
-                        .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                .controlSize(.large)
                 .accessibilityIdentifier("disconnectButton")
             } else {
                 Button {
                     viewModel.connectLocal()
                 } label: {
-                    Label("Connect Local", systemImage: "antenna.radiowaves.left.and.right")
-                        .frame(maxWidth: .infinity)
+                    Label("Connect", systemImage: "antenna.radiowaves.left.and.right")
                 }
                 .buttonStyle(.borderedProminent)
+                .controlSize(.large)
                 .accessibilityIdentifier("connectButton")
-
-                Text("Waiting automatically")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityIdentifier("automaticStandbyLabel")
             }
 
             if let inviteURL = viewModel.selectedGroupInviteURL {
@@ -314,46 +250,16 @@ private struct CallView: View {
                     subject: Text("RideIntercom Invite"),
                     message: Text("Join \(viewModel.selectedGroup?.name ?? "RideIntercom")")
                 ) {
-                    Label("Invite Group", systemImage: "square.and.arrow.up")
-                        .frame(maxWidth: .infinity)
+                    Label("Invite", systemImage: "square.and.arrow.up")
                 }
                 .buttonStyle(.bordered)
+                .controlSize(.large)
                 .simultaneousGesture(TapGesture().onEnded {
                     viewModel.reserveInviteMemberSlot()
                 })
                 .accessibilityLabel("Invite Group")
                 .accessibilityIdentifier("inviteButton")
             }
-
-            HStack(spacing: 12) {
-                if viewModel.availableOutputPorts.count > 1 {
-                    Picker("Output", selection: Binding(
-                        get: { viewModel.selectedOutputPort },
-                        set: { viewModel.setOutputPort($0) }
-                    )) {
-                        ForEach(viewModel.availableOutputPorts) { port in
-                            Text(port.name).tag(port)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityIdentifier("callAudioOutputPicker")
-                }
-                if viewModel.availableInputPorts.count > 1 {
-                    Picker("Input", selection: Binding(
-                        get: { viewModel.selectedInputPort },
-                        set: { viewModel.setInputPort($0) }
-                    )) {
-                        ForEach(viewModel.availableInputPorts) { port in
-                            Text(port.name).tag(port)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityIdentifier("callAudioInputPicker")
-                }
-            }
-            .accessibilityIdentifier("audioDevicePickerRow")
         }
     }
 
@@ -707,6 +613,8 @@ private struct VoiceMeterView: View {
 }
 
 private struct ParticipantSlotView: View {
+    @State private var showRemoveConfirmation = false
+
     let index: Int
     let member: GroupMember?
     let canRemove: Bool
@@ -724,7 +632,9 @@ private struct ParticipantSlotView: View {
                 Spacer()
 
                 if member != nil, canRemove {
-                    Button(action: onRemove) {
+                    Button {
+                        showRemoveConfirmation = true
+                    } label: {
                         Image(systemName: "trash")
                             .frame(width: 30, height: 30)
                     }
@@ -737,42 +647,21 @@ private struct ParticipantSlotView: View {
                 }
             }
 
-            HStack(spacing: 6) {
+            HStack(spacing: 10) {
                 Image(systemName: statusIconName)
-                Text(member?.connectionState.rawValue ?? "Available")
+                    .foregroundStyle(statusColor)
                     .accessibilityIdentifier("participantState\(index)")
-            }
-            .font(.subheadline)
-            .foregroundStyle(statusColor)
-
-            HStack(spacing: 6) {
                 Image(systemName: authenticationIconName)
-                Text(member?.authenticationState.rawValue ?? "AUTH EMPTY")
+                    .foregroundStyle(authenticationColor)
                     .accessibilityIdentifier("participantAuthenticationState\(index)")
-            }
-            .font(.caption)
-            .foregroundStyle(authenticationColor)
-
-            HStack(spacing: 6) {
                 Image(systemName: audioPipelineIconName)
-                Text(member?.audioPipelineState.rawValue ?? AudioPipelineState.idle.rawValue)
-            }
-            .font(.caption)
-            .foregroundStyle(audioPipelineColor)
-            .accessibilityIdentifier("participantAudioPipelineState\(index)")
-
-            Text(member?.audioPipelineSummary ?? "RX 0 / PLAY 0 / JIT 0")
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .accessibilityIdentifier("participantAudioPipelineSummary\(index)")
-
-            HStack(spacing: 6) {
+                    .foregroundStyle(audioPipelineColor)
+                    .accessibilityIdentifier("participantAudioPipelineState\(index)")
                 Image(systemName: member?.isMuted == true ? "mic.slash.fill" : "mic.fill")
-                Text(member?.isMuted == true ? "Muted" : "Mic Live")
+                    .foregroundStyle(member?.isMuted == true ? .red : .secondary)
+                    .accessibilityIdentifier("participantMuteState\(index)")
             }
             .font(.caption)
-            .foregroundStyle(member?.isMuted == true ? .red : .secondary)
-            .accessibilityIdentifier("participantMuteState\(index)")
 
             VoiceMeterView(
                 level: member?.isMuted == true ? 0 : indicator.level,
@@ -789,6 +678,16 @@ private struct ParticipantSlotView: View {
                 .stroke(member == nil ? Color.secondary.opacity(0.25) : Color.accentColor.opacity(0.35), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 8))
+        .confirmationDialog(
+            "Remove Member",
+            isPresented: $showRemoveConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Remove", role: .destructive) {
+                onRemove()
+            }
+            Button("Cancel", role: .cancel) {}
+        }
     }
 
     private var indicator: VoiceLevelIndicatorState {
