@@ -1287,6 +1287,73 @@ struct HandoverController {
     }
 }
 
+struct RouteProbeMetrics: Equatable {
+    let rttMilliseconds: Double
+    let jitterMilliseconds: Double
+    let packetLossRate: Double
+    let peerCount: Int
+    let expectedPeerCount: Int
+}
+
+protocol RoutePolicy {
+    func shouldPreferLocal(afterProbe metrics: RouteProbeMetrics) -> Bool
+}
+
+struct DefaultRoutePolicy: RoutePolicy {
+    let maxRTTMilliseconds: Double
+    let maxJitterMilliseconds: Double
+    let maxPacketLossRate: Double
+
+    init(
+        maxRTTMilliseconds: Double = 180,
+        maxJitterMilliseconds: Double = 60,
+        maxPacketLossRate: Double = 0.10
+    ) {
+        self.maxRTTMilliseconds = maxRTTMilliseconds
+        self.maxJitterMilliseconds = maxJitterMilliseconds
+        self.maxPacketLossRate = maxPacketLossRate
+    }
+
+    func shouldPreferLocal(afterProbe metrics: RouteProbeMetrics) -> Bool {
+        guard metrics.peerCount >= metrics.expectedPeerCount else { return false }
+        guard metrics.rttMilliseconds <= maxRTTMilliseconds else { return false }
+        guard metrics.jitterMilliseconds <= maxJitterMilliseconds else { return false }
+        guard metrics.packetLossRate <= maxPacketLossRate else { return false }
+        return true
+    }
+}
+
+struct RouteCoordinator {
+    private(set) var state: CallConnectionState = .idle
+    private var policy: any RoutePolicy
+
+    init(policy: any RoutePolicy = DefaultRoutePolicy()) {
+        self.policy = policy
+    }
+
+    mutating func connectLocal() {
+        state = .localConnected
+    }
+
+    mutating func localLinkDidFail(internetAvailable: Bool) {
+        state = internetAvailable ? .internetConnecting : .reconnectingOffline
+    }
+
+    mutating func internetDidConnect() {
+        state = .internetConnected
+    }
+
+    mutating func evaluateLocalProbe(_ metrics: RouteProbeMetrics) {
+        if policy.shouldPreferLocal(afterProbe: metrics) {
+            state = .localConnected
+        }
+    }
+
+    mutating func disconnect() {
+        state = .idle
+    }
+}
+
 enum VoiceActivityState: Equatable {
     case idle
     case attack
@@ -2432,7 +2499,7 @@ final class IntercomViewModel {
     private var audioCheckOwnsAudioPipeline = false
     private var isLocalStandbyOnly = false
     private var nextAudioFrameID = 1
-    private var handoverController = HandoverController()
+    private var routeCoordinator = RouteCoordinator()
 
     static func makeForCurrentProcess() -> IntercomViewModel {
         if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
@@ -2797,7 +2864,7 @@ final class IntercomViewModel {
         guard let selectedGroup else { return }
 
         guard startAudioPipelineIfNeeded() else { return }
-        handoverController.connectLocal()
+        routeCoordinator.connectLocal()
         isLocalStandbyOnly = false
         connectionState = connectedPeerIDs.isEmpty ? .localConnecting : .localConnected
         markMembers(connectionState == .localConnected ? .connected : .connecting)
@@ -2813,12 +2880,23 @@ final class IntercomViewModel {
 
         isLocalStandbyOnly = false
         if route == .local {
-            handoverController.localCandidateDidPassProbe()
+            routeCoordinator.evaluateLocalProbe(defaultRouteProbeMetrics())
         } else {
-            handoverController.internetDidConnect()
+            routeCoordinator.internetDidConnect()
         }
-        connectionState = handoverController.state
+        connectionState = routeCoordinator.state
         markConnectedMembers(peerIDs: connectedPeerIDs)
+    }
+
+    private func defaultRouteProbeMetrics() -> RouteProbeMetrics {
+        let expectedPeerCount = max(connectedPeerIDs.count, authenticatedPeerIDs.count)
+        return RouteProbeMetrics(
+            rttMilliseconds: 0,
+            jitterMilliseconds: 0,
+            packetLossRate: 0,
+            peerCount: connectedPeerIDs.count,
+            expectedPeerCount: expectedPeerCount
+        )
     }
 
     private func startAudioPipelineIfNeeded() -> Bool {
@@ -2879,7 +2957,7 @@ final class IntercomViewModel {
         connectedPeerIDs = []
         authenticatedPeerIDs = []
         isLocalStandbyOnly = false
-        handoverController.disconnect()
+        routeCoordinator.disconnect()
         localNetworkStatus = .idle
         lastLocalNetworkPeerID = nil
         lastLocalNetworkEventAt = nil
@@ -3188,14 +3266,14 @@ final class IntercomViewModel {
             removeDisconnectedAuthenticatedPeers(connectedPeerIDs: peerIDs)
             if route == .local {
                 localNetworkStatus = .connected
-                handoverController.connectLocal()
+                routeCoordinator.connectLocal()
             } else {
-                handoverController.internetDidConnect()
+                routeCoordinator.internetDidConnect()
             }
             if isLocalStandbyOnly, route == .local {
                 connectionState = .idle
             } else {
-                connectionState = handoverController.state
+                connectionState = routeCoordinator.state
             }
             markConnectedMembers(peerIDs: peerIDs)
         case .authenticated(let peerIDs):
@@ -3205,11 +3283,11 @@ final class IntercomViewModel {
             addDiscoveredMembersIfNeeded(peerIDs: authenticatedPeerIDs)
             if !isLocalStandbyOnly {
                 if route == .local {
-                    handoverController.localCandidateDidPassProbe()
+                    routeCoordinator.evaluateLocalProbe(defaultRouteProbeMetrics())
                 } else {
-                    handoverController.internetDidConnect()
+                    routeCoordinator.internetDidConnect()
                 }
-                connectionState = handoverController.state
+                connectionState = routeCoordinator.state
             }
             markConnectedMembers(peerIDs: connectedPeerIDs)
             startActiveCallAfterAuthenticatedPeer(route: route)
@@ -3218,7 +3296,7 @@ final class IntercomViewModel {
         case .disconnected:
             connectedPeerIDs = []
             authenticatedPeerIDs = []
-            handoverController.disconnect()
+            routeCoordinator.disconnect()
             if route == .local {
                 localNetworkStatus = .idle
             }
@@ -3227,16 +3305,16 @@ final class IntercomViewModel {
             markMembers(.offline)
         case .linkFailed(let internetAvailable):
             guard route == .local else { return }
-            handoverController.localLinkDidFail(internetAvailable: internetAvailable)
+            routeCoordinator.localLinkDidFail(internetAvailable: internetAvailable)
             if internetAvailable, let selectedGroup {
-                connectionState = handoverController.state
+                connectionState = routeCoordinator.state
                 markMembers(.connecting)
                 internetTransport.connect(group: selectedGroup)
             } else {
                 connectedPeerIDs = []
                 authenticatedPeerIDs = []
                 localNetworkStatus = .unavailable
-                connectionState = handoverController.state
+                connectionState = routeCoordinator.state
                 markMembers(.connecting)
             }
         case .receivedPacket(let packet):

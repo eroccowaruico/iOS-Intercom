@@ -3333,6 +3333,57 @@ struct RideIntercomTests {
         #expect(controller.state == .reconnectingOffline)
     }
 
+    @Test func routePolicyPrefersLocalOnlyWhenProbeMetricsAreHealthy() {
+        let policy = DefaultRoutePolicy(
+            maxRTTMilliseconds: 150,
+            maxJitterMilliseconds: 40,
+            maxPacketLossRate: 0.08
+        )
+
+        let healthy = RouteProbeMetrics(
+            rttMilliseconds: 40,
+            jitterMilliseconds: 8,
+            packetLossRate: 0.01,
+            peerCount: 3,
+            expectedPeerCount: 3
+        )
+        let degraded = RouteProbeMetrics(
+            rttMilliseconds: 220,
+            jitterMilliseconds: 90,
+            packetLossRate: 0.2,
+            peerCount: 2,
+            expectedPeerCount: 3
+        )
+
+        #expect(policy.shouldPreferLocal(afterProbe: healthy))
+        #expect(policy.shouldPreferLocal(afterProbe: degraded) == false)
+    }
+
+    @Test func routeCoordinatorMovesBetweenLocalInternetAndOfflineStates() {
+        var coordinator = RouteCoordinator(policy: DefaultRoutePolicy())
+
+        coordinator.connectLocal()
+        #expect(coordinator.state == .localConnected)
+
+        coordinator.localLinkDidFail(internetAvailable: true)
+        #expect(coordinator.state == .internetConnecting)
+
+        coordinator.internetDidConnect()
+        #expect(coordinator.state == .internetConnected)
+
+        coordinator.evaluateLocalProbe(RouteProbeMetrics(
+            rttMilliseconds: 30,
+            jitterMilliseconds: 5,
+            packetLossRate: 0,
+            peerCount: 2,
+            expectedPeerCount: 2
+        ))
+        #expect(coordinator.state == .localConnected)
+
+        coordinator.localLinkDidFail(internetAvailable: false)
+        #expect(coordinator.state == .reconnectingOffline)
+    }
+
     // MARK: - AudioResampler
 
     @Test func audioResamplerReturnsOriginalSamplesWhenRatesMatch() {
