@@ -2911,6 +2911,62 @@ struct RideIntercomTests {
         #expect(viewModel.groupHashDebugSummary.hasPrefix("HASH "))
     }
 
+    @Test func inviteServiceBuildsJoinURLWithCredentialAndInviter() throws {
+        let group = try IntercomGroup(
+            id: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!,
+            name: "Trail Group",
+            members: [
+                GroupMember(id: "member-001", displayName: "You"),
+                GroupMember(id: "member-002", displayName: "Partner")
+            ]
+        )
+        let credential = GroupAccessCredential(groupID: group.id, secret: "secret")
+
+        let url = try #require(InviteService.makeInviteURL(
+            group: group,
+            inviterMemberID: "member-001",
+            credential: credential,
+            now: 100,
+            expiresIn: 10
+        ))
+        let token = try GroupInviteTokenCodec.decodeJoinURL(url)
+
+        #expect(token.groupID == group.id)
+        #expect(token.groupName == "Trail Group")
+        #expect(token.inviterMemberID == "member-001")
+        #expect(token.groupSecret == "secret")
+        #expect(token.expiresAt == 110)
+    }
+
+    @Test func acceptInviteUseCaseSavesCredentialAndCreatesJoinedGroup() throws {
+        let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+        let secret = "group-secret"
+        let token = try GroupInviteToken.make(
+            groupID: groupID,
+            groupName: "Trail Group",
+            groupSecret: secret,
+            inviterMemberID: "member-host",
+            expiresAt: 500
+        )
+        let url = try GroupInviteTokenCodec.joinURL(for: token)
+        let credentialStore = InMemoryGroupCredentialStore()
+        let localIdentity = LocalMemberIdentity(memberID: "member-local", displayName: "Local")
+
+        let result = try AcceptInviteUseCase.execute(
+            url: url,
+            now: 100,
+            localMemberIdentity: localIdentity,
+            groups: [],
+            credentialStore: credentialStore
+        )
+
+        #expect(result.groups.count == 1)
+        #expect(result.selectedGroup.id == groupID)
+        #expect(result.selectedGroup.members.map { $0.id } == ["member-local", "member-host"])
+        #expect(result.inviteStatusMessage == "JOINED Trail Group")
+        #expect(credentialStore.credential(for: groupID)?.secret == secret)
+    }
+
     @MainActor
     @Test func inviteReservationAddsPendingMemberSlotsUpToSix() throws {
         let groupStore = InMemoryGroupStore()

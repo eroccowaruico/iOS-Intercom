@@ -2802,14 +2802,11 @@ final class IntercomViewModel {
               let inviterMemberID = inviterMemberID(for: selectedGroup) else { return nil }
 
         let credential = credential(for: selectedGroup)
-        let token = try? GroupInviteToken.make(
-            groupID: selectedGroup.id,
-            groupName: selectedGroup.name,
-            groupSecret: credential.secret,
+        return InviteService.makeInviteURL(
+            group: selectedGroup,
             inviterMemberID: inviterMemberID,
-            expiresAt: Date().timeIntervalSince1970 + 7 * 24 * 60 * 60
+            credential: credential
         )
-        return token.flatMap { try? GroupInviteTokenCodec.joinURL(for: $0) }
     }
 
     func receptionDebugSummary(now: TimeInterval) -> String {
@@ -2917,29 +2914,18 @@ final class IntercomViewModel {
     }
 
     func acceptInviteURL(_ url: URL, now: TimeInterval = Date().timeIntervalSince1970) throws {
-        let token = try GroupInviteTokenCodec.decodeJoinURL(url)
-        guard !token.isExpired(now: now) else {
-            throw GroupInviteTokenError.expired
-        }
-        credentialStore.save(GroupAccessCredential(groupID: token.groupID, secret: token.groupSecret))
-
-        let group = try IntercomGroup(
-            id: token.groupID,
-            name: token.groupName,
-            members: [
-                GroupMember(id: localMemberIdentity.memberID, displayName: localMemberIdentity.displayName),
-                GroupMember(id: token.inviterMemberID, displayName: "Inviter")
-            ]
+        let result = try AcceptInviteUseCase.execute(
+            url: url,
+            now: now,
+            localMemberIdentity: localMemberIdentity,
+            groups: groups,
+            credentialStore: credentialStore
         )
 
-        if let existingIndex = groups.firstIndex(where: { $0.id == group.id }) {
-            groups[existingIndex] = group
-        } else {
-            groups.insert(group, at: 0)
-        }
+        groups = result.groups
         persistGroups()
-        selectGroup(group)
-        inviteStatusMessage = "JOINED \(token.groupName)"
+        selectGroup(result.selectedGroup)
+        inviteStatusMessage = result.inviteStatusMessage
     }
 
     func connectLocal() {
