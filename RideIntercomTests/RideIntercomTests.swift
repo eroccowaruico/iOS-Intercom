@@ -2405,6 +2405,83 @@ struct RideIntercomTests {
     }
 
     @MainActor
+    @Test func diagnosticsSnapshotExposesStructuredDebugMetrics() throws {
+        let localTransport = LocalTransport()
+        let group = try IntercomGroup(
+            id: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!,
+            name: "Pair",
+            members: [
+                GroupMember(id: "member-001", displayName: "You"),
+                GroupMember(id: "member-002", displayName: "Partner")
+            ]
+        )
+        let viewModel = IntercomViewModel(
+            groups: [group],
+            localTransport: localTransport,
+            audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
+            audioInputMonitor: NoOpAudioInputMonitor()
+        )
+
+        viewModel.selectGroup(group)
+        localTransport.simulateAuthenticatedPeers(["member-002"])
+        localTransport.simulateReceivedPacket(ReceivedAudioPacket(
+            peerID: "member-002",
+            envelope: AudioPacketEnvelope(
+                groupID: group.id,
+                streamID: UUID(),
+                sequenceNumber: 1,
+                sentAt: 70,
+                packet: .voice(frameID: 1, samples: [0.4])
+            ),
+            packet: .voice(frameID: 1, samples: [0.4])
+        ))
+
+        let snapshot = viewModel.diagnosticsSnapshot
+
+        #expect(snapshot.audio.transmittedVoicePacketCount == 0)
+        #expect(snapshot.audio.receivedVoicePacketCount == 1)
+        #expect(snapshot.connectedPeerCount == 2)
+        #expect(snapshot.authenticatedPeerCount == 1)
+        #expect(snapshot.localMemberID == "member-001")
+        #expect(snapshot.selectedGroupID == group.id)
+        #expect(snapshot.selectedGroupMemberCount == 2)
+        #expect(snapshot.groupHashSummary.hasPrefix("HASH "))
+        #expect(snapshot.connectionSummary == "PEERS 2")
+        #expect(snapshot.authenticationSummary == "AUTH 1")
+        #expect(snapshot.reception.summary(now: 70.2) == "LAST RX 0.2s / DROP 0 / JIT 1")
+    }
+
+    @Test func diagnosticsSnapshotBuilderFormatsFallbackValues() {
+        let snapshot = DiagnosticsSnapshotBuilder.make(
+            sentVoicePacketCount: 0,
+            receivedVoicePacketCount: 0,
+            playedAudioFrameCount: 0,
+            connectedPeerCount: 0,
+            authenticatedPeerCount: 0,
+            localMemberID: "member-001",
+            transportTypeName: "LocalTransport",
+            selectedGroupID: nil,
+            selectedGroupMemberCount: 0,
+            groupHashPrefix: nil,
+            inviteStatusMessage: nil,
+            hasInviteURL: false,
+            localNetworkStatus: .idle,
+            lastLocalNetworkPeerID: nil,
+            lastLocalNetworkEventAt: nil,
+            lastReceivedAudioAt: nil,
+            droppedAudioPacketCount: 0,
+            jitterQueuedFrameCount: 0
+        )
+
+        #expect(snapshot.audio.summary == "TX 0 / RX 0 / PLAY 0")
+        #expect(snapshot.selectedGroupSummary == "GROUP -- / MEMBERS 0")
+        #expect(snapshot.groupHashSummary == "HASH --")
+        #expect(snapshot.inviteSummary == "INVITE NONE")
+        #expect(snapshot.localNetwork.summary(now: 10) == "MC idle")
+        #expect(snapshot.realDeviceCallSummary(connectionLabel: "Idle", isAudioReady: false, now: 10) == "CALL Idle / AUDIO IDLE / TX 0 / RX 0 / PLAY 0 / AUTH 0 / LAST RX -- / DROP 0 / JIT 0")
+    }
+
+    @MainActor
     @Test func twoVirtualAppsCanExchangeGeneratedVoiceInBothDirections() throws {
         let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
         let sharedSecret = "trail-secret"
