@@ -3271,6 +3271,73 @@ struct RideIntercomTests {
         #expect(transport.sentControlMessages == [.keepalive])
     }
 
+    @Test func internetTransportBuildsAudioEnvelopeUsingSharedPacketContract() throws {
+        let group = try IntercomGroup(
+            id: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!,
+            name: "Pair",
+            members: [
+                GroupMember(id: "member-001", displayName: "You"),
+                GroupMember(id: "member-002", displayName: "Partner")
+            ]
+        )
+        let transport = InternetTransport()
+
+        transport.connect(group: group)
+        transport.sendAudioFrame(.voice(frameID: 42, samples: [0.1]))
+
+        let envelope = try #require(transport.sentAudioEnvelopes.first)
+        #expect(envelope.groupID == group.id)
+        #expect(envelope.sequenceNumber == 1)
+        #expect(envelope.kind == .voice)
+        #expect(envelope.encodedVoice?.codec == .pcm16)
+    }
+
+    @Test func internetTransportAcceptsOnlyMatchingGroupIncomingEnvelope() throws {
+        let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+        let otherGroupID = UUID(uuidString: "CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC")!
+        let streamID = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
+        let group = try IntercomGroup(
+            id: groupID,
+            name: "Pair",
+            members: [
+                GroupMember(id: "member-001", displayName: "You"),
+                GroupMember(id: "member-002", displayName: "Partner")
+            ]
+        )
+        let transport = InternetTransport()
+        var receivedPackets: [ReceivedAudioPacket] = []
+        transport.onEvent = { event in
+            if case .receivedPacket(let packet) = event {
+                receivedPackets.append(packet)
+            }
+        }
+
+        transport.connect(group: group)
+        transport.simulateReceivedEnvelope(
+            AudioPacketEnvelope(
+                groupID: groupID,
+                streamID: streamID,
+                sequenceNumber: 1,
+                sentAt: 50,
+                packet: .voice(frameID: 1)
+            ),
+            fromPeerID: "member-002"
+        )
+        transport.simulateReceivedEnvelope(
+            AudioPacketEnvelope(
+                groupID: otherGroupID,
+                streamID: streamID,
+                sequenceNumber: 2,
+                sentAt: 51,
+                packet: .voice(frameID: 2)
+            ),
+            fromPeerID: "member-002"
+        )
+
+        #expect(receivedPackets.count == 1)
+        #expect(receivedPackets.first?.envelope.groupID == groupID)
+    }
+
     @MainActor
     @Test func viewModelUpdatesConnectionStateFromTransportEvents() throws {
         let localTransport = LocalTransport()

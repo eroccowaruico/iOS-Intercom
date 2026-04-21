@@ -1239,23 +1239,65 @@ final class InternetTransport: Transport {
     private(set) var connectedGroup: IntercomGroup?
     private(set) var sentAudioPackets: [OutboundAudioPacket] = []
     private(set) var sentControlMessages: [ControlMessage] = []
+    private(set) var sentAudioEnvelopes: [AudioPacketEnvelope] = []
+    private var sequencer: AudioPacketSequencer?
+    private var receivedPacketFilter: ReceivedAudioPacketFilter?
+    private var preferredAudioCodec: AudioCodecIdentifier = .pcm16
+    private var heAACv2Quality: HEAACv2Quality = .medium
 
     func connect(group: IntercomGroup) {
         connectedGroup = group
+        sequencer = AudioPacketSequencer(
+            groupID: group.id,
+            codec: preferredAudioCodec,
+            heAACv2Quality: heAACv2Quality
+        )
+        receivedPacketFilter = ReceivedAudioPacketFilter(groupID: group.id)
         emit(.connected(peerIDs: group.members.map(\.id)))
     }
 
     func disconnect() {
         connectedGroup = nil
+        sequencer = nil
+        receivedPacketFilter = nil
+        sentAudioEnvelopes.removeAll()
         emit(.disconnected)
     }
 
     func sendAudioFrame(_ frame: OutboundAudioPacket) {
         sentAudioPackets.append(frame)
+        guard var sequencer else { return }
+        sequencer.codec = preferredAudioCodec
+        sequencer.heAACv2Quality = heAACv2Quality
+        let envelope = sequencer.makeEnvelope(for: frame)
+        self.sequencer = sequencer
+        sentAudioEnvelopes.append(envelope)
     }
 
     func sendControl(_ message: ControlMessage) {
         sentControlMessages.append(message)
+    }
+
+    func setPreferredAudioCodec(_ codec: AudioCodecIdentifier) {
+        preferredAudioCodec = codec
+    }
+
+    func setHEAACv2Quality(_ quality: HEAACv2Quality) {
+        heAACv2Quality = quality
+    }
+
+    func simulateAuthenticatedPeers(_ peerIDs: [String]) {
+        emit(.authenticated(peerIDs: peerIDs))
+    }
+
+    func simulateReceivedEnvelope(_ envelope: AudioPacketEnvelope, fromPeerID peerID: String) {
+        guard var receivedPacketFilter else { return }
+        guard let packet = receivedPacketFilter.accept(envelope, fromPeerID: peerID) else {
+            self.receivedPacketFilter = receivedPacketFilter
+            return
+        }
+        self.receivedPacketFilter = receivedPacketFilter
+        emit(.receivedPacket(packet))
     }
 
     private func emit(_ event: TransportEvent) {
