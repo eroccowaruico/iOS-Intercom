@@ -2393,6 +2393,7 @@ enum DefaultGroupCredentialStoreFactory {
 
 enum CurrentProcessRuntimeFactory {
     static func makeLive() -> IntercomViewModel {
+        DefaultOpusCodecBackendFactory.installIfEnabled()
         let localMemberIdentityStore = UserDefaultsLocalMemberIdentityStore()
         let localMemberIdentity = localMemberIdentityStore.loadOrCreate()
         return IntercomViewModel(
