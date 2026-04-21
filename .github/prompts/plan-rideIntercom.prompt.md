@@ -2,6 +2,32 @@
 
 RideIntercom全体に対して、方針逸脱を「発見して直す」運用から「逸脱が入らない」構造へ移行する。中核は、機能契約の固定、共通経路の単一化、Adapter境界の明文化、テスト先行ゲート、設計責務の再配置の5本柱とする。既存の抽象化基盤（Transport/AudioEncoding/RuntimeFactory）を再利用しつつ、未完了境界（Opus/GK/macOS実経路）と不十分な抽象境界を設計段階で閉じる。
 
+**Current Position (2026-04-21)**
+- 現在フェーズ: Phase D の Step 24（Domain service / UseCase への段階移設）に着手中
+- 完了済み（Step 16 先行実施）: Diagnostics を構造化 snapshot 化し、UI は snapshot 表示へ移行
+- 完了済み（Step 24 の一部）: 受信 packet / jitter drain を `RemoteAudioPipelineService` へ抽出
+- 進捗コミット: `98e3f23` `c32ac93` `4bcdb7d` `58edd0f`
+- 次アクション: Step 24 を継続し、packet filter と member state 更新ルールを ViewModel から Domain service へ移設
+- 完了判定の見方: Step 24 が終わるまで「設計移行中」。Step 25-28 は未着手
+
+**Execution Policy (Completion-first)**
+- この計画は「ステップ番号の順守」ではなく「完了条件の充足」を目的に実行する。
+- ステップ番号は依存関係の可視化にのみ使う。依存を壊さない範囲で前後・並行・先行実施を許可する。
+- 実装の優先順位は常に次で決める: 1) 機能契約維持 2) 完了条件への寄与量 3) 変更リスク最小化。
+- 各変更は「テスト追加/更新 -> 実装 -> 全体回帰成功」のゲートを通過しない限り完了扱いにしない。
+- フェーズ完了は、そのフェーズ配下の必須完了条件をすべて満たしたときのみ宣言する。
+
+**Execution-ready Order (実行順バックログ)**
+- Wave 1: 完了条件の土台を先に固定する（Step 2 -> 3 -> 4）
+- Wave 2: 境界を先に確定する（Step 6 -> 7 -> 8 -> 10）
+- Wave 3: 依存の薄いドメインを先行分離する（Step 16 と Step 24 の受信系/診断系を先行）
+- Wave 4: 可変リスクが高い設計を並行で確定する（Step 11, 12, 14, 15）
+- Wave 5: handover と経路品質を確定する（Step 13）
+- Wave 6: テスト体系を再編する（Step 18 -> 19 -> 20, 並行で Step 21, 22）
+- Wave 7: 実装移行を完了させる（Step 24 完了 -> 25, 26, 27, 28）
+- Wave 8: 完了判定と運用移管（Step 30 -> 31）
+- 実行ルール: 各Waveは「完了条件に寄与する最小変更単位」で進め、順序よりゲート通過を優先する。
+
 **Steps**
 1. Phase A: 機能契約固定化（設計は固定しない）
 2. [docs/ios-intercom-spec-v1.md](docs/ios-intercom-spec-v1.md) の要求を一次ソースとし、実コードと既存テストを照合して「維持すべき機能契約」を機械判定可能な受け入れ条件へ再定義する。[docs/implementation-status.md](docs/implementation-status.md) は補助情報としてのみ扱い、未記載の仕様や実装済み挙動がある前提で鵜呑みにしない。設計やクラス構造は固定対象に含めない。*blocks all later steps*
