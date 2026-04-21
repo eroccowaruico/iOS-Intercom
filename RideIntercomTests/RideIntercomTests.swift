@@ -3217,6 +3217,25 @@ struct RideIntercomTests {
         #expect(internetTransport.connectedGroup?.id == IntercomSeedData.recentGroups[0].id)
     }
 
+    @MainActor
+    @Test func viewModelMovesToOfflineReconnectStateWhenLocalFailsWithoutInternet() throws {
+        let localTransport = LocalTransport()
+        let viewModel = IntercomViewModel(
+            groups: IntercomSeedData.recentGroups,
+            localTransport: localTransport,
+            internetTransport: InternetTransport(),
+            audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
+            audioInputMonitor: NoOpAudioInputMonitor()
+        )
+
+        viewModel.selectGroup(IntercomSeedData.recentGroups[0])
+        viewModel.connectLocal()
+        localTransport.simulateLinkFailure(internetAvailable: false)
+
+        #expect(viewModel.connectionState == .reconnectingOffline)
+        #expect(viewModel.localNetworkStatus == .unavailable)
+    }
+
     @Test func handoverMovesFromLocalToInternetOrOffline() {
         var controller = HandoverController()
 
