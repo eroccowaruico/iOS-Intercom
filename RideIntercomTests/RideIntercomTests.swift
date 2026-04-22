@@ -2053,6 +2053,164 @@ struct RideIntercomTests {
     }
 
     @MainActor
+    @Test func masterOutputVolumeScalesRemotePlaybackSamples() throws {
+        let localTransport = LocalTransport()
+        let ticker = NoOpCallTicker()
+        let audioFramePlayer = NoOpAudioFramePlayer()
+        let group = try IntercomGroup(
+            id: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!,
+            name: "Pair",
+            members: [
+                GroupMember(id: "member-001", displayName: "You"),
+                GroupMember(id: "member-002", displayName: "Partner")
+            ]
+        )
+        let viewModel = IntercomViewModel(
+            groups: [group],
+            localTransport: localTransport,
+            audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
+            audioInputMonitor: NoOpAudioInputMonitor(),
+            callTicker: ticker,
+            audioFramePlayer: audioFramePlayer
+        )
+        let received = ReceivedAudioPacket(
+            peerID: "member-002",
+            envelope: AudioPacketEnvelope(
+                groupID: group.id,
+                streamID: UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!,
+                sequenceNumber: 1,
+                sentAt: 10,
+                packet: .voice(frameID: 10, samples: [0.8, -0.4])
+            ),
+            packet: .voice(frameID: 10, samples: [0.8, -0.4])
+        )
+
+        viewModel.selectGroup(group)
+        viewModel.connectLocal()
+        viewModel.setMasterOutputVolume(0.5)
+        localTransport.simulateReceivedPacket(received)
+        ticker.simulateTick(now: 10.02)
+
+        #expect(audioFramePlayer.playedFrames.first?.samples == [0.4, -0.2])
+    }
+
+    @MainActor
+    @Test func perPeerOutputVolumeScalesOnlyMatchingRemotePlaybackSamples() throws {
+        let localTransport = LocalTransport()
+        let ticker = NoOpCallTicker()
+        let audioFramePlayer = NoOpAudioFramePlayer()
+        let group = try IntercomGroup(
+            id: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!,
+            name: "Team",
+            members: [
+                GroupMember(id: "member-001", displayName: "You"),
+                GroupMember(id: "member-002", displayName: "A"),
+                GroupMember(id: "member-003", displayName: "B")
+            ]
+        )
+        let viewModel = IntercomViewModel(
+            groups: [group],
+            localTransport: localTransport,
+            audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
+            audioInputMonitor: NoOpAudioInputMonitor(),
+            callTicker: ticker,
+            audioFramePlayer: audioFramePlayer
+        )
+        let streamA = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
+        let streamB = UUID(uuidString: "CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC")!
+
+        viewModel.selectGroup(group)
+        viewModel.connectLocal()
+        viewModel.setRemoteOutputVolume(peerID: "member-002", value: 0.25)
+        localTransport.simulateReceivedPacket(ReceivedAudioPacket(
+            peerID: "member-002",
+            envelope: AudioPacketEnvelope(groupID: group.id, streamID: streamA, sequenceNumber: 1, sentAt: 20, packet: .voice(frameID: 20, samples: [0.8])),
+            packet: .voice(frameID: 20, samples: [0.8])
+        ))
+        localTransport.simulateReceivedPacket(ReceivedAudioPacket(
+            peerID: "member-003",
+            envelope: AudioPacketEnvelope(groupID: group.id, streamID: streamB, sequenceNumber: 1, sentAt: 20, packet: .voice(frameID: 21, samples: [0.8])),
+            packet: .voice(frameID: 21, samples: [0.8])
+        ))
+        ticker.simulateTick(now: 20.02)
+
+        let playedByPeer = Dictionary(uniqueKeysWithValues: audioFramePlayer.playedFrames.map { ($0.peerID, $0.samples) })
+        #expect(playedByPeer["member-002"] == [0.2])
+        #expect(playedByPeer["member-003"] == [0.8])
+    }
+
+    @MainActor
+    @Test func outputMuteSilencesRemotePlaybackWithoutChangingVolume() throws {
+        let localTransport = LocalTransport()
+        let ticker = NoOpCallTicker()
+        let audioFramePlayer = NoOpAudioFramePlayer()
+        let group = try IntercomGroup(
+            id: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!,
+            name: "Pair",
+            members: [
+                GroupMember(id: "member-001", displayName: "You"),
+                GroupMember(id: "member-002", displayName: "Partner")
+            ]
+        )
+        let viewModel = IntercomViewModel(
+            groups: [group],
+            localTransport: localTransport,
+            audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
+            audioInputMonitor: NoOpAudioInputMonitor(),
+            callTicker: ticker,
+            audioFramePlayer: audioFramePlayer
+        )
+
+        viewModel.selectGroup(group)
+        viewModel.connectLocal()
+        viewModel.setMasterOutputVolume(0.7)
+        viewModel.toggleOutputMute()
+        localTransport.simulateReceivedPacket(ReceivedAudioPacket(
+            peerID: "member-002",
+            envelope: AudioPacketEnvelope(
+                groupID: group.id,
+                streamID: UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!,
+                sequenceNumber: 1,
+                sentAt: 40,
+                packet: .voice(frameID: 40, samples: [0.8, -0.8])
+            ),
+            packet: .voice(frameID: 40, samples: [0.8, -0.8])
+        ))
+        ticker.simulateTick(now: 40.02)
+
+        #expect(viewModel.masterOutputVolume == 0.7)
+        #expect(audioFramePlayer.playedFrames.first?.samples == [0, 0])
+    }
+
+    @MainActor
+    @Test func outputVolumeSettersClampAndMemberRemovalClearsPeerVolume() throws {
+        let group = try IntercomGroup(
+            id: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!,
+            name: "Pair",
+            members: [
+                GroupMember(id: "member-001", displayName: "You"),
+                GroupMember(id: "member-002", displayName: "Partner")
+            ]
+        )
+        let viewModel = IntercomViewModel(
+            groups: [group],
+            audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
+            audioInputMonitor: NoOpAudioInputMonitor()
+        )
+
+        viewModel.selectGroup(group)
+        viewModel.setMasterOutputVolume(2)
+        viewModel.setRemoteOutputVolume(peerID: "member-002", value: -1)
+        #expect(viewModel.masterOutputVolume == 1)
+        #expect(viewModel.remoteOutputVolume(for: "member-002") == 0)
+
+        viewModel.removeMember("member-002", from: group.id)
+
+        #expect(viewModel.remoteOutputVolumes["member-002"] == nil)
+        #expect(viewModel.remoteOutputVolume(for: "member-002") == 1)
+    }
+
+    @MainActor
     @Test func viewModelTracksAudioPipelineStatePerParticipant() throws {
         let localTransport = LocalTransport()
         let ticker = NoOpCallTicker()
@@ -3981,6 +4139,8 @@ struct RideIntercomTests {
         )
 
         viewModel.setPreferredTransmitCodec(.pcm16)
+        viewModel.setMasterOutputVolume(0)
+        viewModel.toggleOutputMute()
         viewModel.startAudioCheck()
         let originalSamples: [Float] = [0.5, -0.5, 0.25, -0.25]
         audioInputMonitor.simulate(samples: originalSamples)

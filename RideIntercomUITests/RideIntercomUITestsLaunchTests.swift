@@ -9,10 +9,6 @@ import XCTest
 
 final class RideIntercomUITestsLaunchTests: XCTestCase {
 
-    override class var runsForEachTargetApplicationUIConfiguration: Bool {
-        true
-    }
-
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
@@ -20,16 +16,24 @@ final class RideIntercomUITestsLaunchTests: XCTestCase {
     @MainActor
     func testLaunch() throws {
         let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--reset-ui-testing-data"]
         app.launch()
+        defer { app.terminate() }
 
-        // Insert steps here to perform after app launch but before taking a screenshot,
-        // such as logging into a test account or navigating somewhere in the app
-        // XCUIAutomation Documentation
-        // https://developer.apple.com/documentation/xcuiautomation
+        XCTAssertTrue(
+            waitForVisibleRoot(in: app),
+            "Expected the app to launch into a visible root screen"
+        )
+    }
 
-        let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = "Launch Screen"
-        attachment.lifetime = .keepAlways
-        add(attachment)
+    private func waitForVisibleRoot(in app: XCUIApplication) -> Bool {
+        app.buttons["createGroupButton"].firstMatch.waitForExistence(timeout: 2)
+            || app.buttons["Create Trail Group"].firstMatch.waitForExistence(timeout: 2)
+            || app.descendants(matching: .any)["liveTransmitPipelineView"].firstMatch.waitForExistence(timeout: 2)
+            || app.descendants(matching: .any)["settingsScrollView"].firstMatch.waitForExistence(timeout: 2)
+            || app.buttons["diagnosticsTab"].firstMatch.waitForExistence(timeout: 2)
+            || app.buttons["Diagnostics"].firstMatch.waitForExistence(timeout: 2)
+            || app.radioButtons["diagnosticsTab"].firstMatch.waitForExistence(timeout: 2)
+            || app.staticTexts["Recent Groups"].firstMatch.waitForExistence(timeout: 2)
     }
 }

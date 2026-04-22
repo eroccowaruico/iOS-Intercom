@@ -2747,6 +2747,9 @@ final class IntercomViewModel {
     private(set) var isSoundIsolationEnabled = false
     private(set) var preferredTransmitCodec: AudioCodecIdentifier = .pcm16
     private(set) var heAACv2Quality: HEAACv2Quality = .medium
+    private(set) var masterOutputVolume: Float = 1
+    private(set) var isOutputMuted = false
+    private(set) var remoteOutputVolumes: [String: Float] = [:]
 
     var availableInputPorts: [AudioPortInfo] { audioSessionManager.availableInputPorts }
     var availableOutputPorts: [AudioPortInfo] { audioSessionManager.availableOutputPorts }
@@ -3101,6 +3104,7 @@ final class IntercomViewModel {
         authenticatedPeerIDs.removeAll { $0 == memberID }
         remoteVoiceReceivedAt.removeValue(forKey: memberID)
         remoteVoicePeakWindows.removeValue(forKey: memberID)
+        remoteOutputVolumes.removeValue(forKey: memberID)
 
         if selectedGroup?.id == groupID {
             selectedGroup = groups[groupIndex]
@@ -3356,6 +3360,22 @@ final class IntercomViewModel {
         }
     }
 
+    func setMasterOutputVolume(_ value: Float) {
+        masterOutputVolume = clampedAudioGain(value)
+    }
+
+    func toggleOutputMute() {
+        isOutputMuted.toggle()
+    }
+
+    func setRemoteOutputVolume(peerID: String, value: Float) {
+        remoteOutputVolumes[peerID] = clampedAudioGain(value)
+    }
+
+    func remoteOutputVolume(for peerID: String) -> Float {
+        remoteOutputVolumes[peerID] ?? 1
+    }
+
     func startAudioCheck(recordDuration: Duration = .seconds(5), playbackDuration: Duration = .seconds(5)) {
         guard audioCheckPhase != .recording, audioCheckPhase != .playing else { return }
 
@@ -3416,7 +3436,7 @@ final class IntercomViewModel {
         droppedAudioPacketCount = drainResult.droppedAudioPacketCount
         jitterQueuedFrameCount = drainResult.jitterQueuedFrameCount
         markPlayedAudioFrames(drainResult.readyFrames)
-        audioFramePlayer.play(drainResult.readyFrames)
+        audioFramePlayer.play(applyOutputGain(to: drainResult.readyFrames))
     }
 
     private func handleMicrophoneLevel(_ level: Float) {
@@ -3824,6 +3844,27 @@ final class IntercomViewModel {
             remoteVoiceReceivedAt.removeValue(forKey: peerID)
             setRemotePeer(peerID, isTalking: false)
         }
+    }
+
+    private func applyOutputGain(to frames: [JitterBufferedAudioFrame]) -> [JitterBufferedAudioFrame] {
+        frames.map { frame in
+            let gain = isOutputMuted ? 0 : masterOutputVolume * remoteOutputVolume(for: frame.peerID)
+            return JitterBufferedAudioFrame(
+                peerID: frame.peerID,
+                streamID: frame.streamID,
+                sequenceNumber: frame.sequenceNumber,
+                frameID: frame.frameID,
+                samples: frame.samples.map { clampedAudioSample($0 * gain) }
+            )
+        }
+    }
+
+    private func clampedAudioGain(_ value: Float) -> Float {
+        min(1, max(0, value))
+    }
+
+    private func clampedAudioSample(_ value: Float) -> Float {
+        min(1, max(-1, value))
     }
 
     private func markConnectedMembers(peerIDs: [String]) {

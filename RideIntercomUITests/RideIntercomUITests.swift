@@ -30,15 +30,17 @@ final class RideIntercomUITests: XCTestCase {
         createTrailGroupAndOpenCall()
 
         XCTAssertTrue(app.staticTexts["Participants"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.descendants(matching: .any)["localMicrophonePanel"].exists)
-        XCTAssertTrue(app.staticTexts["Your Microphone"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["localMicrophonePanel"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["localMicrophoneMeter"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["Live"].exists)
-        XCTAssertTrue(app.descendants(matching: .any)["connectionStatusIcon"].exists)
-        XCTAssertTrue(app.staticTexts["routeLabel"].exists)
-        XCTAssertTrue(app.buttons["Mute"].exists)
-        XCTAssertTrue(app.buttons["inviteButton"].exists)
-        XCTAssertTrue(app.buttons["connectButton"].exists)
-        XCTAssertTrue(app.descendants(matching: .any)["participantSlot0"].exists)
+        XCTAssertTrue(app.staticTexts["callPresenceLabel"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["routeLabel"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["localMicrophoneMuteButton"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.sliders.firstMatch.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["Mute Output"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["inviteButton"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["connectButton"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.descendants(matching: .any)["emptyRemoteParticipantsLabel"].waitForExistence(timeout: 3))
         XCTAssertFalse(app.descendants(matching: .any)["callAudioOutputPicker"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["callAudioInputPicker"].exists)
     }
@@ -52,12 +54,13 @@ final class RideIntercomUITests: XCTestCase {
     }
 
     @MainActor
-    func testMuteControlLivesInsideLocalMicrophonePanel() throws {
+    func testMuteControlLivesWithHeaderMicrophoneMeter() throws {
         createTrailGroupAndOpenCall()
 
-        XCTAssertTrue(app.staticTexts["Your Microphone"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["Mute"].exists)
-        app.buttons["Mute"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["localMicrophoneMeter"].waitForExistence(timeout: 3))
+        let muteButton = app.buttons["localMicrophoneMuteButton"]
+        XCTAssertTrue(muteButton.waitForExistence(timeout: 3))
+        muteButton.tap()
         XCTAssertTrue(app.staticTexts["Muted"].waitForExistence(timeout: 2))
     }
 
@@ -74,24 +77,26 @@ final class RideIntercomUITests: XCTestCase {
     func testDiagnosticsShowRealDeviceSetupIdentifiers() throws {
         relaunchOnDiagnosticsTab()
 
-        XCTAssertTrue(app.descendants(matching: .any)["audioIOPanel"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts["Next start"].exists)
-        XCTAssertTrue(app.descendants(matching: .any)["audioCheckPanel"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts["Call Idle"].exists)
-        XCTAssertTrue(app.staticTexts["Microphone Input"].exists)
-        XCTAssertTrue(app.staticTexts["Speaker Output"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["liveTransmitPipelineView"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Mic"].exists)
+        XCTAssertTrue(app.staticTexts["VAD"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["realDeviceCallDebugSummaryLabel"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["audioIOPanel"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["audioCheckPanel"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["callAudioOutputPicker"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["callAudioInputPicker"].exists)
     }
 
     @MainActor
-    func testAudioCheckControlsAreAvailableFromDiagnostics() throws {
-        relaunchOnDiagnosticsTab()
+    func testAudioCheckControlsAreAvailableFromSettings() throws {
+        openSettingsTab()
 
         XCTAssertTrue(app.buttons["Record 5s and Play"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["Microphone Input"].exists)
         XCTAssertTrue(app.staticTexts["Speaker Output"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["audioCheckPanel"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["audioIOPanel"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["transmitCodecPanel"].exists)
     }
 
     @MainActor
@@ -121,15 +126,16 @@ final class RideIntercomUITests: XCTestCase {
     func testDiagnosticsKeepsMicrophoneIndicatorVisibleWithoutGroup() throws {
         relaunchOnDiagnosticsTab()
 
-        XCTAssertTrue(app.staticTexts["Microphone Input"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts["Speaker Output"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["liveTransmitPipelineView"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Mic"].exists)
+        XCTAssertTrue(app.staticTexts["VAD"].exists)
     }
 
     private func createTrailGroupAndOpenCall() {
         openGroupsTab()
-        let createButton = app.buttons["createGroupButton"].exists
-            ? app.buttons["createGroupButton"]
-            : app.buttons["Create Trail Group"]
+        let createButton = app.buttons["createGroupButton"].firstMatch.exists
+            ? app.buttons["createGroupButton"].firstMatch
+            : app.buttons["Create Trail Group"].firstMatch
         XCTAssertTrue(createButton.waitForExistence(timeout: 3))
         createButton.tap()
         XCTAssertTrue(app.scrollViews["callScreen"].waitForExistence(timeout: 3))
@@ -142,57 +148,78 @@ final class RideIntercomUITests: XCTestCase {
     }
 
     private func openGroupsTab() {
-        if app.buttons["showGroupsButton"].exists {
-            app.buttons["showGroupsButton"].tap()
+        if app.staticTexts["Recent Groups"].firstMatch.exists {
             return
         }
-        if app.tabBars.buttons["Groups"].exists {
-            app.tabBars.buttons["Groups"].tap()
+        if app.buttons["showGroupsButton"].firstMatch.exists {
+            app.buttons["showGroupsButton"].firstMatch.tap()
             return
         }
-        if app.radioButtons["groupsTab"].exists {
-            app.radioButtons["groupsTab"].tap()
+        if app.tabBars.buttons["Groups"].firstMatch.exists {
+            app.tabBars.buttons["Groups"].firstMatch.tap()
             return
         }
-        if app.buttons["Groups"].exists {
-            app.buttons["Groups"].tap()
+        if app.radioButtons["groupsTab"].firstMatch.exists {
+            app.radioButtons["groupsTab"].firstMatch.tap()
+            return
+        }
+        if app.buttons["Groups"].firstMatch.exists {
+            app.buttons["Groups"].firstMatch.tap()
         }
     }
 
     private func openDiagnosticsTab() {
-        if app.tabBars.buttons["Diagnostics"].exists {
-            app.tabBars.buttons["Diagnostics"].tap()
+        if app.descendants(matching: .any)["liveTransmitPipelineView"].firstMatch.exists {
             return
         }
-        if app.radioButtons["diagnosticsTab"].exists {
-            app.radioButtons["diagnosticsTab"].tap()
+        if app.tabBars.buttons["Diagnostics"].firstMatch.exists {
+            app.tabBars.buttons["Diagnostics"].firstMatch.tap()
             return
         }
-        if app.buttons["diagnosticsTab"].exists {
-            app.buttons["diagnosticsTab"].tap()
+        if app.radioButtons["diagnosticsTab"].firstMatch.exists {
+            app.radioButtons["diagnosticsTab"].firstMatch.tap()
             return
         }
-        if app.buttons["Diagnostics"].exists {
-            app.buttons["Diagnostics"].tap()
+        if app.buttons["diagnosticsTab"].firstMatch.exists {
+            app.buttons["diagnosticsTab"].firstMatch.tap()
+            return
+        }
+        if app.buttons["Diagnostics"].firstMatch.exists {
+            app.buttons["Diagnostics"].firstMatch.tap()
+        }
+    }
+
+    private func openSettingsTab() {
+        if app.descendants(matching: .any)["settingsScrollView"].firstMatch.exists {
+            return
+        }
+        if app.tabBars.buttons["Settings"].firstMatch.exists {
+            app.tabBars.buttons["Settings"].firstMatch.tap()
+            return
+        }
+        if app.radioButtons["settingsTab"].firstMatch.exists {
+            app.radioButtons["settingsTab"].firstMatch.tap()
+            return
+        }
+        if app.buttons["settingsTab"].firstMatch.exists {
+            app.buttons["settingsTab"].firstMatch.tap()
+            return
+        }
+        if app.buttons["Settings"].firstMatch.exists {
+            app.buttons["Settings"].firstMatch.tap()
         }
     }
 
     private func waitForVisibleRoot(in app: XCUIApplication) -> Bool {
-        let hasVisibleRoot = app.buttons["createGroupButton"].waitForExistence(timeout: 1)
-            || app.buttons["Create Trail Group"].waitForExistence(timeout: 1)
-            || app.buttons["Record 5s and Play"].waitForExistence(timeout: 1)
-            || app.buttons["diagnosticsTab"].waitForExistence(timeout: 1)
-            || app.buttons["Diagnostics"].waitForExistence(timeout: 1)
-            || app.tabBars.buttons["Diagnostics"].waitForExistence(timeout: 1)
-        if !hasVisibleRoot {
-            app.typeKey("n", modifierFlags: .command)
-            return app.buttons["createGroupButton"].waitForExistence(timeout: 2)
-                || app.buttons["Create Trail Group"].waitForExistence(timeout: 2)
-                || app.buttons["Record 5s and Play"].waitForExistence(timeout: 2)
-                || app.buttons["diagnosticsTab"].waitForExistence(timeout: 2)
-                || app.buttons["Diagnostics"].waitForExistence(timeout: 2)
-                || app.tabBars.buttons["Diagnostics"].waitForExistence(timeout: 2)
-        }
-        return true
+        app.buttons["createGroupButton"].firstMatch.waitForExistence(timeout: 2)
+            || app.buttons["Create Trail Group"].firstMatch.waitForExistence(timeout: 2)
+            || app.descendants(matching: .any)["liveTransmitPipelineView"].firstMatch.waitForExistence(timeout: 2)
+            || app.descendants(matching: .any)["settingsScrollView"].firstMatch.waitForExistence(timeout: 2)
+            || app.buttons["diagnosticsTab"].firstMatch.waitForExistence(timeout: 2)
+            || app.buttons["Diagnostics"].firstMatch.waitForExistence(timeout: 2)
+            || app.radioButtons["diagnosticsTab"].firstMatch.waitForExistence(timeout: 2)
+            || app.radioButtons["settingsTab"].firstMatch.waitForExistence(timeout: 2)
+            || app.tabBars.buttons["Diagnostics"].firstMatch.waitForExistence(timeout: 2)
+            || app.tabBars.buttons["Settings"].firstMatch.waitForExistence(timeout: 2)
     }
 }
