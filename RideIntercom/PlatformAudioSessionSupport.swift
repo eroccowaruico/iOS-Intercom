@@ -39,7 +39,7 @@ final class SystemAudioSessionAdapter: AudioSessionApplying {
     var availableInputPorts: [AudioPortInfo] {
         #if os(iOS)
         let inputs = session.availableInputs ?? []
-        var ports = [.systemDefault]
+        var ports: [AudioPortInfo] = [.systemDefault]
         for input in inputs {
             let candidate = AudioPortInfo(id: input.uid, name: input.portName)
             if !ports.contains(candidate) {
