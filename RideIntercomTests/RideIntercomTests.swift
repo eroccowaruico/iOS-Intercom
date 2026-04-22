@@ -2183,6 +2183,77 @@ struct RideIntercomTests {
     }
 
     @MainActor
+    @Test func muteAutoStopsMicrophoneCaptureAfterDelayAndUnmuteRestarts() async throws {
+        let localTransport = LocalTransport()
+        let audioInputMonitor = NoOpAudioInputMonitor()
+        let group = try IntercomGroup(
+            id: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!,
+            name: "Pair",
+            members: [
+                GroupMember(id: "member-001", displayName: "You"),
+                GroupMember(id: "member-002", displayName: "Partner")
+            ]
+        )
+        let viewModel = IntercomViewModel(
+            groups: [group],
+            localTransport: localTransport,
+            audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
+            audioInputMonitor: audioInputMonitor,
+            muteAutoStopDelay: .milliseconds(20)
+        )
+
+        viewModel.selectGroup(group)
+        viewModel.connectLocal()
+        localTransport.simulateAuthenticatedPeers(["member-002"])
+        #expect(audioInputMonitor.isRunning)
+        #expect(viewModel.isMicrophoneCaptureRunning)
+
+        viewModel.toggleMute()
+        try await Task.sleep(for: .milliseconds(60))
+        #expect(!audioInputMonitor.isRunning)
+        #expect(!viewModel.isMicrophoneCaptureRunning)
+
+        viewModel.toggleMute()
+        #expect(audioInputMonitor.isRunning)
+        #expect(viewModel.isMicrophoneCaptureRunning)
+    }
+
+    @MainActor
+    @Test func unmuteBeforeDelayKeepsMicrophoneCaptureRunning() async throws {
+        let localTransport = LocalTransport()
+        let audioInputMonitor = NoOpAudioInputMonitor()
+        let group = try IntercomGroup(
+            id: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!,
+            name: "Pair",
+            members: [
+                GroupMember(id: "member-001", displayName: "You"),
+                GroupMember(id: "member-002", displayName: "Partner")
+            ]
+        )
+        let viewModel = IntercomViewModel(
+            groups: [group],
+            localTransport: localTransport,
+            audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
+            audioInputMonitor: audioInputMonitor,
+            muteAutoStopDelay: .milliseconds(80)
+        )
+
+        viewModel.selectGroup(group)
+        viewModel.connectLocal()
+        localTransport.simulateAuthenticatedPeers(["member-002"])
+        #expect(audioInputMonitor.isRunning)
+        #expect(viewModel.isMicrophoneCaptureRunning)
+
+        viewModel.toggleMute()
+        viewModel.toggleMute()
+        try await Task.sleep(for: .milliseconds(140))
+
+        #expect(audioInputMonitor.isRunning)
+        #expect(!viewModel.isMuted)
+        #expect(viewModel.isMicrophoneCaptureRunning)
+    }
+
+    @MainActor
     @Test func outputVolumeSettersClampAndMemberRemovalClearsPeerVolume() throws {
         let group = try IntercomGroup(
             id: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!,

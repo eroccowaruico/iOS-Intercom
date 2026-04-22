@@ -2723,6 +2723,7 @@ struct AudioTransmissionController {
 final class IntercomViewModel {
     private static let pendingMemberPrefix = "pending-"
     private static let pendingInviteMemberPrefix = "invite-pending-"
+    static let muteAutoStopDelayDefault: Duration = .seconds(2)
 
     private(set) var groups: [IntercomGroup]
     private(set) var selectedGroup: IntercomGroup?
@@ -2740,6 +2741,9 @@ final class IntercomViewModel {
     private(set) var masterOutputVolume: Float = 1
     private(set) var isOutputMuted = false
     private(set) var remoteOutputVolumes: [String: Float] = [:]
+    var isMicrophoneCaptureRunning: Bool {
+        isAudioReady && !isMicrophoneCaptureSuspendedByMute
+    }
 
     var availableInputPorts: [AudioPortInfo] { audioSessionManager.availableInputPorts }
     var availableOutputPorts: [AudioPortInfo] { audioSessionManager.availableOutputPorts }
@@ -2800,6 +2804,7 @@ final class IntercomViewModel {
     private let groupStore: GroupStoring
     private let localMemberIdentity: LocalMemberIdentity
     private let remoteTalkerTimeout: TimeInterval
+    private let muteAutoStopDelay: Duration
     private var audioTransmissionController: AudioTransmissionController
     private var jitterBuffer: JitterBuffer
     private var remoteVoiceReceivedAt: [String: TimeInterval] = [:]
@@ -2809,7 +2814,9 @@ final class IntercomViewModel {
     private var audioCheckOutputPeakWindow = VoicePeakWindow()
     private var audioCheckRecordedSamples: [Float] = []
     private var audioCheckTask: Task<Void, Never>?
+    private var muteAutoStopTask: Task<Void, Never>?
     private var audioCheckOwnsAudioPipeline = false
+    private var isMicrophoneCaptureSuspendedByMute = false
     private var isLocalStandbyOnly = false
     private var nextAudioFrameID = 1
     private var routeCoordinator = RouteCoordinator()
@@ -2831,7 +2838,8 @@ final class IntercomViewModel {
         callTicker: CallTicking? = nil,
         audioFramePlayer: AudioFramePlaying? = nil,
         jitterBuffer: JitterBuffer? = nil,
-        remoteTalkerTimeout: TimeInterval = 0.6
+        remoteTalkerTimeout: TimeInterval = 0.6,
+        muteAutoStopDelay: Duration = IntercomViewModel.muteAutoStopDelayDefault
     ) {
         let groupStore = groupStore ?? InMemoryGroupStore()
         let storedGroups = groupStore.loadGroups()
@@ -2851,6 +2859,7 @@ final class IntercomViewModel {
         self.localMemberIdentity = (localMemberIdentityStore ?? InMemoryLocalMemberIdentityStore()).loadOrCreate()
         self.jitterBuffer = jitterBuffer ?? JitterBuffer()
         self.remoteTalkerTimeout = remoteTalkerTimeout
+        self.muteAutoStopDelay = muteAutoStopDelay
         self.audioTransmissionController.setVoiceActivityThreshold(initialVoiceActivityDetectionThreshold)
 
         self.localTransport.onEvent = { [weak self] event in
@@ -3206,6 +3215,9 @@ final class IntercomViewModel {
             try audioFramePlayer.start()
             callTicker.start()
             isAudioReady = true
+            if isMuted {
+                scheduleMuteAutoStopIfNeeded()
+            }
             audioErrorMessage = nil
             return true
         } catch {
@@ -3239,6 +3251,8 @@ final class IntercomViewModel {
 
     func disconnect() {
         audioCheckTask?.cancel()
+        muteAutoStopTask?.cancel()
+        muteAutoStopTask = nil
         localTransport.disconnect()
         internetTransport.disconnect()
         audioInputMonitor.stop()
@@ -3248,6 +3262,7 @@ final class IntercomViewModel {
         connectionState = .idle
         isVoiceActive = false
         isAudioReady = false
+        isMicrophoneCaptureSuspendedByMute = false
         remoteVoiceReceivedAt.removeAll()
         resetVoiceLevelWindows()
         connectedPeerIDs = []
@@ -3274,6 +3289,12 @@ final class IntercomViewModel {
 
     func toggleMute() {
         isMuted.toggle()
+        if isMuted {
+            scheduleMuteAutoStopIfNeeded()
+        } else {
+            restoreMicrophoneCaptureIfNeeded()
+        }
+
         guard var group = selectedGroup, !group.members.isEmpty else { return }
         group.members[0].isMuted = isMuted
         if isMuted {
@@ -3285,6 +3306,40 @@ final class IntercomViewModel {
         selectedGroup = group
         replaceSelectedGroup(group)
         activeTransport?.sendControl(.peerMuteState(isMuted: isMuted))
+    }
+
+    private func scheduleMuteAutoStopIfNeeded() {
+        muteAutoStopTask?.cancel()
+        muteAutoStopTask = nil
+
+        guard isAudioReady, !isMicrophoneCaptureSuspendedByMute else { return }
+        muteAutoStopTask = Task { [weak self] in
+            guard let self else { return }
+
+            try? await Task.sleep(for: self.muteAutoStopDelay)
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                guard self.isMuted, self.isAudioReady, !self.isMicrophoneCaptureSuspendedByMute else { return }
+                self.audioInputMonitor.stop()
+                self.isMicrophoneCaptureSuspendedByMute = true
+            }
+        }
+    }
+
+    private func restoreMicrophoneCaptureIfNeeded() {
+        muteAutoStopTask?.cancel()
+        muteAutoStopTask = nil
+
+        guard isMicrophoneCaptureSuspendedByMute, isAudioReady else { return }
+
+        do {
+            try audioInputMonitor.start()
+            isMicrophoneCaptureSuspendedByMute = false
+            audioErrorMessage = nil
+        } catch {
+            audioErrorMessage = audioSetupMessage(for: error)
+        }
     }
 
     func toggleVoiceActivity() {
