@@ -634,30 +634,29 @@ private struct AudioCheckPanel: View {
                     step: 0.00025
                 )
                 .accessibilityIdentifier("voiceActivityDetectionThresholdSlider")
-            }
-            .listRowSeparator(.hidden)
 
-            if viewModel.supportsSoundIsolation {
-                Toggle(
-                    "Sound Isolation",
-                    isOn: Binding(
-                        get: { viewModel.isSoundIsolationEnabled },
-                        set: { viewModel.setSoundIsolationEnabled($0) }
+                if viewModel.supportsSoundIsolation {
+                    Toggle(
+                        "Sound Isolation",
+                        isOn: Binding(
+                            get: { viewModel.isSoundIsolationEnabled },
+                            set: { viewModel.setSoundIsolationEnabled($0) }
+                        )
                     )
-                )
-                .accessibilityIdentifier("soundIsolationToggle")
-            }
+                    .accessibilityIdentifier("soundIsolationToggle")
+                }
 
-            Button {
-                viewModel.startAudioCheck()
-            } label: {
-                Label("Record 5s and Play", systemImage: "record.circle.fill")
+                Button {
+                    viewModel.startAudioCheck()
+                } label: {
+                    Label("Record 5s and Play", systemImage: "record.circle.fill")
+                }
+                .appProminentButtonStyle()
+                .controlSize(.large)
+                .disabled(viewModel.audioCheckPhase == .recording || viewModel.audioCheckPhase == .playing)
+                .accessibilityValue(viewModel.audioCheckPhase.rawValue)
+                .accessibilityIdentifier("audioCheckButton")
             }
-            .appProminentButtonStyle()
-            .controlSize(.large)
-            .disabled(viewModel.audioCheckPhase == .recording || viewModel.audioCheckPhase == .playing)
-            .accessibilityValue(viewModel.audioCheckPhase.rawValue)
-            .accessibilityIdentifier("audioCheckButton")
         } header: {
             Label("Audio Check", systemImage: "waveform")
         }
