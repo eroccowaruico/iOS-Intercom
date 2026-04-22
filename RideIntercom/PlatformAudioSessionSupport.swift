@@ -8,9 +8,13 @@ import CoreAudio
 final class SystemAudioSessionAdapter: AudioSessionApplying {
     #if os(iOS)
     private let session: AVAudioSession
+    private let notificationCenter: NotificationCenter
+    private var onAvailablePortsChanged: (() -> Void)?
+    private var routeChangeObserver: NSObjectProtocol?
 
-    init(session: AVAudioSession = .sharedInstance()) {
+    init(session: AVAudioSession = .sharedInstance(), notificationCenter: NotificationCenter = .default) {
         self.session = session
+        self.notificationCenter = notificationCenter
     }
     #else
     init() {}
@@ -35,7 +39,14 @@ final class SystemAudioSessionAdapter: AudioSessionApplying {
     var availableInputPorts: [AudioPortInfo] {
         #if os(iOS)
         let inputs = session.availableInputs ?? []
-        return [.systemDefault] + inputs.map { AudioPortInfo(id: $0.uid, name: $0.portName) }
+        var ports = [.systemDefault]
+        for input in inputs {
+            let candidate = AudioPortInfo(id: input.uid, name: input.portName)
+            if !ports.contains(candidate) {
+                ports.append(candidate)
+            }
+        }
+        return ports
         #else
         return coreAudioPorts(scope: kAudioDevicePropertyScopeInput)
         #endif
@@ -103,6 +114,32 @@ final class SystemAudioSessionAdapter: AudioSessionApplying {
         #else
         if let deviceID = AudioDeviceID(port.id) {
             setMacDevice(deviceID, selector: kAudioHardwarePropertyDefaultOutputDevice)
+        }
+        #endif
+    }
+
+    func setAvailablePortsChangedHandler(_ handler: (() -> Void)?) {
+        #if os(iOS)
+        onAvailablePortsChanged = handler
+        if let routeChangeObserver {
+            notificationCenter.removeObserver(routeChangeObserver)
+            self.routeChangeObserver = nil
+        }
+        guard handler != nil else { return }
+        routeChangeObserver = notificationCenter.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: session,
+            queue: .main
+        ) { [weak self] _ in
+            self?.onAvailablePortsChanged?()
+        }
+        #endif
+    }
+
+    deinit {
+        #if os(iOS)
+        if let routeChangeObserver {
+            notificationCenter.removeObserver(routeChangeObserver)
         }
         #endif
     }

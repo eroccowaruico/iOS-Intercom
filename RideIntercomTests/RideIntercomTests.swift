@@ -1371,6 +1371,24 @@ struct RideIntercomTests {
     }
 
     @MainActor
+    @Test func audioSessionManagerFallsBackToAutoWhenSelectedOutputPortDisappears() throws {
+        let session = NoOpAudioSession()
+        let manager = AudioSessionManager(session: session)
+        let btPort = AudioPortInfo(id: "bt-001", name: "AirPods")
+        session.stubbedOutputPorts = [.systemDefault, btPort]
+
+        try manager.configureForIntercom()
+        try manager.setOutputPort(btPort)
+        #expect(manager.selectedOutputPort == btPort)
+
+        session.stubbedOutputPorts = [.systemDefault]
+        session.simulateAvailablePortsChanged()
+
+        #expect(manager.selectedOutputPort == .systemDefault)
+        #expect(session.outputPortSelections == [.systemDefault, btPort, .systemDefault])
+    }
+
+    @MainActor
     @Test func viewModelChangesOutputPortViaSessionManager() {
         let session = NoOpAudioSession()
         let viewModel = IntercomViewModel(
@@ -1403,6 +1421,27 @@ struct RideIntercomTests {
 
         #expect(viewModel.availableInputPorts == [.systemDefault, btPort])
         #expect(viewModel.availableOutputPorts == [.systemDefault, btPort])
+    }
+
+    @MainActor
+    @Test func viewModelFallsBackToAutoOutputWhenRouteChangeRemovesCurrentPort() {
+        let session = NoOpAudioSession()
+        let btPort = AudioPortInfo(id: "bt-001", name: "AirPods")
+        session.stubbedOutputPorts = [.systemDefault, btPort]
+        let viewModel = IntercomViewModel(
+            audioSessionManager: AudioSessionManager(session: session),
+            audioInputMonitor: NoOpAudioInputMonitor(),
+            audioFramePlayer: NoOpAudioFramePlayer()
+        )
+
+        viewModel.startAudioCheck()
+        viewModel.setOutputPort(btPort)
+        #expect(viewModel.selectedOutputPort == btPort)
+
+        session.stubbedOutputPorts = [.systemDefault]
+        session.simulateAvailablePortsChanged()
+
+        #expect(viewModel.selectedOutputPort == .systemDefault)
     }
 
     @MainActor
@@ -3613,15 +3652,24 @@ struct RideIntercomTests {
     }
 
     @Test func defaultInternetTransportAdapterFactorySelectsAdapterFromEnvironment() {
-        let loopback = DefaultInternetTransportAdapterFactory.make(environment: [:])
-        #expect(loopback is LoopbackInternetTransportAdapter)
+        let preferred = DefaultInternetTransportAdapterFactory.make(environment: [:])
+        #if canImport(GameKit)
+        #expect(preferred is GameKitInternetTransportAdapter)
+        #else
+        #expect(preferred is LoopbackInternetTransportAdapter)
+        #endif
 
         let invalid = DefaultInternetTransportAdapterFactory.make(environment: [
             InternetTransportEndpointConfig.environmentKey: "not-a-url"
         ])
+        #if canImport(GameKit)
+        #expect(invalid is GameKitInternetTransportAdapter)
+        #else
         #expect(invalid is LoopbackInternetTransportAdapter)
+        #endif
 
         let remote = DefaultInternetTransportAdapterFactory.make(environment: [
+            InternetTransportEndpointConfig.forceLegacyAdapterEnvironmentKey: "1",
             InternetTransportEndpointConfig.environmentKey: "wss://example.com/intercom"
         ])
         #expect(remote is URLSessionInternetTransportAdapter)
@@ -3792,7 +3840,11 @@ struct RideIntercomTests {
     }
 
     @Test func routeCoordinatorMovesBetweenLocalInternetAndOfflineStates() {
-        var coordinator = RouteCoordinator(policy: DefaultRoutePolicy())
+        var coordinator = RouteCoordinator(
+            policy: DefaultRoutePolicy(),
+            probeWindow: 5,
+            dualSendWindow: 1
+        )
 
         coordinator.connectLocal()
         #expect(coordinator.state == .localConnected)
@@ -3802,6 +3854,7 @@ struct RideIntercomTests {
 
         coordinator.internetDidConnect()
         #expect(coordinator.state == .internetConnected)
+        coordinator.localCandidateDetected(now: 100)
 
         coordinator.evaluateLocalProbe(RouteProbeMetrics(
             rttMilliseconds: 30,
@@ -3809,8 +3862,12 @@ struct RideIntercomTests {
             packetLossRate: 0,
             peerCount: 2,
             expectedPeerCount: 2
-        ))
+        ), now: 100)
+        #expect(coordinator.shouldDualSend)
+        #expect(coordinator.state == .internetConnected)
+        coordinator.advance(now: 101.2)
         #expect(coordinator.state == .localConnected)
+        #expect(coordinator.shouldDualSend == false)
 
         coordinator.localLinkDidFail(internetAvailable: false)
         #expect(coordinator.state == .reconnectingOffline)

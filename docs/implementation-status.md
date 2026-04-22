@@ -11,6 +11,8 @@
 - Audio session設定: `AudioSessionManager`
   - iPhoneでは `AVAudioSession` を `playAndRecord` / `voiceChat` / `mixWithOthers` / Bluetooth対応で有効化
   - UIテストでは no-op adapter で同じ設定値を検証
+  - iOS route change 通知を監視し、BT/有線の着脱で available input/output ports を即時更新
+  - 選択中の出力ポートが消失した場合は `Auto` へ安全フォールバックし、通話中も継続
 - Audio input監視: `AudioInputMonitoring`
   - iPhone/macOS通常起動では `AVAudioEngine` input tap でマイク入力レベルをRMS計算
   - macOS/iOSとも実マイク開始前に `AVCaptureDevice.authorizationStatus(for: .audio)` を確認し、未承認なら `requestAccess(for: .audio)` で明示的に権限ダイアログを出す
@@ -162,4 +164,6 @@
   - 招待URL受信後は `JOINED <group name>` を表示し、参加側でjoin処理が通ったことを確認可能
   - `UserDefaultsGroupStore` を追加し、通常iPhone起動では作成/招待/実peer追加後のグループ表示情報を再起動後も復元
   - グループ表示情報の永続化では `accessSecret` を保存せず、secretはcredential store側へ分離
-- SwiftData永続化、GameKit transport、Opus実装への差し替えは今後のフェーズで実装予定
+- SwiftData永続化、Opus実装の実運用差し替えは今後のフェーズで実装予定
+  - GameKit transport adapter を追加し、既定のInternet経路選択は `GameKit -> URLSession/Loopback fallback` を採用
+  - Internet adapter の legacy固定が必要な場合は `RIDEINTERCOM_FORCE_LEGACY_INTERNET_ADAPTER=1` でURLSession/Loopback系を強制

@@ -63,6 +63,17 @@
 - Application/Domain 側に OS 条件分岐を増やさない。
 - Contract test と Adapter test を同時追加する。
 
+## 実機受け入れチェック（高優先）
+
+- Audio route:
+  - Receiver / Speaker / BT / 有線 の切替が Diagnostics の `Audio I/O` から即時反映される。
+  - 選択中デバイスを抜いたとき `Auto` に戻って通話が継続する。
+- Sound Isolation:
+  - 通話中 ON/OFF で再接続なし反映、失敗時は前状態へ戻る。
+- Handover:
+  - Local断でInternetへ移行し、Local復帰候補検出後に自動でLocalへ戻る。
+  - 復帰中は短時間の二重送信で音切れが最小化される。
+
 ## 完了判定ゲート
 
 - docs/spec-traceability.md の対応行が更新されている。

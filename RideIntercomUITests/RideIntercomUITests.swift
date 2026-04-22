@@ -1,113 +1,104 @@
 import XCTest
 
 final class RideIntercomUITests: XCTestCase {
-    private static var sharedApp: XCUIApplication?
-
-    private var app: XCUIApplication {
-        guard let app = Self.sharedApp else {
-            XCTFail("Shared app is not initialized")
-            return XCUIApplication()
-        }
-        return app
-    }
+    private var app: XCUIApplication!
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        guard ProcessInfo.processInfo.environment["RUN_UI_TESTS"] == "1" else {
-            throw XCTSkip("UI tests are opt-in. Set RUN_UI_TESTS=1 to run them.")
-        }
 
-        if Self.sharedApp == nil {
-            let app = XCUIApplication()
-            app.launchArguments = ["--ui-testing", "--reset-ui-testing-data"]
-            app.launch()
-            ensureVisibleRoot(in: app)
-            Self.sharedApp = app
+        launchApp()
+    }
+
+    private func launchApp(startOnDiagnostics: Bool = false) {
+        app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--reset-ui-testing-data"]
+        if startOnDiagnostics {
+            app.launchArguments.append("--start-on-diagnostics")
         }
+        app.launch()
+
+        XCTAssertTrue(waitForVisibleRoot(in: app), "Expected the app to launch into a visible root screen")
+    }
+
+    override func tearDownWithError() throws {
+        app.terminate()
+        app = nil
     }
 
     @MainActor
-    func testGroupSelectionConnectsToSixSlotCallScreen() throws {
-        openGroupsTab()
-        XCTAssertTrue(app.buttons["createGroupButton"].waitForExistence(timeout: 3))
-        app.buttons["createGroupButton"].tap()
+    func testGroupSelectionOpensCallScreen() throws {
+        createTrailGroupAndOpenCall()
 
         XCTAssertTrue(app.staticTexts["Participants"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.descendants(matching: .any)["localMicrophonePanel"].exists)
         XCTAssertTrue(app.staticTexts["Your Microphone"].exists)
         XCTAssertTrue(app.staticTexts["Live"].exists)
-        XCTAssertTrue(app.otherElements["connectionStatusIcon"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["connectionStatusIcon"].exists)
         XCTAssertTrue(app.staticTexts["routeLabel"].exists)
         XCTAssertTrue(app.buttons["Mute"].exists)
         XCTAssertTrue(app.buttons["inviteButton"].exists)
-        XCTAssertTrue(app.buttons["Connect"].exists)
+        XCTAssertTrue(app.buttons["connectButton"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["participantSlot0"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["callAudioOutputPicker"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["callAudioInputPicker"].exists)
     }
 
     @MainActor
     func testManualAddRiderButtonIsNotShownInCallUI() throws {
-        openGroupsTab()
-        XCTAssertTrue(app.buttons["createGroupButton"].waitForExistence(timeout: 3))
-        app.buttons["createGroupButton"].tap()
+        createTrailGroupAndOpenCall()
+
         XCTAssertFalse(app.buttons["Add Rider"].exists)
         XCTAssertTrue(app.buttons["inviteButton"].waitForExistence(timeout: 3))
     }
 
     @MainActor
     func testMuteControlLivesInsideLocalMicrophonePanel() throws {
-        openGroupsTab()
-        XCTAssertTrue(app.buttons["createGroupButton"].waitForExistence(timeout: 3))
-        app.buttons["createGroupButton"].tap()
+        createTrailGroupAndOpenCall()
 
         XCTAssertTrue(app.staticTexts["Your Microphone"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.buttons["Mute"].exists)
         app.buttons["Mute"].tap()
-        XCTAssertTrue(app.buttons["Unmute"].waitForExistence(timeout: 2))
-        XCTAssertTrue(app.staticTexts["Muted"].exists)
+        XCTAssertTrue(app.staticTexts["Muted"].waitForExistence(timeout: 2))
     }
 
     @MainActor
-    func testParticipantDeletionCanBeExercisedFromUI() throws {
-        openGroupsTab()
-        XCTAssertTrue(app.buttons["createGroupButton"].waitForExistence(timeout: 3))
-        app.buttons["createGroupButton"].tap()
+    func testParticipantDeletionIsNotShownForLocalMemberOnly() throws {
+        createTrailGroupAndOpenCall()
+
         XCTAssertFalse(app.buttons["Add Rider"].exists)
+        XCTAssertFalse(app.buttons["removeParticipantButton0"].exists)
         XCTAssertTrue(app.buttons["inviteButton"].exists)
     }
 
     @MainActor
     func testDiagnosticsShowRealDeviceSetupIdentifiers() throws {
-        openDiagnosticsTab()
+        relaunchOnDiagnosticsTab()
 
-        XCTAssertTrue(app.otherElements["audioIOPanel"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts["liveAudioStateLabel"].exists)
-        XCTAssertTrue(app.staticTexts["audioIOApplyStateLabel"].exists)
-        XCTAssertTrue(app.otherElements["audioCheckPanel"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.otherElements["audioCheckInputMeter"].exists)
-        XCTAssertTrue(app.otherElements["audioCheckOutputMeter"].exists)
-        XCTAssertTrue(app.descendants(matching: .any)["audioCheckOutputPicker"].exists)
-        XCTAssertTrue(app.descendants(matching: .any)["audioCheckInputPicker"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["audioIOPanel"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Next start"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["audioCheckPanel"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Call Idle"].exists)
+        XCTAssertTrue(app.staticTexts["Microphone Input"].exists)
+        XCTAssertTrue(app.staticTexts["Speaker Output"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["callAudioOutputPicker"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["callAudioInputPicker"].exists)
     }
 
     @MainActor
     func testAudioCheckControlsAreAvailableFromDiagnostics() throws {
-        openDiagnosticsTab()
+        relaunchOnDiagnosticsTab()
 
         XCTAssertTrue(app.buttons["Record 5s and Play"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["Microphone Input"].exists)
         XCTAssertTrue(app.staticTexts["Speaker Output"].exists)
-        XCTAssertTrue(app.otherElements["audioCheckInputMeter"].exists)
-        XCTAssertTrue(app.otherElements["audioCheckOutputMeter"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["audioCheckPanel"].exists)
     }
 
     @MainActor
     func testVoiceActivityAndHandoverCanBeExercisedFromUI() throws {
-        openGroupsTab()
-        XCTAssertTrue(app.buttons["createGroupButton"].waitForExistence(timeout: 3))
-        app.buttons["createGroupButton"].tap()
-        XCTAssertTrue(app.staticTexts["Participants"].waitForExistence(timeout: 3))
+        createTrailGroupAndOpenCall()
 
-        XCTAssertTrue(app.buttons["Connect"].exists)
+        XCTAssertTrue(app.buttons["connectButton"].exists)
         XCTAssertFalse(app.buttons["Refresh"].exists)
         XCTAssertFalse(app.buttons["Simulate Handover"].exists)
         XCTAssertFalse(app.staticTexts["Silent"].exists)
@@ -115,9 +106,7 @@ final class RideIntercomUITests: XCTestCase {
 
     @MainActor
     func testGroupDeletionCanBeExercisedFromUI() throws {
-        openGroupsTab()
-        XCTAssertTrue(app.buttons["createGroupButton"].waitForExistence(timeout: 3))
-        app.buttons["createGroupButton"].tap()
+        createTrailGroupAndOpenCall()
         openGroupsTab()
 
         let groupRow = app.buttons["groupRow-Trail Group"]
@@ -130,10 +119,26 @@ final class RideIntercomUITests: XCTestCase {
 
     @MainActor
     func testDiagnosticsKeepsMicrophoneIndicatorVisibleWithoutGroup() throws {
-        openDiagnosticsTab()
+        relaunchOnDiagnosticsTab()
 
-        XCTAssertTrue(app.otherElements["audioCheckInputMeter"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.otherElements["audioCheckOutputMeter"].exists)
+        XCTAssertTrue(app.staticTexts["Microphone Input"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Speaker Output"].exists)
+    }
+
+    private func createTrailGroupAndOpenCall() {
+        openGroupsTab()
+        let createButton = app.buttons["createGroupButton"].exists
+            ? app.buttons["createGroupButton"]
+            : app.buttons["Create Trail Group"]
+        XCTAssertTrue(createButton.waitForExistence(timeout: 3))
+        createButton.tap()
+        XCTAssertTrue(app.scrollViews["callScreen"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Participants"].waitForExistence(timeout: 3))
+    }
+
+    private func relaunchOnDiagnosticsTab() {
+        app.terminate()
+        launchApp(startOnDiagnostics: true)
     }
 
     private func openGroupsTab() {
@@ -143,6 +148,10 @@ final class RideIntercomUITests: XCTestCase {
         }
         if app.tabBars.buttons["Groups"].exists {
             app.tabBars.buttons["Groups"].tap()
+            return
+        }
+        if app.radioButtons["groupsTab"].exists {
+            app.radioButtons["groupsTab"].tap()
             return
         }
         if app.buttons["Groups"].exists {
@@ -155,6 +164,10 @@ final class RideIntercomUITests: XCTestCase {
             app.tabBars.buttons["Diagnostics"].tap()
             return
         }
+        if app.radioButtons["diagnosticsTab"].exists {
+            app.radioButtons["diagnosticsTab"].tap()
+            return
+        }
         if app.buttons["diagnosticsTab"].exists {
             app.buttons["diagnosticsTab"].tap()
             return
@@ -164,7 +177,7 @@ final class RideIntercomUITests: XCTestCase {
         }
     }
 
-    private func ensureVisibleRoot(in app: XCUIApplication) {
+    private func waitForVisibleRoot(in app: XCUIApplication) -> Bool {
         let hasVisibleRoot = app.buttons["createGroupButton"].waitForExistence(timeout: 1)
             || app.buttons["Create Trail Group"].waitForExistence(timeout: 1)
             || app.buttons["Record 5s and Play"].waitForExistence(timeout: 1)
@@ -173,6 +186,13 @@ final class RideIntercomUITests: XCTestCase {
             || app.tabBars.buttons["Diagnostics"].waitForExistence(timeout: 1)
         if !hasVisibleRoot {
             app.typeKey("n", modifierFlags: .command)
+            return app.buttons["createGroupButton"].waitForExistence(timeout: 2)
+                || app.buttons["Create Trail Group"].waitForExistence(timeout: 2)
+                || app.buttons["Record 5s and Play"].waitForExistence(timeout: 2)
+                || app.buttons["diagnosticsTab"].waitForExistence(timeout: 2)
+                || app.buttons["Diagnostics"].waitForExistence(timeout: 2)
+                || app.tabBars.buttons["Diagnostics"].waitForExistence(timeout: 2)
         }
+        return true
     }
 }

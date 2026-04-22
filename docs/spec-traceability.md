@@ -8,13 +8,13 @@
 | Acceptance ID | 実装シンボル | テスト | 状態 |
 | --- | --- | --- | --- |
 | A-F-001 | IntercomViewModel.connectLocal, AudioSessionManager.configureForIntercom | audioSessionManagerUsesIntercomConfigurationAndActivates, audioCheckUsesAudioCheckSessionConfigurationWhenStartedOffline | covered |
-| A-F-002 | AudioSessionManager.setInputPort, setOutputPort | viewModelCanSwitchInputPortViaSessionManager, viewModelChangesOutputPortViaSessionManager | covered |
+| A-F-002 | AudioSessionManager.setInputPort, setOutputPort, handleAvailablePortsChanged | viewModelCanSwitchInputPortViaSessionManager, viewModelChangesOutputPortViaSessionManager, audioSessionManagerFallsBackToAutoWhenSelectedOutputPortDisappears, viewModelFallsBackToAutoOutputWhenRouteChangeRemovesCurrentPort | covered |
 | A-F-003 | LocalTransport.connect, IntercomViewModel.handleTransportEvent | localTransportEmitsConnectedAndRecordsPackets, viewModelUpdatesConnectionStateFromTransportEvents | covered |
 | A-F-004 | AudioMixer.mix, BufferedAudioFramePlayer.play | receiverMixesSimultaneousVoiceFromTwoRemotePeers | covered |
 | A-F-005 | IntercomViewModel.markConnectedMembers | viewModelUpdatesConnectionStateFromTransportEvents, remoteMuteStateEventUpdatesOnlyTargetParticipant | covered |
 | A-F-006 | LocalTransport, LocalNetworkConfiguration | localNetworkConfigurationUsesValidBonjourServiceValues, localTransportEmitsConnectedAndRecordsPackets | covered |
 | A-F-007 | MultipeerPayloadBuilder.makePayload(mode: unreliable) | multipeerPayloadBuilderEncodesVoiceWithEnvelopeMetadata | covered |
-| A-F-008 | IntercomViewModel.handleTransportEvent(.linkFailed), InternetTransport.connect, InternetTransportAdapter, DefaultInternetTransportAdapterFactory.make | viewModelUpdatesConnectionStateFromTransportEvents, internetTransportForwardsAudioPayloadToAdapter, internetTransportMapsAdapterIncomingPayloadToReceivedPacketEvent, defaultInternetTransportAdapterFactorySelectsAdapterFromEnvironment | covered |
+| A-F-008 | IntercomViewModel.handleTransportEvent(.linkFailed), InternetTransport.connect, InternetTransportAdapter, GameKitInternetTransportAdapter, DefaultInternetTransportAdapterFactory.make | viewModelUpdatesConnectionStateFromTransportEvents, internetTransportForwardsAudioPayloadToAdapter, internetTransportMapsAdapterIncomingPayloadToReceivedPacketEvent, defaultInternetTransportAdapterFactorySelectsAdapterFromEnvironment | covered |
 | A-F-009 | IntercomViewModel.connectionState, localNetworkStatus | viewModelMovesToOfflineReconnectStateWhenLocalFailsWithoutInternet | covered |
 | A-F-010 | HandoverController.localCandidateDidPassProbe | handoverMovesFromLocalToInternetOrOffline | covered |
 | A-F-011 | HandoverController (state machine for probing-ready architecture) | handoverMovesFromLocalToInternetOrOffline | covered |

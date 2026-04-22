@@ -761,6 +761,7 @@ protocol AudioSessionApplying: AnyObject {
     var availableOutputPorts: [AudioPortInfo] { get }
     func setPreferredInputPort(_ port: AudioPortInfo) throws
     func setPreferredOutputPort(_ port: AudioPortInfo) throws
+    func setAvailablePortsChangedHandler(_ handler: (() -> Void)?)
 }
 
 extension AudioSessionApplying {
@@ -768,6 +769,7 @@ extension AudioSessionApplying {
     var availableOutputPorts: [AudioPortInfo] { [.systemDefault] }
     func setPreferredInputPort(_ port: AudioPortInfo) throws {}
     func setPreferredOutputPort(_ port: AudioPortInfo) throws {}
+    func setAvailablePortsChangedHandler(_ handler: (() -> Void)?) {}
 }
 
 
@@ -776,12 +778,16 @@ final class AudioSessionManager {
     private(set) var isConfigured = false
     private(set) var selectedInputPort: AudioPortInfo = .systemDefault
     private(set) var selectedOutputPort: AudioPortInfo = .systemDefault
+    var onAvailablePortsChanged: (() -> Void)?
 
     var availableInputPorts: [AudioPortInfo] { session.availableInputPorts }
     var availableOutputPorts: [AudioPortInfo] { session.availableOutputPorts }
 
     init(session: AudioSessionApplying = SystemAudioSessionAdapter()) {
         self.session = session
+        self.session.setAvailablePortsChangedHandler { [weak self] in
+            self?.handleAvailablePortsChanged()
+        }
     }
 
     func configureForIntercom() throws {
@@ -816,6 +822,27 @@ final class AudioSessionManager {
         try session.setActive(false)
         isConfigured = false
     }
+
+    private func handleAvailablePortsChanged() {
+        let inputPorts = session.availableInputPorts
+        let outputPorts = session.availableOutputPorts
+
+        if !inputPorts.contains(selectedInputPort) {
+            selectedInputPort = .systemDefault
+            if isConfigured {
+                try? session.setPreferredInputPort(.systemDefault)
+            }
+        }
+
+        if !outputPorts.contains(selectedOutputPort) {
+            selectedOutputPort = .systemDefault
+            if isConfigured {
+                try? session.setPreferredOutputPort(.systemDefault)
+            }
+        }
+
+        onAvailablePortsChanged?()
+    }
 }
 
 final class NoOpAudioSession: AudioSessionApplying {
@@ -826,6 +853,7 @@ final class NoOpAudioSession: AudioSessionApplying {
 
     var stubbedInputPorts: [AudioPortInfo] = [.systemDefault]
     var stubbedOutputPorts: [AudioPortInfo] = [.systemDefault]
+    private var onAvailablePortsChanged: (() -> Void)?
 
     var availableInputPorts: [AudioPortInfo] { stubbedInputPorts }
     var availableOutputPorts: [AudioPortInfo] { stubbedOutputPorts }
@@ -844,6 +872,14 @@ final class NoOpAudioSession: AudioSessionApplying {
 
     func setPreferredOutputPort(_ port: AudioPortInfo) throws {
         outputPortSelections.append(port)
+    }
+
+    func setAvailablePortsChangedHandler(_ handler: (() -> Void)?) {
+        onAvailablePortsChanged = handler
+    }
+
+    func simulateAvailablePortsChanged() {
+        onAvailablePortsChanged?()
     }
 }
 
@@ -1466,33 +1502,106 @@ struct DefaultRoutePolicy: RoutePolicy {
 }
 
 struct RouteCoordinator {
+    enum Phase: Equatable {
+        case idle
+        case localConnected
+        case internetConnecting
+        case internetConnected
+        case localCandidate(deadline: TimeInterval)
+        case localProbing(deadline: TimeInterval)
+        case handoverToLocal(deadline: TimeInterval)
+        case reconnectingOffline
+    }
+
     private(set) var state: CallConnectionState = .idle
+    private(set) var phase: Phase = .idle
     private var policy: any RoutePolicy
+    private let probeWindow: TimeInterval
+    private let dualSendWindow: TimeInterval
 
     init(policy: any RoutePolicy = DefaultRoutePolicy()) {
         self.policy = policy
+        self.probeWindow = 7.5
+        self.dualSendWindow = 1.0
+    }
+
+    init(
+        policy: any RoutePolicy = DefaultRoutePolicy(),
+        probeWindow: TimeInterval,
+        dualSendWindow: TimeInterval
+    ) {
+        self.policy = policy
+        self.probeWindow = probeWindow
+        self.dualSendWindow = dualSendWindow
     }
 
     mutating func connectLocal() {
         state = .localConnected
+        phase = .localConnected
     }
 
     mutating func localLinkDidFail(internetAvailable: Bool) {
-        state = internetAvailable ? .internetConnecting : .reconnectingOffline
+        if internetAvailable {
+            state = .internetConnecting
+            phase = .internetConnecting
+        } else {
+            state = .reconnectingOffline
+            phase = .reconnectingOffline
+        }
     }
 
     mutating func internetDidConnect() {
         state = .internetConnected
+        phase = .internetConnected
     }
 
-    mutating func evaluateLocalProbe(_ metrics: RouteProbeMetrics) {
-        if policy.shouldPreferLocal(afterProbe: metrics) {
-            state = .localConnected
+    mutating func localCandidateDetected(now: TimeInterval = Date().timeIntervalSince1970) {
+        guard case .internetConnected = phase else { return }
+        phase = .localCandidate(deadline: now + probeWindow)
+    }
+
+    mutating func beginLocalProbe(now: TimeInterval = Date().timeIntervalSince1970) {
+        switch phase {
+        case .internetConnected, .localCandidate:
+            phase = .localProbing(deadline: now + probeWindow)
+        default:
+            break
         }
+    }
+
+    mutating func evaluateLocalProbe(_ metrics: RouteProbeMetrics, now: TimeInterval = Date().timeIntervalSince1970) {
+        beginLocalProbe(now: now)
+        if policy.shouldPreferLocal(afterProbe: metrics) {
+            phase = .handoverToLocal(deadline: now + dualSendWindow)
+        }
+    }
+
+    mutating func advance(now: TimeInterval = Date().timeIntervalSince1970) {
+        switch phase {
+        case .localCandidate(let deadline), .localProbing(let deadline):
+            if now >= deadline {
+                phase = .internetConnected
+            }
+        case .handoverToLocal(let deadline):
+            if now >= deadline {
+                phase = .localConnected
+                state = .localConnected
+            }
+        default:
+            break
+        }
+    }
+
+    var shouldDualSend: Bool {
+        if case .handoverToLocal = phase {
+            return true
+        }
+        return false
     }
 
     mutating func disconnect() {
         state = .idle
+        phase = .idle
     }
 }
 
@@ -2757,6 +2866,9 @@ final class IntercomViewModel {
         self.internetTransport.onEvent = { [weak self] event in
             self?.handleTransportEvent(event, route: .internet)
         }
+        self.audioSessionManager.onAvailablePortsChanged = { [weak self] in
+            self?.handleAvailableAudioPortsChanged()
+        }
         self.audioInputMonitor.onLevel = { [weak self] level in
             self?.handleMicrophoneLevel(level)
         }
@@ -3219,7 +3331,7 @@ final class IntercomViewModel {
     func setInputPort(_ port: AudioPortInfo) {
         do {
             try audioSessionManager.setInputPort(port)
-            selectedInputPort = port
+            selectedInputPort = audioSessionManager.selectedInputPort
             audioErrorMessage = nil
         } catch {
             audioErrorMessage = "Audio input device change failed"
@@ -3229,7 +3341,7 @@ final class IntercomViewModel {
     func setOutputPort(_ port: AudioPortInfo) {
         do {
             try audioSessionManager.setOutputPort(port)
-            selectedOutputPort = port
+            selectedOutputPort = audioSessionManager.selectedOutputPort
             audioErrorMessage = nil
         } catch {
             audioErrorMessage = "Audio output device change failed"
@@ -3284,6 +3396,8 @@ final class IntercomViewModel {
     }
 
     private func handleCallTick(now: TimeInterval) {
+        routeCoordinator.advance(now: now)
+        connectionState = routeCoordinator.state
         expireRemoteTalkers(now: now)
         drainJitterBuffer(now: now)
     }
@@ -3454,9 +3568,19 @@ final class IntercomViewModel {
         case .voice:
             sentVoicePacketCount += 1
             setLocalActiveCodec(preferredTransmitCodec)
-            activeTransport?.sendAudioFrame(packet)
+            if routeCoordinator.shouldDualSend {
+                localTransport.sendAudioFrame(packet)
+                internetTransport.sendAudioFrame(packet)
+            } else {
+                activeTransport?.sendAudioFrame(packet)
+            }
         case .keepalive:
-            activeTransport?.sendControl(.keepalive)
+            if routeCoordinator.shouldDualSend {
+                localTransport.sendControl(.keepalive)
+                internetTransport.sendControl(.keepalive)
+            } else {
+                activeTransport?.sendControl(.keepalive)
+            }
         }
     }
 
@@ -3509,6 +3633,7 @@ final class IntercomViewModel {
             addDiscoveredMembersIfNeeded(peerIDs: authenticatedPeerIDs)
             if !isLocalStandbyOnly {
                 if route == .local {
+                    routeCoordinator.localCandidateDetected()
                     routeCoordinator.evaluateLocalProbe(defaultRouteProbeMetrics())
                 } else {
                     routeCoordinator.internetDidConnect()
@@ -3541,11 +3666,17 @@ final class IntercomViewModel {
                 authenticatedPeerIDs = []
                 localNetworkStatus = .unavailable
                 connectionState = routeCoordinator.state
-                markMembers(.connecting)
+        markMembers(.connecting)
             }
         case .receivedPacket(let packet):
             handleReceivedPacket(packet)
         }
+    }
+
+    private func handleAvailableAudioPortsChanged() {
+        selectedInputPort = audioSessionManager.selectedInputPort
+        selectedOutputPort = audioSessionManager.selectedOutputPort
+        uiEventRevision &+= 1
     }
 
     private func handleReceivedPacket(_ packet: ReceivedAudioPacket) {
