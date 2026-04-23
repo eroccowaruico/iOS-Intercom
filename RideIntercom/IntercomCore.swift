@@ -1785,6 +1785,10 @@ struct OpusAudioEncoding: AudioEncoding {
     let codec: AudioCodecIdentifier = .opus
     private let backend: (any OpusCodecBackend)?
 
+    static func isAvailable(backend: (any OpusCodecBackend)? = OpusCodecBackendRegistry.current()) -> Bool {
+        backend != nil
+    }
+
     init(backend: (any OpusCodecBackend)? = OpusCodecBackendRegistry.current()) {
         self.backend = backend
     }
@@ -1820,9 +1824,14 @@ struct PCMAudioEncoderSession: AudioEncoderSession {
 
 struct OpusAudioEncoderSession: AudioEncoderSession {
     let codec: AudioCodecIdentifier = .opus
+    private let encoding: OpusAudioEncoding
+
+    init(backend: (any OpusCodecBackend)? = OpusCodecBackendRegistry.current()) {
+        self.encoding = OpusAudioEncoding(backend: backend)
+    }
 
     mutating func encodeFrame(_ samples: [Float]) throws -> Data {
-        try OpusAudioEncoding().encode(samples)
+        try encoding.encode(samples)
     }
 
     mutating func flush() throws -> [Data] {
@@ -1844,9 +1853,14 @@ struct PCMAudioDecoderSession: AudioDecoderSession {
 
 struct OpusAudioDecoderSession: AudioDecoderSession {
     let codec: AudioCodecIdentifier = .opus
+    private let encoding: OpusAudioEncoding
+
+    init(backend: (any OpusCodecBackend)? = OpusCodecBackendRegistry.current()) {
+        self.encoding = OpusAudioEncoding(backend: backend)
+    }
 
     func decodePacket(_ data: Data) throws -> [Float] {
-        try OpusAudioEncoding().decode(data)
+        try encoding.decode(data)
     }
 
     mutating func reset() {}
@@ -2058,6 +2072,7 @@ struct HEAACv2AudioDecoderSession: AudioDecoderSession {
 enum AudioCodecSessionFactory {
     static func makeEncoderSession(
         preferred codecs: [AudioCodecIdentifier],
+        opusBackend: (any OpusCodecBackend)? = OpusCodecBackendRegistry.current(),
         heAACv2Quality: HEAACv2Quality = .medium
     ) -> any AudioEncoderSession {
         for codec in codecs {
@@ -2067,8 +2082,9 @@ enum AudioCodecSessionFactory {
             case .heAACv2:
                 return HEAACv2AudioEncoderSession(quality: heAACv2Quality)
             case .opus:
-                // Opus backend is not installed yet. Keep this slot for future implementation.
-                continue
+                if OpusAudioEncoding.isAvailable(backend: opusBackend) {
+                    return OpusAudioEncoderSession(backend: opusBackend)
+                }
             }
         }
         return PCMAudioEncoderSession()
@@ -2076,6 +2092,7 @@ enum AudioCodecSessionFactory {
 
     static func makeDecoderSession(
         codec: AudioCodecIdentifier,
+        opusBackend: (any OpusCodecBackend)? = OpusCodecBackendRegistry.current(),
         heAACv2Quality: HEAACv2Quality = .medium
     ) -> any AudioDecoderSession {
         switch codec {
@@ -2084,13 +2101,16 @@ enum AudioCodecSessionFactory {
         case .heAACv2:
             HEAACv2AudioDecoderSession(quality: heAACv2Quality)
         case .opus:
-            OpusAudioDecoderSession()
+            OpusAudioDecoderSession(backend: opusBackend)
         }
     }
 }
 
 enum AudioEncodingSelector {
-    static func encoder(preferred codecs: [AudioCodecIdentifier]) -> any AudioEncoding {
+    static func encoder(
+        preferred codecs: [AudioCodecIdentifier],
+        opusBackend: (any OpusCodecBackend)? = OpusCodecBackendRegistry.current()
+    ) -> any AudioEncoding {
         for codec in codecs {
             switch codec {
             case .pcm16:
@@ -2098,7 +2118,9 @@ enum AudioEncodingSelector {
             case .heAACv2:
                 return HEAACv2AudioEncoding()
             case .opus:
-                continue
+                if OpusAudioEncoding.isAvailable(backend: opusBackend) {
+                    return OpusAudioEncoding(backend: opusBackend)
+                }
             }
         }
 
@@ -2504,7 +2526,7 @@ enum DefaultGroupCredentialStoreFactory {
 
 enum CurrentProcessRuntimeFactory {
     static func makeLive() -> IntercomViewModel {
-        DefaultOpusCodecBackendFactory.installIfEnabled()
+        DefaultOpusCodecBackendFactory.installIfAvailable()
         let localMemberIdentityStore = UserDefaultsLocalMemberIdentityStore()
         let localMemberIdentity = localMemberIdentityStore.loadOrCreate()
         return IntercomViewModel(
@@ -2556,6 +2578,7 @@ struct AudioPacketSequencer {
     let streamID: UUID
     var codec: AudioCodecIdentifier
     var heAACv2Quality: HEAACv2Quality
+    private let opusBackend: (any OpusCodecBackend)?
     private var nextSequenceNumber = 1
     private var encoderSession: any AudioEncoderSession
     private var encoderSessionHEAACv2Quality: HEAACv2Quality?
@@ -2564,14 +2587,17 @@ struct AudioPacketSequencer {
         groupID: UUID,
         streamID: UUID = UUID(),
         codec: AudioCodecIdentifier = .pcm16,
+        opusBackend: (any OpusCodecBackend)? = OpusCodecBackendRegistry.current(),
         heAACv2Quality: HEAACv2Quality = .medium
     ) {
         self.groupID = groupID
         self.streamID = streamID
         self.codec = codec
         self.heAACv2Quality = heAACv2Quality
+        self.opusBackend = opusBackend
         self.encoderSession = AudioCodecSessionFactory.makeEncoderSession(
             preferred: [codec, .pcm16],
+            opusBackend: opusBackend,
             heAACv2Quality: heAACv2Quality
         )
         self.encoderSessionHEAACv2Quality = codec == .heAACv2 ? heAACv2Quality : nil
@@ -2582,6 +2608,7 @@ struct AudioPacketSequencer {
             || (codec == .heAACv2 && encoderSessionHEAACv2Quality != heAACv2Quality) {
             encoderSession = AudioCodecSessionFactory.makeEncoderSession(
                 preferred: [codec, .pcm16],
+                opusBackend: opusBackend,
                 heAACv2Quality: heAACv2Quality
             )
             encoderSessionHEAACv2Quality = codec == .heAACv2 ? heAACv2Quality : nil
@@ -2803,6 +2830,7 @@ final class IntercomViewModel {
     private let credentialProvider: any GroupCredentialProviding
     private let groupStore: GroupStoring
     private let localMemberIdentity: LocalMemberIdentity
+    private let opusBackend: (any OpusCodecBackend)?
     private let remoteTalkerTimeout: TimeInterval
     private let muteAutoStopDelay: Duration
     private var audioTransmissionController: AudioTransmissionController
@@ -2838,6 +2866,7 @@ final class IntercomViewModel {
         callTicker: CallTicking? = nil,
         audioFramePlayer: AudioFramePlaying? = nil,
         jitterBuffer: JitterBuffer? = nil,
+        opusBackend: (any OpusCodecBackend)? = OpusCodecBackendRegistry.current(),
         remoteTalkerTimeout: TimeInterval = 0.6,
         muteAutoStopDelay: Duration = IntercomViewModel.muteAutoStopDelayDefault
     ) {
@@ -2858,6 +2887,7 @@ final class IntercomViewModel {
         self.groupStore = groupStore
         self.localMemberIdentity = (localMemberIdentityStore ?? InMemoryLocalMemberIdentityStore()).loadOrCreate()
         self.jitterBuffer = jitterBuffer ?? JitterBuffer()
+        self.opusBackend = opusBackend
         self.remoteTalkerTimeout = remoteTalkerTimeout
         self.muteAutoStopDelay = muteAutoStopDelay
         self.audioTransmissionController.setVoiceActivityThreshold(initialVoiceActivityDetectionThreshold)
@@ -2973,6 +3003,10 @@ final class IntercomViewModel {
 
     var supportsSoundIsolation: Bool {
         audioInputMonitor.supportsSoundIsolation
+    }
+
+    var supportsOpusCodec: Bool {
+        OpusAudioEncoding.isAvailable(backend: opusBackend)
     }
 
     var audioCheckSummary: String {
@@ -3357,9 +3391,16 @@ final class IntercomViewModel {
     }
 
     func setPreferredTransmitCodec(_ codec: AudioCodecIdentifier) {
-        preferredTransmitCodec = codec
-        localTransport.setPreferredAudioCodec(codec)
-        internetTransport.setPreferredAudioCodec(codec)
+        let resolvedCodec: AudioCodecIdentifier
+        if codec == .opus, !supportsOpusCodec {
+            resolvedCodec = .pcm16
+        } else {
+            resolvedCodec = codec
+        }
+
+        preferredTransmitCodec = resolvedCodec
+        localTransport.setPreferredAudioCodec(resolvedCodec)
+        internetTransport.setPreferredAudioCodec(resolvedCodec)
     }
 
     func setHEAACv2Quality(_ quality: HEAACv2Quality) {
@@ -3540,6 +3581,7 @@ final class IntercomViewModel {
         let playbackSamples = makeAudioCheckPlaybackSamples(
             from: recordedSamples,
             codec: playbackCodec,
+            opusBackend: opusBackend,
             heAACv2Quality: heAACv2Quality
         )
 
@@ -3598,25 +3640,39 @@ final class IntercomViewModel {
         case .pcm16, .heAACv2:
             preferredTransmitCodec
         case .opus:
-            .pcm16
+            supportsOpusCodec ? .opus : .pcm16
         }
     }
 
     private func makeAudioCheckPlaybackSamples(
         from samples: [Float],
         codec: AudioCodecIdentifier,
+        opusBackend: (any OpusCodecBackend)?,
         heAACv2Quality: HEAACv2Quality
     ) -> [Float] {
+        let encoder: any AudioEncoding
+        switch codec {
+        case .pcm16:
+            encoder = PCMAudioEncoding()
+        case .heAACv2:
+            encoder = HEAACv2AudioEncoding(quality: heAACv2Quality)
+        case .opus:
+            encoder = OpusAudioEncoding(backend: opusBackend)
+        }
+
         guard let packet = try? EncodedVoicePacket.make(
             frameID: 1,
             samples: samples,
-            codec: codec,
-            heAACv2Quality: heAACv2Quality
+            encoder: encoder
         ) else {
             return samples
         }
 
-        let decoder = AudioCodecSessionFactory.makeDecoderSession(codec: packet.codec, heAACv2Quality: heAACv2Quality)
+        let decoder = AudioCodecSessionFactory.makeDecoderSession(
+            codec: packet.codec,
+            opusBackend: opusBackend,
+            heAACv2Quality: heAACv2Quality
+        )
         guard let decodedSamples = try? packet.decodeSamples(using: decoder), !decodedSamples.isEmpty else {
             return samples
         }

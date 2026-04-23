@@ -351,7 +351,7 @@ struct RideIntercomTests {
             try encoder.decode(Data([0x01, 0x02]))
         }
         #expect(throws: AudioCodecError.codecUnavailable(.opus)) {
-            try EncodedVoicePacket.make(frameID: 1, samples: [0.1], codec: .opus)
+            try EncodedVoicePacket.make(frameID: 1, samples: [0.1], encoder: OpusAudioEncoding(backend: nil))
         }
     }
 
@@ -407,13 +407,30 @@ struct RideIntercomTests {
             duration: 0.02,
             amplitude: 0.5
         )
-        let encoder = AudioEncodingSelector.encoder(preferred: [.opus, .pcm16])
+        let encoder = AudioEncodingSelector.encoder(preferred: [.opus, .pcm16], opusBackend: nil)
 
         let encodedVoice = try EncodedVoicePacket.make(frameID: 7, samples: samples, encoder: encoder)
         let decodedSamples = try encodedVoice.decodeSamples()
 
         #expect(encoder.codec == .pcm16)
         #expect(encodedVoice.codec == .pcm16)
+        #expect(maxAbsoluteDifference(samples, decodedSamples) < 0.0001)
+    }
+
+    @Test func audioEncodingSelectorSelectsOpusWhenBackendIsInstalled() throws {
+        let samples = TestAudioSamples.sineWave(
+            frequency: 440,
+            sampleRate: 16_000,
+            duration: 0.02,
+            amplitude: 0.5
+        )
+        let encoder = AudioEncodingSelector.encoder(preferred: [.opus, .pcm16], opusBackend: TestOpusBackend())
+
+        let encodedVoice = try EncodedVoicePacket.make(frameID: 7, samples: samples, encoder: encoder)
+        let decodedSamples = try encodedVoice.decodeSamples(using: encoder)
+
+        #expect(encoder.codec == .opus)
+        #expect(encodedVoice.codec == .opus)
         #expect(maxAbsoluteDifference(samples, decodedSamples) < 0.0001)
     }
 
@@ -1267,7 +1284,7 @@ struct RideIntercomTests {
 
     @Test func audioPacketSequencerFallsBackToPCMWhenPreferredCodecIsOpus() {
         let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
-        var sequencer = AudioPacketSequencer(groupID: groupID, codec: .opus)
+        var sequencer = AudioPacketSequencer(groupID: groupID, codec: .opus, opusBackend: nil)
 
         let envelope = sequencer.makeEnvelope(
             for: OutboundAudioPacket.voice(frameID: 1, samples: [0.2, -0.2]),
@@ -1276,6 +1293,19 @@ struct RideIntercomTests {
 
         #expect(envelope.kind == .voice)
         #expect(envelope.encodedVoice?.codec == .pcm16)
+    }
+
+    @Test func audioPacketSequencerUsesOpusWhenBackendIsInstalled() {
+        let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+        var sequencer = AudioPacketSequencer(groupID: groupID, codec: .opus, opusBackend: TestOpusBackend())
+
+        let envelope = sequencer.makeEnvelope(
+            for: OutboundAudioPacket.voice(frameID: 1, samples: [0.2, -0.2]),
+            sentAt: 10
+        )
+
+        #expect(envelope.kind == .voice)
+        #expect(envelope.encodedVoice?.codec == .opus)
     }
 
     @Test func audioPacketSequencerEventuallyProducesVoiceForHEAACOrFallbackPath() {
@@ -2209,7 +2239,9 @@ struct RideIntercomTests {
         #expect(viewModel.isMicrophoneCaptureRunning)
 
         viewModel.toggleMute()
-        try await Task.sleep(for: .milliseconds(60))
+        for _ in 0..<20 where audioInputMonitor.isRunning {
+            try await Task.sleep(for: .milliseconds(10))
+        }
         #expect(!audioInputMonitor.isRunning)
         #expect(!viewModel.isMicrophoneCaptureRunning)
 
@@ -4224,7 +4256,8 @@ struct RideIntercomTests {
         let viewModel = IntercomViewModel(
             audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
             audioInputMonitor: audioInputMonitor,
-            audioFramePlayer: audioFramePlayer
+            audioFramePlayer: audioFramePlayer,
+            opusBackend: nil
         )
 
         viewModel.setPreferredTransmitCodec(.pcm16)
@@ -4249,7 +4282,8 @@ struct RideIntercomTests {
         let viewModel = IntercomViewModel(
             audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
             audioInputMonitor: audioInputMonitor,
-            audioFramePlayer: audioFramePlayer
+            audioFramePlayer: audioFramePlayer,
+            opusBackend: nil
         )
 
         viewModel.setPreferredTransmitCodec(.opus)
@@ -4260,6 +4294,30 @@ struct RideIntercomTests {
         let playedSamples = audioFramePlayer.playedFrames.first?.samples ?? []
         #expect(playedSamples.count == 4)
         let originalSamples: [Float] = [0.5, -0.5, 0.25, -0.25]
+        for (played, original) in zip(playedSamples, originalSamples) {
+            #expect(abs(played - original) < 0.0001)
+        }
+    }
+
+    @MainActor
+    @Test func audioCheckUsesOpusForPlaybackRoundTripWhenBackendIsInstalled() {
+        let audioInputMonitor = NoOpAudioInputMonitor()
+        let audioFramePlayer = NoOpAudioFramePlayer()
+        let viewModel = IntercomViewModel(
+            audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
+            audioInputMonitor: audioInputMonitor,
+            audioFramePlayer: audioFramePlayer,
+            opusBackend: TestOpusBackend()
+        )
+
+        viewModel.setPreferredTransmitCodec(.opus)
+        viewModel.startAudioCheck()
+        let originalSamples: [Float] = [0.5, -0.5, 0.25, -0.25]
+        audioInputMonitor.simulate(samples: originalSamples)
+        viewModel.finishAudioCheckRecordingForDebug()
+
+        let playedSamples = audioFramePlayer.playedFrames.first?.samples ?? []
+        #expect(playedSamples.count == originalSamples.count)
         for (played, original) in zip(playedSamples, originalSamples) {
             #expect(abs(played - original) < 0.0001)
         }

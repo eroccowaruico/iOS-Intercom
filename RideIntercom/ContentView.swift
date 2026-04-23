@@ -528,6 +528,9 @@ private struct TransmitCodecPanel: View {
             )) {
                 Text("PCM 16-bit").tag(AudioCodecIdentifier.pcm16)
                 Text("HE-AAC v2 VBR").tag(AudioCodecIdentifier.heAACv2)
+                if viewModel.supportsOpusCodec {
+                    Text("Opus").tag(AudioCodecIdentifier.opus)
+                }
             }
             .pickerStyle(.segmented)
             .accessibilityElement(children: .contain)
