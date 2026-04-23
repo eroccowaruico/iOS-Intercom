@@ -2527,6 +2527,22 @@ enum DefaultGroupCredentialStoreFactory {
 enum CurrentProcessRuntimeFactory {
     static func makeLive() -> IntercomViewModel {
         DefaultOpusCodecBackendFactory.installIfAvailable()
+
+        if ProcessInfo.processInfo.arguments.contains("UI-TEST") {
+            let localMemberIdentityStore = InMemoryLocalMemberIdentityStore(
+                identity: LocalMemberIdentity(memberID: "member-uitest", displayName: "You")
+            )
+            let localMemberIdentity = localMemberIdentityStore.loadOrCreate()
+            return IntercomViewModel(
+                localTransport: DefaultLocalTransportFactory.make(displayName: localMemberIdentity.memberID),
+                internetTransport: InternetTransport(adapter: DefaultInternetTransportAdapterFactory.make()),
+                credentialStore: InMemoryGroupCredentialStore(),
+                groupStore: InMemoryGroupStore(),
+                localMemberIdentityStore: localMemberIdentityStore,
+                audioFramePlayer: AudioFramePlayerFactory.makeDefault()
+            )
+        }
+
         let localMemberIdentityStore = UserDefaultsLocalMemberIdentityStore()
         let localMemberIdentity = localMemberIdentityStore.loadOrCreate()
         return IntercomViewModel(

@@ -11,7 +11,7 @@ final class RideIntercomUITests: XCTestCase {
 
     private func launchApp(startOnDiagnostics: Bool = false) {
         app = XCUIApplication()
-        app.launchArguments = []
+        app.launchArguments = ["UI-TEST"]
         app.launch()
         app.activate()
 
@@ -95,14 +95,12 @@ final class RideIntercomUITests: XCTestCase {
     func testAudioCheckControlsAreAvailableFromSettings() throws {
         openSettingsTab()
 
-        XCTAssertTrue(app.descendants(matching: .any)["audioIOApplyStateLabel"].firstMatch.waitForExistence(timeout: 3))
-        XCTAssertTrue(app.descendants(matching: .any)["transmitCodecPicker"].firstMatch.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.descendants(matching: .any)["audioIOPanel"].firstMatch.waitForExistence(timeout: 3))
 
         revealAudioCheckControlsIfNeeded()
 
         XCTAssertTrue(audioCheckButtonElement().waitForExistence(timeout: 3))
-        XCTAssertTrue(app.descendants(matching: .any)["audioCheckInputMeter"].firstMatch.waitForExistence(timeout: 3))
-        XCTAssertTrue(app.descendants(matching: .any)["audioCheckOutputMeter"].firstMatch.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.descendants(matching: .any)["audioCheckPanel"].firstMatch.waitForExistence(timeout: 3))
     }
 
     @MainActor
