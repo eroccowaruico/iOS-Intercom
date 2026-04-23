@@ -2462,6 +2462,53 @@ struct RideIntercomTests {
     }
 
     @MainActor
+    @Test func diagnosticsOutputMeterReflectsScheduledMasterOutputOnly() throws {
+        let localTransport = LocalTransport()
+        let ticker = NoOpCallTicker()
+        let audioFramePlayer = NoOpAudioFramePlayer()
+        let group = try IntercomGroup(
+            id: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!,
+            name: "Pair",
+            members: [
+                GroupMember(id: "member-001", displayName: "You"),
+                GroupMember(id: "member-002", displayName: "Partner")
+            ]
+        )
+        let viewModel = IntercomViewModel(
+            groups: [group],
+            localTransport: localTransport,
+            audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
+            audioInputMonitor: NoOpAudioInputMonitor(),
+            callTicker: ticker,
+            audioFramePlayer: audioFramePlayer
+        )
+
+        viewModel.selectGroup(group)
+        viewModel.connectLocal()
+        localTransport.simulateReceivedPacket(ReceivedAudioPacket(
+            peerID: "member-002",
+            envelope: AudioPacketEnvelope(
+                groupID: group.id,
+                streamID: UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!,
+                sequenceNumber: 1,
+                sentAt: 50,
+                packet: .voice(frameID: 50, samples: [0.8, -0.4])
+            ),
+            packet: .voice(frameID: 50, samples: [0.8, -0.4])
+        ))
+
+        let queuedPeer = try #require(viewModel.selectedGroup?.members.first(where: { $0.id == "member-002" }))
+        #expect(queuedPeer.voiceLevel > 0)
+        #expect(viewModel.diagnosticsOutputLevel == 0)
+        #expect(viewModel.diagnosticsOutputPeakLevel == 0)
+
+        ticker.simulateTick(now: 50.02)
+
+        #expect(viewModel.diagnosticsOutputLevel > 0)
+        #expect(viewModel.diagnosticsOutputPeakLevel >= viewModel.diagnosticsOutputLevel)
+    }
+
+    @MainActor
     @Test func viewModelTracksAudioDebugCounters() throws {
         let audioInputMonitor = NoOpAudioInputMonitor()
         let localTransport = LocalTransport()

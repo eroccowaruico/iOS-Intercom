@@ -2851,13 +2851,13 @@ final class IntercomViewModel {
         if audioCheckPhase == .playing {
             return audioCheckOutputLevel
         }
-        return selectedGroup?.members.dropFirst().map(\.voiceLevel).max() ?? 0
+        return lastScheduledOutputRMS
     }
     var diagnosticsOutputPeakLevel: Float {
         if audioCheckPhase == .playing {
             return audioCheckOutputPeakLevel
         }
-        return selectedGroup?.members.dropFirst().map(\.voicePeakLevel).max() ?? 0
+        return lastScheduledOutputPeakRMS
     }
     private(set) var audioCheckPhase: AudioCheckPhase = .idle
     private(set) var audioCheckInputLevel: Float = 0
@@ -2869,6 +2869,7 @@ final class IntercomViewModel {
     private(set) var receivedVoicePacketCount = 0
     private(set) var playedAudioFrameCount = 0
     private(set) var lastScheduledOutputRMS: Float = 0
+    private(set) var lastScheduledOutputPeakRMS: Float = 0
     private(set) var scheduledOutputBatchCount = 0
     private(set) var scheduledOutputFrameCount = 0
     private(set) var connectedPeerIDs: [String] = []
@@ -2899,6 +2900,7 @@ final class IntercomViewModel {
     private var remoteVoiceReceivedAt: [String: TimeInterval] = [:]
     private var localVoicePeakWindow = VoicePeakWindow()
     private var remoteVoicePeakWindows: [String: VoicePeakWindow] = [:]
+    private var playbackOutputPeakWindow = VoicePeakWindow()
     private var audioCheckInputPeakWindow = VoicePeakWindow()
     private var audioCheckOutputPeakWindow = VoicePeakWindow()
     private var audioCheckRecordedSamples: [Float] = []
@@ -3585,11 +3587,13 @@ final class IntercomViewModel {
         jitterQueuedFrameCount = drainResult.jitterQueuedFrameCount
         markPlayedAudioFrames(drainResult.readyFrames)
         let outputFrames = applyOutputGain(to: drainResult.readyFrames)
+        let mixedOutput = AudioMixer.mix(outputFrames)
+        let outputLevel = AudioLevelMeter.rmsLevel(samples: mixedOutput)
+        lastScheduledOutputRMS = outputLevel
+        lastScheduledOutputPeakRMS = playbackOutputPeakWindow.record(outputLevel)
         if !outputFrames.isEmpty {
             scheduledOutputBatchCount += 1
             scheduledOutputFrameCount += outputFrames.count
-            let mixedOutput = AudioMixer.mix(outputFrames)
-            lastScheduledOutputRMS = AudioLevelMeter.rmsLevel(samples: mixedOutput)
         }
         audioFramePlayer.play(outputFrames)
     }
@@ -3934,11 +3938,13 @@ final class IntercomViewModel {
         receivedVoicePacketCount = 0
         playedAudioFrameCount = 0
         lastScheduledOutputRMS = 0
+        lastScheduledOutputPeakRMS = 0
         scheduledOutputBatchCount = 0
         scheduledOutputFrameCount = 0
         lastReceivedAudioAt = nil
         droppedAudioPacketCount = 0
         jitterQueuedFrameCount = 0
+        playbackOutputPeakWindow = VoicePeakWindow()
     }
 
     private func resetVoiceLevelWindows() {

@@ -1116,10 +1116,16 @@ private struct RemoteParticipantRowView: View {
 
                 Spacer()
 
-                Label(codecLabel, systemImage: audioPipelineIconName)
-                    .font(AppTypography.caption)
-                    .foregroundStyle(audioPipelineColor)
-                    .accessibilityIdentifier("participantAudioPipelineState\(index)")
+                VStack(alignment: .trailing, spacing: AppSpacing.xxs) {
+                    Label(codecLabel, systemImage: audioPipelineIconName)
+                        .font(AppTypography.caption)
+                        .foregroundStyle(audioPipelineColor)
+
+                    Text(member.audioPipelineState.rawValue)
+                        .font(AppTypography.captionStrongMono)
+                        .foregroundStyle(audioPipelineColor)
+                }
+                .accessibilityIdentifier("participantAudioPipelineState\(index)")
             }
 
             VStack(alignment: .leading, spacing: AppSpacing.l) {
