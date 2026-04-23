@@ -2826,6 +2826,9 @@ final class IntercomViewModel {
     private(set) var sentVoicePacketCount = 0
     private(set) var receivedVoicePacketCount = 0
     private(set) var playedAudioFrameCount = 0
+    private(set) var lastScheduledOutputRMS: Float = 0
+    private(set) var scheduledOutputBatchCount = 0
+    private(set) var scheduledOutputFrameCount = 0
     private(set) var connectedPeerIDs: [String] = []
     private(set) var authenticatedPeerIDs: [String] = []
     private(set) var localNetworkStatus: LocalNetworkStatus = .idle
@@ -2950,6 +2953,9 @@ final class IntercomViewModel {
             sentVoicePacketCount: sentVoicePacketCount,
             receivedVoicePacketCount: receivedVoicePacketCount,
             playedAudioFrameCount: playedAudioFrameCount,
+            lastScheduledOutputRMS: lastScheduledOutputRMS,
+            scheduledOutputBatchCount: scheduledOutputBatchCount,
+            scheduledOutputFrameCount: scheduledOutputFrameCount,
             connectedPeerCount: connectedPeerCount,
             authenticatedPeerCount: authenticatedPeerCount,
             localMemberID: localMemberIdentity.memberID,
@@ -3536,7 +3542,14 @@ final class IntercomViewModel {
         droppedAudioPacketCount = drainResult.droppedAudioPacketCount
         jitterQueuedFrameCount = drainResult.jitterQueuedFrameCount
         markPlayedAudioFrames(drainResult.readyFrames)
-        audioFramePlayer.play(applyOutputGain(to: drainResult.readyFrames))
+        let outputFrames = applyOutputGain(to: drainResult.readyFrames)
+        if !outputFrames.isEmpty {
+            scheduledOutputBatchCount += 1
+            scheduledOutputFrameCount += outputFrames.count
+            let mixedOutput = AudioMixer.mix(outputFrames)
+            lastScheduledOutputRMS = AudioLevelMeter.rmsLevel(samples: mixedOutput)
+        }
+        audioFramePlayer.play(outputFrames)
     }
 
     private func handleMicrophoneLevel(_ level: Float) {
@@ -3872,6 +3885,9 @@ final class IntercomViewModel {
         sentVoicePacketCount = 0
         receivedVoicePacketCount = 0
         playedAudioFrameCount = 0
+        lastScheduledOutputRMS = 0
+        scheduledOutputBatchCount = 0
+        scheduledOutputFrameCount = 0
         lastReceivedAudioAt = nil
         droppedAudioPacketCount = 0
         jitterQueuedFrameCount = 0

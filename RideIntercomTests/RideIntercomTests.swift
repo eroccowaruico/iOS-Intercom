@@ -3102,6 +3102,7 @@ struct RideIntercomTests {
 
         #expect(snapshot.audio.transmittedVoicePacketCount == 0)
         #expect(snapshot.audio.receivedVoicePacketCount == 1)
+        #expect(snapshot.playback.summary == "OUT RMS 0.0000 / SCH 0 / FRM 0")
         #expect(snapshot.connectedPeerCount == 2)
         #expect(snapshot.authenticatedPeerCount == 1)
         #expect(!snapshot.localMemberID.isEmpty)
@@ -3114,11 +3115,59 @@ struct RideIntercomTests {
         #expect(snapshot.reception.summary(now: 70.2) == "LAST RX 0.2s / DROP 0 / JIT 1")
     }
 
+    @MainActor
+    @Test func diagnosticsSnapshotTracksPlaybackOutputRMSAndScheduleCounts() throws {
+        let localTransport = LocalTransport()
+        let ticker = NoOpCallTicker()
+        let audioFramePlayer = NoOpAudioFramePlayer()
+        let group = try IntercomGroup(
+            id: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!,
+            name: "Pair",
+            members: [
+                GroupMember(id: "member-001", displayName: "You"),
+                GroupMember(id: "member-002", displayName: "Partner")
+            ]
+        )
+        let viewModel = IntercomViewModel(
+            groups: [group],
+            localTransport: localTransport,
+            audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
+            audioInputMonitor: NoOpAudioInputMonitor(),
+            callTicker: ticker,
+            audioFramePlayer: audioFramePlayer
+        )
+
+        viewModel.selectGroup(group)
+        viewModel.connectLocal()
+        viewModel.setMasterOutputVolume(0.5)
+        localTransport.simulateReceivedPacket(ReceivedAudioPacket(
+            peerID: "member-002",
+            envelope: AudioPacketEnvelope(
+                groupID: group.id,
+                streamID: UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!,
+                sequenceNumber: 1,
+                sentAt: 40,
+                packet: .voice(frameID: 40, samples: [0.8, -0.4])
+            ),
+            packet: .voice(frameID: 40, samples: [0.8, -0.4])
+        ))
+        ticker.simulateTick(now: 40.02)
+
+        let snapshot = viewModel.diagnosticsSnapshot
+        #expect(snapshot.playback.scheduledOutputBatchCount == 1)
+        #expect(snapshot.playback.scheduledOutputFrameCount == 1)
+        #expect(abs(snapshot.playback.lastScheduledOutputRMS - 0.3162) < 0.0001)
+        #expect(snapshot.playback.summary == "OUT RMS 0.3162 / SCH 1 / FRM 1")
+    }
+
     @Test func diagnosticsSnapshotBuilderFormatsFallbackValues() {
         let snapshot = DiagnosticsSnapshotBuilder.make(
             sentVoicePacketCount: 0,
             receivedVoicePacketCount: 0,
             playedAudioFrameCount: 0,
+            lastScheduledOutputRMS: 0,
+            scheduledOutputBatchCount: 0,
+            scheduledOutputFrameCount: 0,
             connectedPeerCount: 0,
             authenticatedPeerCount: 0,
             localMemberID: "member-001",

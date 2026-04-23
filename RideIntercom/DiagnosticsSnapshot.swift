@@ -26,6 +26,21 @@ struct ReceptionDebugSnapshot: Equatable {
     }
 }
 
+struct PlaybackDebugSnapshot: Equatable {
+    let lastScheduledOutputRMS: Float
+    let scheduledOutputBatchCount: Int
+    let scheduledOutputFrameCount: Int
+
+    var summary: String {
+        String(
+            format: "OUT RMS %.4f / SCH %d / FRM %d",
+            lastScheduledOutputRMS,
+            scheduledOutputBatchCount,
+            scheduledOutputFrameCount
+        )
+    }
+}
+
 struct LocalNetworkDebugSnapshot: Equatable {
     let status: LocalNetworkStatus
     let peerID: String?
@@ -45,6 +60,7 @@ struct LocalNetworkDebugSnapshot: Equatable {
 
 struct DiagnosticsSnapshot: Equatable {
     let audio: AudioDebugSnapshot
+    let playback: PlaybackDebugSnapshot
     let connectedPeerCount: Int
     let authenticatedPeerCount: Int
     let localMemberID: String
@@ -105,6 +121,9 @@ enum DiagnosticsSnapshotBuilder {
         sentVoicePacketCount: Int,
         receivedVoicePacketCount: Int,
         playedAudioFrameCount: Int,
+        lastScheduledOutputRMS: Float,
+        scheduledOutputBatchCount: Int,
+        scheduledOutputFrameCount: Int,
         connectedPeerCount: Int,
         authenticatedPeerCount: Int,
         localMemberID: String,
@@ -126,6 +145,11 @@ enum DiagnosticsSnapshotBuilder {
                 transmittedVoicePacketCount: sentVoicePacketCount,
                 receivedVoicePacketCount: receivedVoicePacketCount,
                 playedAudioFrameCount: playedAudioFrameCount
+            ),
+            playback: PlaybackDebugSnapshot(
+                lastScheduledOutputRMS: lastScheduledOutputRMS,
+                scheduledOutputBatchCount: scheduledOutputBatchCount,
+                scheduledOutputFrameCount: scheduledOutputFrameCount
             ),
             connectedPeerCount: connectedPeerCount,
             authenticatedPeerCount: authenticatedPeerCount,

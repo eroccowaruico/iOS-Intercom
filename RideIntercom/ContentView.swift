@@ -423,6 +423,8 @@ private struct DiagnosticsView: View {
                             .accessibilityIdentifier("receptionDebugSummaryLabel")
                         DiagnosticRow(icon: "waveform.path.ecg", value: snapshot.audio.summary)
                             .accessibilityIdentifier("audioDebugSummaryLabel")
+                        DiagnosticRow(icon: "speaker.wave.2.fill", value: snapshot.playback.summary)
+                            .accessibilityIdentifier("playbackDebugSummaryLabel")
                         DiagnosticRow(icon: "person.2.fill", value: snapshot.connectionSummary)
                             .accessibilityIdentifier("connectionDebugSummaryLabel")
                         DiagnosticRow(icon: "checkmark.seal.fill", value: snapshot.authenticationSummary)
