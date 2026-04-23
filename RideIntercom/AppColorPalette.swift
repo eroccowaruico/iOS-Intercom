@@ -73,6 +73,7 @@ enum AppTypography {
     static let caption2: Font = .caption2
     static let caption2Mono: Font = .caption2.monospacedDigit()
     static let bodyMono: Font = .body.monospacedDigit()
+    static let footnoteMono: Font = .footnote.monospacedDigit()
     static let footnoteStrong: Font = .footnote.weight(.semibold)
     static let footnote: Font = .footnote
 }

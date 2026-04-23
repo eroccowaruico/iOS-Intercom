@@ -2968,7 +2968,7 @@ final class IntercomViewModel {
         } else {
             isolationLabel = "N/A"
         }
-        return String(format: "VOICE ACTIVITY DETECTION THRESHOLD %.4f / SOUND ISOLATION %@", voiceActivityDetectionThreshold, isolationLabel)
+        return String(format: "VAD %.4f / ISOLATION %@", voiceActivityDetectionThreshold, isolationLabel)
     }
 
     var supportsSoundIsolation: Bool {

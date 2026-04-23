@@ -411,21 +411,19 @@ private struct DiagnosticsView: View {
                             .font(AppTypography.sectionTitle)
                         DiagnosticRow(
                             icon: "checklist",
-                            value: snapshot.realDeviceCallSummary(
-                                connectionLabel: viewModel.connectionLabel,
-                                isAudioReady: viewModel.isAudioReady,
-                                now: now
-                            )
+                            value: "CALL \(viewModel.connectionLabel) / \(viewModel.isAudioReady ? "AUDIO READY" : "AUDIO IDLE")"
                         )
                             .accessibilityIdentifier("realDeviceCallDebugSummaryLabel")
+                        DiagnosticRow(icon: "clock.arrow.circlepath", value: snapshot.reception.summary(now: now))
+                            .accessibilityIdentifier("receptionDebugSummaryLabel")
                         DiagnosticRow(icon: "waveform.path.ecg", value: snapshot.audio.summary)
                             .accessibilityIdentifier("audioDebugSummaryLabel")
                         DiagnosticRow(icon: "person.2.fill", value: snapshot.connectionSummary)
                             .accessibilityIdentifier("connectionDebugSummaryLabel")
                         DiagnosticRow(icon: "checkmark.seal.fill", value: snapshot.authenticationSummary)
                             .accessibilityIdentifier("authenticationDebugSummaryLabel")
-                        DiagnosticRow(icon: "clock.arrow.circlepath", value: snapshot.reception.summary(now: now))
-                            .accessibilityIdentifier("receptionDebugSummaryLabel")
+                        DiagnosticRow(icon: "antenna.radiowaves.left.and.right", value: snapshot.localNetwork.summary(now: now))
+                            .accessibilityIdentifier("localNetworkDebugSummaryLabel")
                     }
 
                     VStack(alignment: .leading, spacing: AppSpacing.m) {
@@ -433,8 +431,6 @@ private struct DiagnosticsView: View {
                             .font(AppTypography.sectionTitle)
                         DiagnosticRow(icon: "network", value: snapshot.transportSummary)
                             .accessibilityIdentifier("transportDebugSummaryLabel")
-                        DiagnosticRow(icon: "antenna.radiowaves.left.and.right", value: snapshot.localNetwork.summary(now: now))
-                            .accessibilityIdentifier("localNetworkDebugSummaryLabel")
                         DiagnosticRow(icon: "person.text.rectangle.fill", value: snapshot.localMemberSummary)
                             .accessibilityIdentifier("localMemberDebugSummaryLabel")
                         DiagnosticRow(icon: "person.3.sequence.fill", value: snapshot.selectedGroupSummary)
@@ -443,6 +439,22 @@ private struct DiagnosticsView: View {
                             .accessibilityIdentifier("groupHashDebugSummaryLabel")
                         DiagnosticRow(icon: "square.and.arrow.up", value: snapshot.inviteSummary)
                             .accessibilityIdentifier("inviteDebugSummaryLabel")
+                    }
+
+                    VStack(alignment: .leading, spacing: AppSpacing.m) {
+                        Text("Input Config")
+                            .font(AppTypography.sectionTitle)
+
+                        DiagnosticRow(
+                            icon: "hifispeaker.2",
+                            value: viewModel.isAudioDeviceSelectionLive ? "SESSION ACTIVE / I/O ROUTING LIVE" : "SESSION IDLE / I/O ROUTING NEXT START"
+                        )
+                        .accessibilityIdentifier("audioIOApplyStateLabel")
+
+                        DiagnosticRow(icon: "slider.horizontal.3", value: viewModel.audioInputProcessingSummary)
+                            .accessibilityLabel("Audio input processing")
+                            .accessibilityValue(viewModel.audioInputProcessingSummary)
+                            .accessibilityIdentifier("audioInputProcessingSummaryLabel")
                     }
                 }
                 .padding(AppSpacing.screen)
@@ -458,8 +470,10 @@ private struct SettingsView: View {
     var body: some View {
         Form {
             AudioIOPanel(viewModel: viewModel)
-            TransmitCodecPanel(viewModel: viewModel)
             AudioCheckPanel(viewModel: viewModel)
+            TransmitCodecPanel(viewModel: viewModel)
+            SoundIsolationPanel(viewModel: viewModel)
+            VADThresholdPanel(viewModel: viewModel)
         }
         .formStyle(.grouped)
         .accessibilityIdentifier("settingsScrollView")
@@ -471,16 +485,6 @@ private struct AudioIOPanel: View {
 
     var body: some View {
         Section {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Apply")
-                Spacer()
-                Text(viewModel.isAudioDeviceSelectionLive ? "Live" : "Next start")
-                    .font(AppTypography.bodyStrong)
-                    .foregroundStyle(viewModel.isAudioDeviceSelectionLive ? AppColorPalette.success : AppColorPalette.textSecondary)
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("audioIOApplyStateLabel")
-
             if viewModel.availableOutputPorts.count > 1 {
                 Picker("Output", selection: Binding(
                     get: { viewModel.selectedOutputPort },
@@ -506,21 +510,6 @@ private struct AudioIOPanel: View {
                 .pickerStyle(.menu)
                 .accessibilityIdentifier("audioCheckInputPicker")
             }
-
-            HStack(spacing: AppSpacing.l) {
-                Image(systemName: "slider.horizontal.3")
-                    .frame(width: AppSize.iconS)
-                    .foregroundStyle(AppColorPalette.textSecondary)
-                Text(viewModel.audioInputProcessingSummary)
-                    .font(AppTypography.footnote.monospacedDigit())
-                    .foregroundStyle(AppColorPalette.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .lineLimit(nil)
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Audio input processing")
-            .accessibilityValue(viewModel.audioInputProcessingSummary)
-            .accessibilityIdentifier("audioInputProcessingSummaryLabel")
         } header: {
             Label("Audio I/O", systemImage: "slider.horizontal.3")
         }
@@ -589,10 +578,12 @@ private struct AudioCheckPanel: View {
                 VoiceMeterView(
                     level: viewModel.diagnosticsInputLevel,
                     peakLevel: viewModel.diagnosticsInputPeakLevel,
-                    isMuted: viewModel.isMuted
+                    isMuted: viewModel.isMuted,
+                    showsValueText: false
                 )
                 .accessibilityIdentifier("audioCheckInputMeter")
             }
+            .listRowSeparator(.hidden)
 
             VStack(alignment: .leading, spacing: AppSpacing.m) {
                 Label("Speaker Output", systemImage: "speaker.wave.2.fill")
@@ -600,10 +591,12 @@ private struct AudioCheckPanel: View {
                 VoiceMeterView(
                     level: viewModel.diagnosticsOutputLevel,
                     peakLevel: viewModel.diagnosticsOutputPeakLevel,
-                    isMuted: false
+                    isMuted: false,
+                    showsValueText: false
                 )
                 .accessibilityIdentifier("audioCheckOutputMeter")
             }
+            .listRowSeparator(.hidden)
 
             Text(viewModel.audioCheckStatusMessage)
                 .font(AppTypography.footnote)
@@ -611,45 +604,16 @@ private struct AudioCheckPanel: View {
                 .lineLimit(nil)
                 .accessibilityIdentifier("audioCheckStatusLabel")
 
-            VStack(alignment: .leading, spacing: AppSpacing.m) {
-                HStack {
-                    Text("Voice Activity Detection Threshold")
-                    Spacer()
-                    Text(String(format: "%.4f", viewModel.voiceActivityDetectionThreshold))
-                        .font(AppTypography.captionStrongMono)
-                        .foregroundStyle(AppColorPalette.textSecondary)
-                }
-                Slider(
-                    value: Binding(
-                        get: { Double(viewModel.voiceActivityDetectionThreshold) },
-                        set: { viewModel.setVoiceActivityDetectionThreshold(Float(snappedThreshold($0))) }
-                    ),
-                    in: Double(VoiceActivityDetector.minThreshold)...Double(VoiceActivityDetector.maxThreshold)
-                )
-                .accessibilityIdentifier("voiceActivityDetectionThresholdSlider")
-
-                if viewModel.supportsSoundIsolation {
-                    Toggle(
-                        "Sound Isolation",
-                        isOn: Binding(
-                            get: { viewModel.isSoundIsolationEnabled },
-                            set: { viewModel.setSoundIsolationEnabled($0) }
-                        )
-                    )
-                    .accessibilityIdentifier("soundIsolationToggle")
-                }
-
-                Button {
-                    viewModel.startAudioCheck()
-                } label: {
-                    Label("Record 5s and Play", systemImage: "record.circle.fill")
-                }
-                .appProminentButtonStyle()
-                .controlSize(.large)
-                .disabled(viewModel.audioCheckPhase == .recording || viewModel.audioCheckPhase == .playing)
-                .accessibilityValue(viewModel.audioCheckPhase.rawValue)
-                .accessibilityIdentifier("audioCheckButton")
+            Button {
+                viewModel.startAudioCheck()
+            } label: {
+                Label("Record 5s and Play", systemImage: "record.circle.fill")
             }
+            .appProminentButtonStyle()
+            .controlSize(.large)
+            .disabled(viewModel.audioCheckPhase == .recording || viewModel.audioCheckPhase == .playing)
+            .accessibilityValue(viewModel.audioCheckPhase.rawValue)
+            .accessibilityIdentifier("audioCheckButton")
         } header: {
             Label("Audio Check", systemImage: "waveform")
         }
@@ -681,19 +645,86 @@ private struct AudioCheckPanel: View {
     }
 }
 
+private struct SoundIsolationPanel: View {
+    @Bindable var viewModel: IntercomViewModel
+
+    var body: some View {
+        if viewModel.supportsSoundIsolation {
+            Section {
+                Toggle(
+                    "Sound Isolation",
+                    isOn: Binding(
+                        get: { viewModel.isSoundIsolationEnabled },
+                        set: { viewModel.setSoundIsolationEnabled($0) }
+                    )
+                )
+                .accessibilityIdentifier("soundIsolationToggle")
+            } header: {
+                Label("Sound Isolation", systemImage: "waveform")
+            }
+            .accessibilityIdentifier("soundIsolationPanel")
+        }
+    }
+}
+
+private struct VADThresholdPanel: View {
+    @Bindable var viewModel: IntercomViewModel
+
+    var body: some View {
+        Section {
+            HStack {
+                Text("Voice Activity Detection Threshold")
+                Spacer()
+                Text(String(format: "%.4f", viewModel.voiceActivityDetectionThreshold))
+                    .font(AppTypography.captionStrongMono)
+                    .foregroundStyle(AppColorPalette.textSecondary)
+            }
+
+            Slider(
+                value: Binding(
+                    get: { Double(viewModel.voiceActivityDetectionThreshold) },
+                    set: { viewModel.setVoiceActivityDetectionThreshold(Float(snappedThreshold($0))) }
+                ),
+                in: Double(VoiceActivityDetector.minThreshold)...Double(VoiceActivityDetector.maxThreshold)
+            )
+            .accessibilityIdentifier("voiceActivityDetectionThresholdSlider")
+        } header: {
+            Label("VAD Threshold", systemImage: "waveform.badge.mic")
+        }
+        .accessibilityIdentifier("vadThresholdPanel")
+    }
+
+    private func snappedThreshold(_ value: Double) -> Double {
+        let minValue = Double(VoiceActivityDetector.minThreshold)
+        let maxValue = Double(VoiceActivityDetector.maxThreshold)
+        let clamped = min(max(minValue, value), maxValue)
+        let step = 0.00025
+        let snapped = (clamped / step).rounded() * step
+        return min(max(minValue, snapped), maxValue)
+    }
+}
+
 private struct DiagnosticRow: View {
     let icon: String
     let value: String
 
+    private var parts: [String] {
+        value.components(separatedBy: " / ")
+    }
+
     var body: some View {
-        HStack(spacing: AppSpacing.l) {
+        HStack(alignment: .top, spacing: AppSpacing.l) {
             Image(systemName: icon)
                 .frame(width: AppSize.iconS)
                 .foregroundStyle(AppColorPalette.textSecondary)
-            Text(value)
-                .font(AppTypography.bodyMono)
-                .foregroundStyle(AppColorPalette.textPrimary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+                ForEach(parts, id: \.self) { part in
+                    Text(part)
+                        .font(AppTypography.footnoteMono)
+                        .foregroundStyle(AppColorPalette.textPrimary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .appDiagnosticsCardStyle()
     }
