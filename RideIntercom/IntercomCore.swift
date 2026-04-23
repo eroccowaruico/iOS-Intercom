@@ -2775,17 +2775,24 @@ struct AudioPacketSequencer {
     }
 
     private mutating func makeVoiceEnvelope(frameID: Int, samples: [Float], sentAt: TimeInterval) -> AudioPacketEnvelope {
-        makeVoiceEnvelope(frameID: frameID, samples: samples, sentAt: sentAt, forcedFallbackReason: nil)
+        makeVoiceEnvelope(
+            frameID: frameID,
+            samples: samples,
+            sentAt: sentAt,
+            forcedFallbackReason: nil,
+            requestedCodecOverride: nil
+        )
     }
 
     private mutating func makeVoiceEnvelope(
         frameID: Int,
         samples: [Float],
         sentAt: TimeInterval,
-        forcedFallbackReason: AudioCodecFallbackReason?
+        forcedFallbackReason: AudioCodecFallbackReason?,
+        requestedCodecOverride: AudioCodecIdentifier?
     ) -> AudioPacketEnvelope {
         do {
-            let requestedCodec = codec
+            let requestedCodec = requestedCodecOverride ?? codec
             let payload = try encoderSession.encodeFrame(samples)
             guard !(payload.isEmpty && encoderSession.codec == .heAACv2) else {
                 return AudioPacketEnvelope(
@@ -2817,7 +2824,7 @@ struct AudioPacketSequencer {
                 )
             )
         } catch AudioCodecError.codecUnavailable where encoderSession.codec != .pcm16 {
-            codec = .pcm16
+            let requestedCodec = codec
             encoderSession = AudioCodecSessionFactory.makeEncoderSession(
                 preferred: [.pcm16],
                 heAACv2Quality: heAACv2Quality
@@ -2828,7 +2835,8 @@ struct AudioPacketSequencer {
                 frameID: frameID,
                 samples: samples,
                 sentAt: sentAt,
-                forcedFallbackReason: .codecUnavailable
+                forcedFallbackReason: .codecUnavailable,
+                requestedCodecOverride: requestedCodec
             )
         } catch {
             return AudioPacketEnvelope(
@@ -3591,6 +3599,7 @@ final class IntercomViewModel {
         }
 
         preferredTransmitCodec = resolvedCodec
+        setLocalActiveCodec(resolvedCodec)
         localTransport.setPreferredAudioCodec(resolvedCodec)
         internetTransport.setPreferredAudioCodec(resolvedCodec)
         broadcastMetadataKeepalive()
@@ -3897,7 +3906,6 @@ final class IntercomViewModel {
         switch packet {
         case .voice:
             sentVoicePacketCount += 1
-            setLocalActiveCodec(preferredTransmitCodec)
             if routeCoordinator.shouldDualSend {
                 localTransport.sendAudioFrame(packet)
                 internetTransport.sendAudioFrame(packet)
@@ -4134,6 +4142,7 @@ final class IntercomViewModel {
 
     private func handleOutboundPacketDiagnostics(_ diagnostics: OutboundPacketDiagnostics) {
         guard let metadata = diagnostics.metadata else { return }
+        setLocalActiveCodec(metadata.encodedCodec)
         let hasFallback = metadata.fallbackReason != nil || metadata.requestedCodec != metadata.encodedCodec
         guard hasFallback else { return }
 
