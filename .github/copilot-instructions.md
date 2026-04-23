@@ -15,6 +15,47 @@
 - テストは記述だけで終わらせず、必ず実行して成功させる。
 - 常にビルドエラー、ワーニング、テストエラーがない状態を維持する。
 
+### VS Code でのテスト実行環境（macOS）
+- `xcodebuild` や `xcresulttool` は、`xcode-select -p` が `CommandLineTools` を向いていると UI テスト実行や結果解析に失敗することがある。
+- Xcode本体がインストール済みでも、向き先が `CommandLineTools` のままだと同様に失敗するため、テスト実行時は Xcode本体の Developer ディレクトリを明示する。
+- 原則として、環境全体を変更する `sudo xcode-select -s ...` ではなく、まずはその場限りの `DEVELOPER_DIR` を使う。
+
+#### 推奨手順
+- Xcode本体の場所を確認する。
+```bash
+ls /Applications | rg 'Xcode'
+```
+
+- 現在の向き先を確認する。
+```bash
+xcode-select -p
+```
+
+- `DEVELOPER_DIR` を一時指定してテストを実行する。
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+xcodebuild test \
+  -project RideIntercom.xcodeproj \
+  -scheme RideIntercom \
+  -destination 'platform=macOS'
+```
+
+- `xcresulttool` を使うときも同じ `DEVELOPER_DIR` を明示する。
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+xcrun xcresulttool get test-results summary --path <path-to.xcresult>
+```
+
+- `<path-to.xcresult>` は通常 `~/Library/Developer/Xcode/DerivedData/.../Logs/Test/` 配下に生成される。
+
+#### 恒久対応が必要な場合
+- ローカル環境を常に Xcode本体へ向けたい場合のみ、明示的に切り替える。
+```bash
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+```
+
+- 向き先変更後は、`xcode-select -p` で確認してから `xcodebuild test` を再実行する。
+
 ## プラットフォーム共通化
 - macOSとiOSの処理は、可能な限り同一の実装経路を通す。
 - 最新APIでも共通化できない限定部分のみ抽象化し、OS差分を最小化する。

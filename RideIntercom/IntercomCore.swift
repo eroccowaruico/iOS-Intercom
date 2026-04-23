@@ -2723,7 +2723,7 @@ struct AudioTransmissionController {
 final class IntercomViewModel {
     private static let pendingMemberPrefix = "pending-"
     private static let pendingInviteMemberPrefix = "invite-pending-"
-    static let muteAutoStopDelayDefault: Duration = .seconds(2)
+    nonisolated static let muteAutoStopDelayDefault: Duration = .seconds(2)
 
     private(set) var groups: [IntercomGroup]
     private(set) var selectedGroup: IntercomGroup?
@@ -3319,17 +3319,17 @@ final class IntercomViewModel {
         muteAutoStopTask = nil
 
         guard isAudioReady, !isMicrophoneCaptureSuspendedByMute else { return }
-        muteAutoStopTask = Task { [weak self] in
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: muteAutoStopDelay)
+        muteAutoStopTask = Task { @MainActor [weak self] in
             guard let self else { return }
 
-            try? await Task.sleep(for: self.muteAutoStopDelay)
+            try? await clock.sleep(until: deadline, tolerance: .zero)
             guard !Task.isCancelled else { return }
 
-            await MainActor.run {
-                guard self.isMuted, self.isAudioReady, !self.isMicrophoneCaptureSuspendedByMute else { return }
-                self.audioInputMonitor.stop()
-                self.isMicrophoneCaptureSuspendedByMute = true
-            }
+            guard self.isMuted, self.isAudioReady, !self.isMicrophoneCaptureSuspendedByMute else { return }
+            self.audioInputMonitor.stop()
+            self.isMicrophoneCaptureSuspendedByMute = true
         }
     }
 

@@ -1,6 +1,7 @@
 import SwiftUI
 
 enum AppColorPalette {
+    static let textPrimary: Color = .primary
     static let textSecondary: Color = .secondary
     static let textTertiary: Color = .secondary.opacity(0.72)
 
@@ -12,6 +13,14 @@ enum AppColorPalette {
 
     static let callScreenBackground: Color = Color.secondary.opacity(0.08)
     static let cardMaterial: Material = .regularMaterial
+    static let diagnosticsCardMaterial: Material = .thinMaterial
+    #if canImport(AppKit)
+    static let panelSurface: Color = Color(nsColor: .windowBackgroundColor)
+    #elseif canImport(UIKit)
+    static let panelSurface: Color = Color(uiColor: .systemBackground)
+    #else
+    static let panelSurface: Color = .white
+    #endif
     static let cardBorder: Color = Color.secondary.opacity(0.35)
 
     static let meterTrack: Color = Color.secondary.opacity(0.16)
@@ -19,4 +28,51 @@ enum AppColorPalette {
 
     static let buttonProminentBackground: Color = .accentColor
     static let buttonProminentForeground: Color = .white
+}
+
+enum AppSpacing {
+    static let xxs: CGFloat = 2
+    static let xs: CGFloat = 4
+    static let s: CGFloat = 6
+    static let m: CGFloat = 8
+    static let l: CGFloat = 10
+    static let xl: CGFloat = 12
+    static let xxl: CGFloat = 14
+    static let screen: CGFloat = 16
+}
+
+enum AppCornerRadius {
+    static let card: CGFloat = 8
+}
+
+enum AppBorderWidth {
+    static let card: CGFloat = 1
+}
+
+enum AppSize {
+    static let tapPrimary = CGSize(width: 44, height: 44)
+    static let iconS: CGFloat = 24
+    static let iconM: CGFloat = 28
+    static let iconL: CGFloat = 32
+    static let connector = CGSize(width: 10, height: 48)
+    static let meterPeakWidth: CGFloat = 2
+    static let meterHeight: CGFloat = 16
+}
+
+enum AppTypography {
+    static let title: Font = .headline
+    static let sectionTitle: Font = .headline
+    static let rowTitle: Font = .headline
+    static let bodyStrong: Font = .body.weight(.semibold)
+    static let body: Font = .body
+    static let subheadline: Font = .subheadline
+    static let subheadlineStrong: Font = .subheadline.weight(.semibold)
+    static let caption: Font = .caption
+    static let captionStrong: Font = .caption.weight(.semibold)
+    static let captionStrongMono: Font = .caption.weight(.semibold).monospacedDigit()
+    static let caption2: Font = .caption2
+    static let caption2Mono: Font = .caption2.monospacedDigit()
+    static let bodyMono: Font = .body.monospacedDigit()
+    static let footnoteStrong: Font = .footnote.weight(.semibold)
+    static let footnote: Font = .footnote
 }

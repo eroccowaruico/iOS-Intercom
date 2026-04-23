@@ -92,24 +92,24 @@ private struct GroupSelectionView: View {
                     Button {
                         viewModel.selectGroup(group)
                     } label: {
-                        HStack(spacing: 12) {
+                        HStack(spacing: AppSpacing.xl) {
                             Image(systemName: "person.3")
                                 .foregroundStyle(AppColorPalette.textSecondary)
-                                .frame(width: 28)
+                                .frame(width: AppSize.iconM)
 
-                            VStack(alignment: .leading, spacing: 4) {
+                            VStack(alignment: .leading, spacing: AppSpacing.xs) {
                                 Text(group.name)
-                                    .font(.headline)
+                                    .font(AppTypography.rowTitle)
                                     .lineLimit(2)
                                 Text("\(group.members.count) members")
-                                    .font(.subheadline)
+                                    .font(AppTypography.subheadline)
                                     .foregroundStyle(AppColorPalette.textSecondary)
                             }
 
-                            Spacer(minLength: 12)
+                            Spacer(minLength: AppSpacing.xl)
 
                             Image(systemName: "chevron.right")
-                                .font(.footnote.weight(.semibold))
+                                .font(AppTypography.footnoteStrong)
                                 .foregroundStyle(AppColorPalette.textTertiary)
                         }
                         .contentShape(Rectangle())
@@ -156,28 +156,26 @@ private struct CallView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: AppSpacing.screen) {
                 statusHeader
                 controls
 
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: AppSpacing.l) {
                     Text("Participants")
-                        .font(.headline)
+                        .font(AppTypography.sectionTitle)
                         .foregroundStyle(AppColorPalette.textSecondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 if remoteMembers.isEmpty {
                     Text("No remote riders")
-                        .font(.subheadline)
+                        .font(AppTypography.subheadline)
                         .foregroundStyle(AppColorPalette.textSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(12)
-                        .background(AppColorPalette.cardMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .appCallCardStyle()
                         .accessibilityIdentifier("emptyRemoteParticipantsLabel")
                 } else {
-                    VStack(spacing: 10) {
+                    VStack(spacing: AppSpacing.l) {
                         ForEach(Array(remoteMembers.enumerated()), id: \.element.id) { index, member in
                             RemoteParticipantRowView(
                                 index: index,
@@ -210,12 +208,12 @@ private struct CallView: View {
 
                 if let audioErrorMessage = viewModel.audioErrorMessage {
                     Text(audioErrorMessage)
-                        .font(.footnote)
+                        .font(AppTypography.footnote)
                         .foregroundStyle(AppColorPalette.danger)
                         .accessibilityIdentifier("audioErrorLabel")
                 }
             }
-            .padding()
+            .padding(AppSpacing.screen)
         }
         .background(AppColorPalette.callScreenBackground)
         .accessibilityIdentifier("callScrollView")
@@ -223,21 +221,21 @@ private struct CallView: View {
     }
 
     private var statusHeader: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .center, spacing: 12) {
-                HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: AppSpacing.xxl) {
+            HStack(alignment: .center, spacing: AppSpacing.xl) {
+                HStack(spacing: AppSpacing.l) {
                     Image(systemName: connectionIconName)
                         .imageScale(.large)
                         .foregroundStyle(connectionStatusColor)
-                        .frame(width: 28)
+                        .frame(width: AppSize.iconM)
 
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: AppSpacing.xxs) {
                         Text(viewModel.callPresenceLabel)
-                            .font(.headline)
+                            .font(AppTypography.rowTitle)
                             .lineLimit(2)
                             .accessibilityIdentifier("callPresenceLabel")
                         Text(viewModel.routeLabel)
-                            .font(.caption.weight(.semibold))
+                            .font(AppTypography.captionStrong)
                             .foregroundStyle(AppColorPalette.textSecondary)
                             .lineLimit(2)
                             .accessibilityIdentifier("routeLabel")
@@ -259,10 +257,10 @@ private struct CallView: View {
                 )
             }
 
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center, spacing: AppSpacing.xl) {
+                VStack(alignment: .leading, spacing: AppSpacing.s) {
                     Label("Output", systemImage: "speaker.wave.2.fill")
-                        .font(.caption.weight(.semibold))
+                        .font(AppTypography.captionStrong)
                         .foregroundStyle(viewModel.isOutputMuted ? AppColorPalette.danger : AppColorPalette.textSecondary)
 
                     Slider(
@@ -282,22 +280,16 @@ private struct CallView: View {
                     viewModel.toggleOutputMute()
                 } label: {
                     Image(systemName: viewModel.isOutputMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                        .frame(width: 44, height: 44)
+                        .frame(width: AppSize.tapPrimary.width, height: AppSize.tapPrimary.height)
                 }
                 .buttonStyle(.bordered)
-                .tint(viewModel.isOutputMuted ? AppColorPalette.danger : .accentColor)
+                .appStateToggleButtonTint(isActive: viewModel.isOutputMuted)
                 .accessibilityLabel(viewModel.isOutputMuted ? "Unmute Output" : "Mute Output")
                 .accessibilityValue(outputPercentLabel)
                 .accessibilityIdentifier("masterOutputMuteButton")
             }
         }
-        .padding(12)
-        .background(AppColorPalette.cardMaterial)
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(AppColorPalette.cardBorder, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .appCallCardStyle()
         .accessibilityIdentifier("callStatusHeader")
     }
 
@@ -316,7 +308,7 @@ private struct CallView: View {
 
     private var controls: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: 10) {
+            HStack(spacing: AppSpacing.l) {
                 primaryConnectionButton
 
                 if let inviteURL = viewModel.selectedGroupInviteURL {
@@ -324,7 +316,7 @@ private struct CallView: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: AppSpacing.l) {
                 primaryConnectionButton
 
                 if let inviteURL = viewModel.selectedGroupInviteURL {
@@ -411,12 +403,12 @@ private struct DiagnosticsView: View {
             let now = context.date.timeIntervalSince1970
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: AppSpacing.screen) {
                     LiveTransmitPipelineView(viewModel: viewModel)
 
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: AppSpacing.m) {
                         Text("Live Status")
-                            .font(.headline)
+                            .font(AppTypography.sectionTitle)
                         DiagnosticRow(
                             icon: "checklist",
                             value: snapshot.realDeviceCallSummary(
@@ -436,9 +428,9 @@ private struct DiagnosticsView: View {
                             .accessibilityIdentifier("receptionDebugSummaryLabel")
                     }
 
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: AppSpacing.m) {
                         Text("Identity & Route")
-                            .font(.headline)
+                            .font(AppTypography.sectionTitle)
                         DiagnosticRow(icon: "network", value: snapshot.transportSummary)
                             .accessibilityIdentifier("transportDebugSummaryLabel")
                         DiagnosticRow(icon: "antenna.radiowaves.left.and.right", value: snapshot.localNetwork.summary(now: now))
@@ -453,7 +445,7 @@ private struct DiagnosticsView: View {
                             .accessibilityIdentifier("inviteDebugSummaryLabel")
                     }
                 }
-                .padding()
+                .padding(AppSpacing.screen)
             }
             .accessibilityIdentifier("diagnosticsScrollView")
         }
@@ -483,10 +475,11 @@ private struct AudioIOPanel: View {
                 Text("Apply")
                 Spacer()
                 Text(viewModel.isAudioDeviceSelectionLive ? "Live" : "Next start")
-                    .font(.body.weight(.semibold))
+                    .font(AppTypography.bodyStrong)
                     .foregroundStyle(viewModel.isAudioDeviceSelectionLive ? AppColorPalette.success : AppColorPalette.textSecondary)
-                    .accessibilityIdentifier("audioIOApplyStateLabel")
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("audioIOApplyStateLabel")
 
             if viewModel.availableOutputPorts.count > 1 {
                 Picker("Output", selection: Binding(
@@ -514,12 +507,12 @@ private struct AudioIOPanel: View {
                 .accessibilityIdentifier("audioCheckInputPicker")
             }
 
-            HStack(spacing: 10) {
+            HStack(spacing: AppSpacing.l) {
                 Image(systemName: "slider.horizontal.3")
-                    .frame(width: 24)
+                    .frame(width: AppSize.iconS)
                     .foregroundStyle(AppColorPalette.textSecondary)
                 Text(viewModel.audioInputProcessingSummary)
-                    .font(.footnote.monospacedDigit())
+                    .font(AppTypography.footnote.monospacedDigit())
                     .foregroundStyle(AppColorPalette.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .lineLimit(nil)
@@ -548,6 +541,7 @@ private struct TransmitCodecPanel: View {
                 Text("HE-AAC v2 VBR").tag(AudioCodecIdentifier.heAACv2)
             }
             .pickerStyle(.segmented)
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("transmitCodecPicker")
 
             if viewModel.preferredTransmitCodec == .heAACv2 {
@@ -577,21 +571,21 @@ private struct AudioCheckPanel: View {
             HStack(alignment: .firstTextBaseline) {
                 Text("Call")
                 Spacer()
-                VStack(alignment: .trailing, spacing: 2) {
+                VStack(alignment: .trailing, spacing: AppSpacing.xxs) {
                     Text(viewModel.isAudioReady ? "Call Live" : "Call Idle")
-                        .font(.body.weight(.semibold))
+                        .font(AppTypography.bodyStrong)
                         .foregroundStyle(viewModel.isAudioReady ? AppColorPalette.success : AppColorPalette.textSecondary)
                         .accessibilityIdentifier("liveAudioStateLabel")
                     Text(viewModel.audioCheckPhase.rawValue)
-                        .font(.caption.weight(.semibold))
+                        .font(AppTypography.captionStrongMono)
                         .foregroundStyle(statusColor)
                         .accessibilityIdentifier("audioCheckPhaseLabel")
                 }
             }
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: AppSpacing.m) {
                 Label("Microphone Input", systemImage: "mic.fill")
-                    .font(.subheadline)
+                    .font(AppTypography.subheadlineStrong)
                 VoiceMeterView(
                     level: viewModel.diagnosticsInputLevel,
                     peakLevel: viewModel.diagnosticsInputPeakLevel,
@@ -600,9 +594,9 @@ private struct AudioCheckPanel: View {
                 .accessibilityIdentifier("audioCheckInputMeter")
             }
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: AppSpacing.m) {
                 Label("Speaker Output", systemImage: "speaker.wave.2.fill")
-                    .font(.subheadline)
+                    .font(AppTypography.subheadlineStrong)
                 VoiceMeterView(
                     level: viewModel.diagnosticsOutputLevel,
                     peakLevel: viewModel.diagnosticsOutputPeakLevel,
@@ -612,17 +606,17 @@ private struct AudioCheckPanel: View {
             }
 
             Text(viewModel.audioCheckStatusMessage)
-                .font(.footnote)
+                .font(AppTypography.footnote)
                 .foregroundStyle(AppColorPalette.textSecondary)
                 .lineLimit(nil)
                 .accessibilityIdentifier("audioCheckStatusLabel")
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: AppSpacing.m) {
                 HStack {
                     Text("Voice Activity Detection Threshold")
                     Spacer()
                     Text(String(format: "%.4f", viewModel.voiceActivityDetectionThreshold))
-                        .font(.caption.monospacedDigit())
+                        .font(AppTypography.captionStrongMono)
                         .foregroundStyle(AppColorPalette.textSecondary)
                 }
                 Slider(
@@ -692,17 +686,16 @@ private struct DiagnosticRow: View {
     let value: String
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: AppSpacing.l) {
             Image(systemName: icon)
-                .frame(width: 24)
+                .frame(width: AppSize.iconS)
                 .foregroundStyle(AppColorPalette.textSecondary)
             Text(value)
-                .font(.body.monospacedDigit())
+                .font(AppTypography.bodyMono)
+                .foregroundStyle(AppColorPalette.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(12)
-        .background(.thinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .appDiagnosticsCardStyle()
     }
 }
 
@@ -710,11 +703,11 @@ private struct LiveTransmitPipelineView: View {
     @Bindable var viewModel: IntercomViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: AppSpacing.xl) {
             Label("Live TX Pipeline", systemImage: "point.topleft.down.curvedto.point.bottomright.up")
-                .font(.headline)
+                .font(AppTypography.sectionTitle)
 
-            HStack(alignment: .top, spacing: 4) {
+            HStack(alignment: .top, spacing: AppSpacing.xs) {
                 ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
                     PipelineStepView(step: step)
                         .frame(maxWidth: .infinity)
@@ -722,19 +715,13 @@ private struct LiveTransmitPipelineView: View {
 
                     if index < steps.count - 1 {
                         PipelineConnectorView(color: connectorColor(after: index))
-                            .frame(width: 10, height: 48)
+                            .frame(width: AppSize.connector.width, height: AppSize.connector.height)
                             .accessibilityIdentifier("transmitPipelineConnector\(index)")
                     }
                 }
             }
         }
-        .padding(12)
-        .background(.background)
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(AppColorPalette.cardBorder, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .appDiagnosticsCardStyle()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("liveTransmitPipelineView")
     }
@@ -769,17 +756,17 @@ private struct LiveTransmitPipelineView: View {
             return PipelineStep(title: "Mute", detail: detail, icon: "mic.slash.fill", state: .blocked)
         }
         let detail = viewModel.isSoundIsolationEnabled ? "Iso On" : "Open"
-        return PipelineStep(title: "Input FX", detail: detail, icon: "slider.horizontal.3", state: viewModel.isAudioReady ? .passing : .idle)
+        return PipelineStep(title: "Input FX", detail: detail, icon: "waveform", state: viewModel.isAudioReady ? .passing : .idle)
     }
 
     private var vadStep: PipelineStep {
         if viewModel.isMuted {
-            return PipelineStep(title: "VAD", detail: "Muted", icon: "waveform.path", state: .idle)
+            return PipelineStep(title: "VAD", detail: "Muted", icon: "waveform.slash", state: .idle)
         }
         if viewModel.isVoiceActive {
-            return PipelineStep(title: "VAD", detail: "Voice", icon: "waveform.path.ecg", state: .passing)
+            return PipelineStep(title: "VAD", detail: "Voice", icon: "waveform.badge.mic", state: .passing)
         }
-        return PipelineStep(title: "VAD", detail: viewModel.isAudioReady ? "Silent" : "Waiting", icon: "waveform.path", state: viewModel.isAudioReady ? .waiting : .idle)
+        return PipelineStep(title: "VAD", detail: viewModel.isAudioReady ? "Silent" : "Waiting", icon: "waveform.slash", state: viewModel.isAudioReady ? .waiting : .idle)
     }
 
     private var encodeStep: PipelineStep {
@@ -820,10 +807,10 @@ private struct LiveTransmitPipelineView: View {
         let left = steps[index].state
         let right = steps[index + 1].state
         if left == .blocked || right == .blocked {
-            return .red
+            return AppColorPalette.danger
         }
         if left == .passing && right == .passing {
-            return .green
+            return AppColorPalette.success
         }
         if left == .passing || right == .waiting {
             return AppColorPalette.warning
@@ -863,22 +850,22 @@ private struct PipelineStepView: View {
     let step: PipelineStep
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: AppSpacing.s) {
             Image(systemName: step.icon)
                 .font(.title3)
-                .frame(width: 32, height: 32)
+                .frame(width: AppSize.iconL, height: AppSize.iconL)
                 .foregroundStyle(step.state.color)
             Text(step.title)
-                .font(.caption.weight(.semibold))
+                .font(AppTypography.captionStrong)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
             Text(step.detail)
-                .font(.caption2)
+                .font(AppTypography.caption2)
                 .foregroundStyle(step.state.color)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
         }
-        .frame(minWidth: 32)
+        .frame(minWidth: AppSize.iconL)
         .accessibilityElement(children: .contain)
     }
 }
@@ -900,16 +887,22 @@ private struct LocalMicrophoneHeaderControl: View {
     let onToggleMute: () -> Void
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
-                Label {
-                    Text("Input")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(isMuted ? AppColorPalette.danger : AppColorPalette.textSecondary)
+        HStack(alignment: .center, spacing: AppSpacing.xl) {
+            VStack(alignment: .leading, spacing: AppSpacing.s) {
+                HStack(alignment: .firstTextBaseline, spacing: AppSpacing.m) {
+                    Label {
+                        Text("Input")
+                            .font(AppTypography.subheadlineStrong)
+                            .foregroundStyle(isMuted ? AppColorPalette.danger : AppColorPalette.textSecondary)
+                    } icon: {
+                        Image(systemName: isMuted ? "mic.slash.fill" : "mic.fill")
+                            .foregroundStyle(isMuted ? AppColorPalette.danger : AppColorPalette.textSecondary)
+                    }
+
+                    Text(isMuted ? "Muted" : "Live")
+                        .font(AppTypography.captionStrongMono)
+                        .foregroundStyle(isMuted ? AppColorPalette.danger : AppColorPalette.success)
                         .accessibilityIdentifier("localMicrophoneStateLabel")
-                } icon: {
-                    Image(systemName: isMuted ? "mic.slash.fill" : "mic.fill")
-                        .foregroundStyle(isMuted ? AppColorPalette.danger : AppColorPalette.textSecondary)
                 }
 
                 VoiceMeterView(
@@ -923,10 +916,10 @@ private struct LocalMicrophoneHeaderControl: View {
 
             Button(action: onToggleMute) {
                 Image(systemName: isMuted ? "mic.slash.fill" : "mic.fill")
-                    .frame(width: 44, height: 44)
+                    .frame(width: AppSize.tapPrimary.width, height: AppSize.tapPrimary.height)
             }
             .buttonStyle(.bordered)
-            .tint(isMuted ? AppColorPalette.danger : .accentColor)
+            .appStateToggleButtonTint(isActive: isMuted)
             .accessibilityLabel(isMuted ? "Unmute" : "Mute")
             .accessibilityValue(isMuted ? "Muted" : "Live")
             .accessibilityIdentifier("localMicrophoneMuteButton")
@@ -944,20 +937,20 @@ private struct LocalMicrophonePanel: View {
     let onToggleMute: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: AppSpacing.l) {
+            HStack(spacing: AppSpacing.m) {
                 Image(systemName: isMuted ? "mic.slash.fill" : "mic.fill")
                     .foregroundStyle(isMuted ? AppColorPalette.danger : AppColorPalette.success)
                 Text("Your Microphone")
-                    .font(.headline)
+                    .font(AppTypography.rowTitle)
                 Spacer()
                 Text(isMuted ? "Muted" : "Live")
-                    .font(.subheadline.weight(.semibold))
+                    .font(AppTypography.subheadlineStrong)
                     .foregroundStyle(isMuted ? AppColorPalette.danger : AppColorPalette.success)
                     .accessibilityIdentifier("localMicrophoneStateLabel")
             }
 
-            HStack(alignment: .center, spacing: 12) {
+            HStack(alignment: .center, spacing: AppSpacing.xl) {
                 VoiceMeterView(
                     level: isMuted ? 0 : member.voiceLevel,
                     peakLevel: isMuted ? 0 : member.voicePeakLevel,
@@ -967,22 +960,16 @@ private struct LocalMicrophonePanel: View {
 
                 Button(action: onToggleMute) {
                     Image(systemName: isMuted ? "mic.slash.fill" : "mic.fill")
-                        .frame(width: 44, height: 44)
+                        .frame(width: AppSize.tapPrimary.width, height: AppSize.tapPrimary.height)
                 }
                 .buttonStyle(.bordered)
-                .tint(isMuted ? AppColorPalette.danger : .accentColor)
+                .appStateToggleButtonTint(isActive: isMuted)
                 .accessibilityLabel(isMuted ? "Unmute" : "Mute")
                 .accessibilityValue(isMuted ? "Muted" : "Live")
                 .accessibilityIdentifier("localMicrophoneMuteButton")
             }
         }
-        .padding(12)
-        .background(.background)
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(isMuted ? AppColorPalette.danger.opacity(0.6) : AppColorPalette.success.opacity(0.35), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .appPanelCardStyle(borderColor: isMuted ? AppColorPalette.danger.opacity(0.6) : AppColorPalette.success.opacity(0.35))
         .accessibilityIdentifier("localMicrophonePanel")
     }
 }
@@ -998,7 +985,7 @@ private struct VoiceMeterView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
                     Capsule()
@@ -1008,15 +995,15 @@ private struct VoiceMeterView: View {
                         .frame(width: geometry.size.width * CGFloat(indicator.displayLevel))
                     Rectangle()
                         .fill(.primary)
-                        .frame(width: 2, height: 16)
+                        .frame(width: AppSize.meterPeakWidth, height: AppSize.meterHeight)
                         .offset(x: max(0, geometry.size.width * CGFloat(indicator.displayPeakLevel) - 1))
                 }
             }
-            .frame(height: 16)
+            .frame(height: AppSize.meterHeight)
 
             if showsValueText {
                 Text(isMuted ? "MUTED" : "LEVEL \(indicator.levelPercent)  PEAK \(indicator.peakPercent)")
-                    .font(.caption2.monospacedDigit())
+                    .font(AppTypography.caption2Mono)
                     .foregroundStyle(isMuted ? AppColorPalette.danger : meterColor)
                     .accessibilityIdentifier("voiceMeterValueLabel")
             }
@@ -1057,54 +1044,48 @@ private struct RemoteParticipantRowView: View {
     @Binding var outputVolume: Double
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: AppSpacing.l) {
+            HStack(alignment: .firstTextBaseline, spacing: AppSpacing.xl) {
+                VStack(alignment: .leading, spacing: AppSpacing.xxs) {
                     Text(member.displayName)
-                        .font(.headline)
+                        .font(AppTypography.rowTitle)
                         .lineLimit(2)
                         .accessibilityIdentifier("participantName\(index)")
 
-                    HStack(spacing: 8) {
+                    HStack(spacing: AppSpacing.m) {
                         Image(systemName: connectionIconName)
                             .foregroundStyle(connectionIconColor)
                         Image(systemName: authIconName)
                             .foregroundStyle(authIconColor)
                     }
-                    .font(.footnote.weight(.semibold))
+                    .font(AppTypography.footnoteStrong)
                     .accessibilityIdentifier("participantStatusSummary\(index)")
                 }
 
                 Spacer()
 
                 Label(codecLabel, systemImage: audioPipelineIconName)
-                    .font(.caption)
+                    .font(AppTypography.caption)
                     .foregroundStyle(audioPipelineColor)
                     .accessibilityIdentifier("participantAudioPipelineState\(index)")
             }
 
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: AppSpacing.l) {
                 participantMeter
                 participantOutputControl
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(AppColorPalette.cardMaterial)
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-            .stroke(AppColorPalette.cardBorder, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .appCallCardStyle()
         .accessibilityElement(children: .contain)
         .accessibilityLabel(member.displayName)
         .accessibilityValue("\(statusSummary), \(codecLabel), output \(outputPercentLabel)")
     }
 
     private var participantMeter: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: AppSpacing.s) {
             Label("Input", systemImage: member.isMuted ? "mic.slash.fill" : "mic.fill")
-                .font(.caption.weight(.semibold))
+                .font(AppTypography.captionStrong)
                 .foregroundStyle(member.isMuted ? AppColorPalette.danger : AppColorPalette.textSecondary)
 
             VoiceMeterView(
@@ -1118,15 +1099,15 @@ private struct RemoteParticipantRowView: View {
     }
 
     private var participantOutputControl: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            HStack(spacing: AppSpacing.s) {
                 Image(systemName: "speaker.wave.2.fill")
                     .foregroundStyle(AppColorPalette.textSecondary)
                 Text("Output")
-                    .font(.caption)
+                    .font(AppTypography.caption)
                 Spacer()
                 Text(outputPercentLabel)
-                    .font(.caption.monospacedDigit())
+                    .font(AppTypography.captionStrongMono)
                     .foregroundStyle(AppColorPalette.textSecondary)
             }
             Slider(value: $outputVolume, in: 0...1)
@@ -1147,7 +1128,7 @@ private struct RemoteParticipantRowView: View {
     private var connectionIconName: String {
         switch member.connectionState {
         case .connected:
-            "antenna.radiowaves.left.and.right"
+            "wifi"
         case .connecting:
             "wifi.exclamationmark"
         case .offline:
