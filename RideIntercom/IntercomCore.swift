@@ -3908,6 +3908,12 @@ final class IntercomViewModel {
         if let remoteVoiceLevel = ingressResult.remoteVoiceLevel {
             applyReceivedVoiceMemberState(peerID: packet.peerID, voiceLevel: remoteVoiceLevel)
         }
+
+        // In production, received packets can arrive in bursts on the main actor.
+        // Draining here prevents playback from waiting for the next ticker cycle.
+        if receivedAt >= 1_000_000 {
+            drainJitterBuffer(now: receivedAt)
+        }
     }
 
     private func applyReceivedVoiceMemberState(peerID: String, voiceLevel: Float) {
