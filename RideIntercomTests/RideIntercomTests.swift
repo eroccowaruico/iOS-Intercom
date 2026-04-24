@@ -343,7 +343,7 @@ struct RideIntercomTests {
             audioFramePlayer: NoOpAudioFramePlayer()
         )
 
-        viewModel.createTrailGroup()
+        viewModel.createSquadGroup()
         viewModel.connectLocal()
 
         #expect(viewModel.isAudioReady == false)
@@ -359,7 +359,7 @@ struct RideIntercomTests {
             audioFramePlayer: NoOpAudioFramePlayer()
         )
 
-        viewModel.createTrailGroup()
+        viewModel.createSquadGroup()
         viewModel.connectLocal()
 
         #expect(viewModel.isAudioReady == false)
@@ -656,7 +656,7 @@ struct RideIntercomTests {
 
     @Test func groupAccessCredentialBuildsStableHashWithoutExposingSecret() {
         let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
-        let secret = "trail-secret"
+        let secret = "squad-secret"
 
         let first = GroupAccessCredential(groupID: groupID, secret: secret)
         let second = GroupAccessCredential(groupID: groupID, secret: secret)
@@ -671,7 +671,7 @@ struct RideIntercomTests {
 
     @Test func localDiscoveryInfoUsesGroupHashForMatching() {
         let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
-        let credential = GroupAccessCredential(groupID: groupID, secret: "trail-secret")
+        let credential = GroupAccessCredential(groupID: groupID, secret: "squad-secret")
         let otherCredential = GroupAccessCredential(groupID: groupID, secret: "other-secret")
 
         let info = LocalDiscoveryInfo.makeDiscoveryInfo(for: credential)
@@ -703,7 +703,7 @@ struct RideIntercomTests {
     @Test func inMemoryGroupCredentialStoreSavesAndReturnsCredentialByGroupID() {
         let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
         let store = InMemoryGroupCredentialStore()
-        let credential = GroupAccessCredential(groupID: groupID, secret: "trail-secret")
+        let credential = GroupAccessCredential(groupID: groupID, secret: "squad-secret")
 
         store.save(credential)
 
@@ -715,11 +715,11 @@ struct RideIntercomTests {
         let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
         let keychain = FakeKeychainSecretStore()
         let store = KeychainGroupCredentialStore(keychain: keychain, service: "test.ride-intercom")
-        let credential = GroupAccessCredential(groupID: groupID, secret: "trail-secret")
+        let credential = GroupAccessCredential(groupID: groupID, secret: "squad-secret")
 
         store.save(credential)
 
-        #expect(keychain.savedSecrets["test.ride-intercom|\(groupID.uuidString)"] == "trail-secret")
+        #expect(keychain.savedSecrets["test.ride-intercom|\(groupID.uuidString)"] == "squad-secret")
         #expect(store.credential(for: groupID) == credential)
         #expect(store.credential(for: UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!) == nil)
     }
@@ -752,7 +752,7 @@ struct RideIntercomTests {
         let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
         let group = try IntercomGroup(
             id: groupID,
-            name: "Trail Group",
+            name: "Squad Group",
             members: [
                 GroupMember(id: "member-local", displayName: "Nao"),
                 GroupMember(id: "member-remote", displayName: "Aki")
@@ -765,7 +765,7 @@ struct RideIntercomTests {
         let loaded = store.loadGroups()
 
         #expect(loaded.map(\.id) == [groupID])
-        #expect(loaded.first?.name == "Trail Group")
+        #expect(loaded.first?.name == "Squad Group")
         #expect(loaded.first?.members.map(\.id) == ["member-local", "member-remote"])
         #expect(loaded.first?.accessSecret == nil)
     }
@@ -773,9 +773,9 @@ struct RideIntercomTests {
     @Test func handshakeMessageVerifiesMatchingGroupCredentialOnly() {
         let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
         let otherGroupID = UUID(uuidString: "CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC")!
-        let credential = GroupAccessCredential(groupID: groupID, secret: "trail-secret")
+        let credential = GroupAccessCredential(groupID: groupID, secret: "squad-secret")
         let otherSecret = GroupAccessCredential(groupID: groupID, secret: "other-secret")
-        let otherGroup = GroupAccessCredential(groupID: otherGroupID, secret: "trail-secret")
+        let otherGroup = GroupAccessCredential(groupID: otherGroupID, secret: "squad-secret")
         let message = HandshakeMessage.make(
             credential: credential,
             memberID: "member-001",
@@ -791,7 +791,7 @@ struct RideIntercomTests {
 
     @Test func handshakeRegistryAcceptsValidPeerAndRejectsInvalidPeer() {
         let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
-        let credential = GroupAccessCredential(groupID: groupID, secret: "trail-secret")
+        let credential = GroupAccessCredential(groupID: groupID, secret: "squad-secret")
         let invalidCredential = GroupAccessCredential(groupID: groupID, secret: "other-secret")
         let validMessage = HandshakeMessage.make(
             credential: credential,
@@ -817,7 +817,7 @@ struct RideIntercomTests {
         let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
         let group = try IntercomGroup(
             id: groupID,
-            name: "Trail Group",
+            name: "Squad Group",
             members: [
                 GroupMember(id: "member-local", displayName: "Local"),
                 GroupMember(id: "member-remote", displayName: "Remote")
@@ -837,7 +837,7 @@ struct RideIntercomTests {
 
     @Test func handshakeServiceBuildsAndVerifiesMatchingMessage() {
         let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
-        let credential = GroupAccessCredential(groupID: groupID, secret: "trail-secret")
+        let credential = GroupAccessCredential(groupID: groupID, secret: "squad-secret")
         let message = HandshakeService.makeMessage(
             credential: credential,
             memberID: "member-001",
@@ -850,7 +850,7 @@ struct RideIntercomTests {
 
     @Test func encryptedAudioPacketCodecRoundTripsWithMatchingCredentialOnly() throws {
         let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
-        let credential = GroupAccessCredential(groupID: groupID, secret: "trail-secret")
+        let credential = GroupAccessCredential(groupID: groupID, secret: "squad-secret")
         let otherCredential = GroupAccessCredential(groupID: groupID, secret: "other-secret")
         let envelope = AudioPacketEnvelope(
             groupID: groupID,
@@ -872,7 +872,7 @@ struct RideIntercomTests {
 
     @Test func packetCryptoServiceRoundTripsEncryptedEnvelope() throws {
         let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
-        let credential = GroupAccessCredential(groupID: groupID, secret: "trail-secret")
+        let credential = GroupAccessCredential(groupID: groupID, secret: "squad-secret")
         let envelope = AudioPacketEnvelope(
             groupID: groupID,
             streamID: UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!,
@@ -891,8 +891,8 @@ struct RideIntercomTests {
         let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
         let token = try GroupInviteToken.make(
             groupID: groupID,
-            groupName: "Trail Group",
-            groupSecret: "trail-secret",
+            groupName: "Squad Group",
+            groupSecret: "squad-secret",
             inviterMemberID: "member-001",
             issuedAt: 100,
             expiresAt: 200
@@ -921,8 +921,8 @@ struct RideIntercomTests {
     @Test func groupInviteTokenExpiresAfterConfiguredTime() throws {
         let token = try GroupInviteToken.make(
             groupID: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!,
-            groupName: "Trail Group",
-            groupSecret: "trail-secret",
+            groupName: "Squad Group",
+            groupSecret: "squad-secret",
             inviterMemberID: "member-001",
             issuedAt: 100,
             expiresAt: 200
@@ -954,7 +954,7 @@ struct RideIntercomTests {
 
     @Test func multipeerPayloadBuilderEncryptsVoiceWhenCredentialIsProvided() throws {
         let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
-        let credential = GroupAccessCredential(groupID: groupID, secret: "trail-secret")
+        let credential = GroupAccessCredential(groupID: groupID, secret: "squad-secret")
         var sequencer = AudioPacketSequencer(
             groupID: groupID,
             streamID: UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
@@ -999,7 +999,7 @@ struct RideIntercomTests {
     @Test func multipeerPayloadBuilderEncodesHandshakeAsReliableControlPayload() throws {
         let credential = GroupAccessCredential(
             groupID: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!,
-            secret: "trail-secret"
+            secret: "squad-secret"
         )
         let handshake = HandshakeMessage.make(
             credential: credential,
@@ -3605,10 +3605,10 @@ struct RideIntercomTests {
     @MainActor
     @Test func twoVirtualAppsCanExchangeGeneratedVoiceInBothDirections() throws {
         let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
-        let sharedSecret = "trail-secret"
+        let sharedSecret = "squad-secret"
         let groupForA = try IntercomGroup(
             id: groupID,
-            name: "Trail Pair",
+            name: "squad Pair",
             members: [
                 GroupMember(id: "member-a", displayName: "A"),
                 GroupMember(id: "member-b", displayName: "B")
@@ -3617,7 +3617,7 @@ struct RideIntercomTests {
         )
         let groupForB = try IntercomGroup(
             id: groupID,
-            name: "Trail Pair",
+            name: "squad Pair",
             members: [
                 GroupMember(id: "member-b", displayName: "B"),
                 GroupMember(id: "member-a", displayName: "A")
@@ -3689,10 +3689,10 @@ struct RideIntercomTests {
     @MainActor
     @Test func twoSecureVirtualAppsExchangeEncryptedGeneratedVoiceAfterHandshakePayloads() throws {
         let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
-        let sharedSecret = "trail-secret"
+        let sharedSecret = "squad-secret"
         let groupForA = try IntercomGroup(
             id: groupID,
-            name: "Trail Pair",
+            name: "squad Pair",
             members: [
                 GroupMember(id: "member-a", displayName: "A"),
                 GroupMember(id: "member-b", displayName: "B")
@@ -3701,7 +3701,7 @@ struct RideIntercomTests {
         )
         let groupForB = try IntercomGroup(
             id: groupID,
-            name: "Trail Pair",
+            name: "squad Pair",
             members: [
                 GroupMember(id: "member-b", displayName: "B"),
                 GroupMember(id: "member-a", displayName: "A")
@@ -3774,7 +3774,7 @@ struct RideIntercomTests {
     @Test func viewModelBuildsInviteURLForSelectedGroup() throws {
         let group = try IntercomGroup(
             id: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!,
-            name: "Trail Group",
+            name: "Squad Group",
             members: [
                 GroupMember(id: "member-001", displayName: "You"),
                 GroupMember(id: "member-002", displayName: "Partner")
@@ -3791,7 +3791,7 @@ struct RideIntercomTests {
         let inviteURL = try #require(viewModel.selectedGroupInviteURL)
         let token = try GroupInviteTokenCodec.decodeJoinURL(inviteURL)
         #expect(token.groupID == group.id)
-        #expect(token.groupName == "Trail Group")
+        #expect(token.groupName == "Squad Group")
         #expect(token.inviterMemberID == "member-001")
         #expect(!token.groupSecret.isEmpty)
         #expect(viewModel.inviteDebugSummary == "INVITE READY")
@@ -3802,7 +3802,7 @@ struct RideIntercomTests {
     @Test func inviteServiceBuildsJoinURLWithCredentialAndInviter() throws {
         let group = try IntercomGroup(
             id: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!,
-            name: "Trail Group",
+            name: "Squad Group",
             members: [
                 GroupMember(id: "member-001", displayName: "You"),
                 GroupMember(id: "member-002", displayName: "Partner")
@@ -3820,7 +3820,7 @@ struct RideIntercomTests {
         let token = try GroupInviteTokenCodec.decodeJoinURL(url)
 
         #expect(token.groupID == group.id)
-        #expect(token.groupName == "Trail Group")
+        #expect(token.groupName == "Squad Group")
         #expect(token.inviterMemberID == "member-001")
         #expect(token.groupSecret == "secret")
         #expect(token.expiresAt == 110)
@@ -3831,7 +3831,7 @@ struct RideIntercomTests {
         let secret = "group-secret"
         let token = try GroupInviteToken.make(
             groupID: groupID,
-            groupName: "Trail Group",
+            groupName: "Squad Group",
             groupSecret: secret,
             inviterMemberID: "member-host",
             expiresAt: 500
@@ -3851,7 +3851,7 @@ struct RideIntercomTests {
         #expect(result.groups.count == 1)
         #expect(result.selectedGroup.id == groupID)
         #expect(result.selectedGroup.members.map { $0.id } == ["member-local", "member-host"])
-        #expect(result.inviteStatusMessage == "JOINED Trail Group")
+        #expect(result.inviteStatusMessage == "JOINED Squad Group")
         #expect(credentialStore.credential(for: groupID)?.secret == secret)
     }
 
@@ -3868,7 +3868,7 @@ struct RideIntercomTests {
             audioInputMonitor: NoOpAudioInputMonitor()
         )
 
-        viewModel.createTrailGroup()
+        viewModel.createSquadGroup()
         for _ in 1...7 {
             viewModel.reserveInviteMemberSlot()
         }
@@ -3897,7 +3897,7 @@ struct RideIntercomTests {
         let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
         let token = try GroupInviteToken.make(
             groupID: groupID,
-            groupName: "Trail Group",
+            groupName: "Squad Group",
             groupSecret: "secret-joined",
             inviterMemberID: "member-host",
             expiresAt: 500
@@ -3927,7 +3927,7 @@ struct RideIntercomTests {
             audioInputMonitor: NoOpAudioInputMonitor()
         )
 
-        viewModel.createTrailGroup()
+        viewModel.createSquadGroup()
         for _ in 1...5 {
             viewModel.reserveInviteMemberSlot()
         }
