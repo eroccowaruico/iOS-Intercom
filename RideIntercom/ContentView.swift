@@ -370,7 +370,7 @@ private struct CallView: View {
     }
 
     private var connectionIconName: String {
-        switch viewModel.connectionState {
+        switch viewModel.selectedGroupConnectionState {
         case .idle:
             "wifi.slash"
         case .localConnecting, .internetConnecting:
@@ -383,7 +383,7 @@ private struct CallView: View {
     }
 
     private var connectionStatusColor: Color {
-        switch viewModel.connectionState {
+        switch viewModel.selectedGroupConnectionState {
         case .idle:
             AppColorPalette.neutral
         case .localConnecting, .internetConnecting:
@@ -812,7 +812,7 @@ private struct LiveTransmitPipelineView: View {
         guard viewModel.isAudioReady else {
             return PipelineStep(title: "Send", detail: "Idle", icon: "paperplane", state: .idle)
         }
-        guard viewModel.connectionState == .localConnected || viewModel.connectionState == .internetConnected else {
+        guard viewModel.selectedGroupConnectionState == .localConnected || viewModel.selectedGroupConnectionState == .internetConnected else {
             return PipelineStep(title: "Send", detail: "Waiting", icon: "paperplane", state: .waiting)
         }
         guard viewModel.sentVoicePacketCount > 0 else {
