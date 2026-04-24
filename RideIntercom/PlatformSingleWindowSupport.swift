@@ -10,7 +10,24 @@ enum SingleWindowPolicy {
 
     static func enforce() {
         NSWindow.allowsAutomaticWindowTabbing = false
-        applyCompactPortraitLayoutWithRetries()
+        for window in NSApplication.shared.windows where window.styleMask.contains(.titled) {
+            window.setContentSize(preferredContentSize)
+            window.center()
+        }
+
+        DispatchQueue.main.async {
+            for window in NSApplication.shared.windows where window.styleMask.contains(.titled) {
+                window.setContentSize(preferredContentSize)
+                window.center()
+            }
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            for window in NSApplication.shared.windows where window.styleMask.contains(.titled) {
+                window.setContentSize(preferredContentSize)
+                window.center()
+            }
+        }
     }
 
     static func openMainWindowWhenNeeded(using opener: (() -> Void)?) {
@@ -24,24 +41,6 @@ enum SingleWindowPolicy {
         }
     }
 
-    private static func applyCompactPortraitLayoutIfNeeded() {
-        for window in NSApplication.shared.windows where window.styleMask.contains(.titled) {
-            window.setContentSize(preferredContentSize)
-            window.center()
-        }
-    }
-
-    private static func applyCompactPortraitLayoutWithRetries() {
-        applyCompactPortraitLayoutIfNeeded()
-
-        DispatchQueue.main.async {
-            applyCompactPortraitLayoutIfNeeded()
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            applyCompactPortraitLayoutIfNeeded()
-        }
-    }
 }
 
 @MainActor

@@ -2712,8 +2712,15 @@ final class IntercomViewModel {
     }
 
     var selectedGroupInviteURL: URL? {
-        guard let selectedGroup,
-              let inviterMemberID = inviterMemberID(for: selectedGroup) else { return nil }
+        guard let selectedGroup else { return nil }
+        let inviterMemberID: String
+        if selectedGroup.members.contains(where: { $0.id == localMemberIdentity.memberID }) {
+            inviterMemberID = localMemberIdentity.memberID
+        } else if let firstMemberID = selectedGroup.members.first?.id {
+            inviterMemberID = firstMemberID
+        } else {
+            return nil
+        }
 
         let credential = credential(for: selectedGroup)
         let token = try? GroupInviteToken.make(
@@ -2874,7 +2881,11 @@ final class IntercomViewModel {
         connectionState = connectedPeerIDs.isEmpty ? .localConnecting : .localConnected
         markMembers(connectionState == .localConnected ? .connected : .connecting)
         if localNetworkStatus == .idle || localNetworkStatus == .unavailable {
-            localTransport.connect(group: groupForTransport(selectedGroup))
+            var group = selectedGroup
+            if let credential = credentialStore.credential(for: selectedGroup.id) {
+                group.accessSecret = credential.secret
+            }
+            localTransport.connect(group: group)
         }
     }
 
@@ -2885,23 +2896,20 @@ final class IntercomViewModel {
 
         isLocalStandbyOnly = false
         if route == .local {
-            routeCoordinator.evaluateLocalProbe(defaultRouteProbeMetrics())
+            routeCoordinator.evaluateLocalProbe(
+                RouteProbeMetrics(
+                    rttMilliseconds: 0,
+                    jitterMilliseconds: 0,
+                    packetLossRate: 0,
+                    peerCount: connectedPeerIDs.count,
+                    expectedPeerCount: max(connectedPeerIDs.count, authenticatedPeerIDs.count)
+                )
+            )
         } else {
             routeCoordinator.internetDidConnect()
         }
         connectionState = routeCoordinator.state
         markConnectedMembers(peerIDs: connectedPeerIDs)
-    }
-
-    private func defaultRouteProbeMetrics() -> RouteProbeMetrics {
-        let expectedPeerCount = max(connectedPeerIDs.count, authenticatedPeerIDs.count)
-        return RouteProbeMetrics(
-            rttMilliseconds: 0,
-            jitterMilliseconds: 0,
-            packetLossRate: 0,
-            peerCount: connectedPeerIDs.count,
-            expectedPeerCount: expectedPeerCount
-        )
     }
 
     private func startAudioPipelineIfNeeded() -> Bool {
@@ -2933,7 +2941,11 @@ final class IntercomViewModel {
               localNetworkStatus == .idle else { return }
 
         isLocalStandbyOnly = true
-        localTransport.connect(group: groupForTransport(selectedGroup))
+        var group = selectedGroup
+        if let credential = credentialStore.credential(for: selectedGroup.id) {
+            group.accessSecret = credential.secret
+        }
+        localTransport.connect(group: group)
     }
 
     private func audioSetupMessage(for error: Error) -> String {
@@ -3168,12 +3180,12 @@ final class IntercomViewModel {
     }
 
     private func drainJitterBuffer(now: TimeInterval) {
-        let drainResult = RemoteAudioPipelineService.drainReadyAudioFrames(now: now, jitterBuffer: &jitterBuffer)
-        playedAudioFrameCount += drainResult.readyFrames.count
-        droppedAudioPacketCount = drainResult.droppedAudioPacketCount
-        jitterQueuedFrameCount = drainResult.jitterQueuedFrameCount
-        markPlayedAudioFrames(drainResult.readyFrames)
-        let outputFrames = applyOutputGain(to: drainResult.readyFrames)
+        let readyFrames = jitterBuffer.drainReadyFrames(now: now)
+        playedAudioFrameCount += readyFrames.count
+        droppedAudioPacketCount = jitterBuffer.droppedFrameCount
+        jitterQueuedFrameCount = jitterBuffer.queuedFrameCount
+        markPlayedAudioFrames(readyFrames)
+        let outputFrames = applyOutputGain(to: readyFrames)
         let mixedOutput = AudioMixer.mix(outputFrames)
         let outputLevel = AudioLevelMeter.rmsLevel(samples: mixedOutput)
         lastScheduledOutputRMS = outputLevel
@@ -3428,7 +3440,15 @@ final class IntercomViewModel {
             if !isLocalStandbyOnly {
                 if route == .local {
                     routeCoordinator.localCandidateDetected()
-                    routeCoordinator.evaluateLocalProbe(defaultRouteProbeMetrics())
+                    routeCoordinator.evaluateLocalProbe(
+                        RouteProbeMetrics(
+                            rttMilliseconds: 0,
+                            jitterMilliseconds: 0,
+                            packetLossRate: 0,
+                            peerCount: connectedPeerIDs.count,
+                            expectedPeerCount: max(connectedPeerIDs.count, authenticatedPeerIDs.count)
+                        )
+                    )
                 } else {
                     routeCoordinator.internetDidConnect()
                 }
@@ -3477,36 +3497,29 @@ final class IntercomViewModel {
     }
 
     private func handleReceivedPacket(_ packet: ReceivedAudioPacket) {
-        guard let receivedAt = RemoteAudioPacketAcceptanceService.acceptedReceiveTimestamp(
-            peerID: packet.peerID,
-            authenticatedPeerIDs: authenticatedPeerIDs,
-            packetSentAt: packet.envelope.sentAt
-        ) else {
+        guard authenticatedPeerIDs.isEmpty || authenticatedPeerIDs.contains(packet.peerID) else {
             return
         }
+        let receivedAt = packet.envelope.sentAt < 1_000_000
+            ? packet.envelope.sentAt
+            : Date().timeIntervalSince1970
         if let codec = packet.envelope.encodedVoice?.codec ?? packet.envelope.transmitMetadata?.encodedCodec {
             setRemotePeerCodec(packet.peerID, codec: codec)
         }
         captureReceiveMetadataMismatchIfNeeded(packet)
 
-        guard let ingressResult = RemoteAudioPipelineService.processReceivedPacket(
-            packet,
-            isAuthorized: true,
-            receivedAt: receivedAt,
-            jitterBuffer: &jitterBuffer
-        ) else {
-            return
-        }
-
-        receivedVoicePacketCount += ingressResult.receivedVoicePacketCountIncrement
-        if let lastReceivedAudioAt = ingressResult.lastReceivedAudioAt {
-            self.lastReceivedAudioAt = lastReceivedAudioAt
-            remoteVoiceReceivedAt[packet.peerID] = lastReceivedAudioAt
-        }
-        droppedAudioPacketCount = ingressResult.droppedAudioPacketCount
-        jitterQueuedFrameCount = ingressResult.jitterQueuedFrameCount
-        if let remoteVoiceLevel = ingressResult.remoteVoiceLevel {
-            applyReceivedVoiceMemberState(peerID: packet.peerID, voiceLevel: remoteVoiceLevel)
+        switch packet.packet {
+        case .voice(_, let samples):
+            jitterBuffer.enqueue(packet, receivedAt: receivedAt)
+            receivedVoicePacketCount += 1
+            lastReceivedAudioAt = receivedAt
+            remoteVoiceReceivedAt[packet.peerID] = receivedAt
+            droppedAudioPacketCount = jitterBuffer.droppedFrameCount
+            jitterQueuedFrameCount = jitterBuffer.queuedFrameCount
+            applyReceivedVoiceMemberState(peerID: packet.peerID, voiceLevel: AudioLevelMeter.rmsLevel(samples: samples))
+        case .keepalive:
+            droppedAudioPacketCount = jitterBuffer.droppedFrameCount
+            jitterQueuedFrameCount = jitterBuffer.queuedFrameCount
         }
 
         // In production, received packets can arrive in bursts on the main actor.
@@ -3518,13 +3531,14 @@ final class IntercomViewModel {
 
     private func applyReceivedVoiceMemberState(peerID: String, voiceLevel: Float) {
         guard var group = selectedGroup else { return }
+        guard let memberIndex = group.members.firstIndex(where: { $0.id == peerID }) else { return }
 
-        group = RemoteMemberAudioStateService.applyReceivedVoice(
-            to: group,
-            peerID: peerID,
-            voiceLevel: voiceLevel,
-            peakWindows: &remoteVoicePeakWindows
-        )
+        let clampedLevel = min(1, max(0, voiceLevel))
+        group.members[memberIndex].isTalking = true
+        group.members[memberIndex].voiceLevel = clampedLevel
+        group.members[memberIndex].voicePeakLevel = remoteVoicePeakWindows[peerID, default: VoicePeakWindow()].record(clampedLevel)
+        group.members[memberIndex].receivedAudioPacketCount += 1
+        group.members[memberIndex].queuedAudioFrameCount += 1
         selectedGroup = group
         replaceSelectedGroup(group)
     }
@@ -3638,8 +3652,12 @@ final class IntercomViewModel {
 
     private func markPlayedAudioFrames(_ frames: [JitterBufferedAudioFrame]) {
         guard var group = selectedGroup, !frames.isEmpty else { return }
-
-        group = RemoteMemberAudioStateService.applyPlayedFrames(frames, to: group)
+        let playedByPeer = Dictionary(grouping: frames, by: \.peerID).mapValues(\.count)
+        for (peerID, count) in playedByPeer {
+            guard let memberIndex = group.members.firstIndex(where: { $0.id == peerID }) else { continue }
+            group.members[memberIndex].playedAudioFrameCount += count
+            group.members[memberIndex].queuedAudioFrameCount = max(0, group.members[memberIndex].queuedAudioFrameCount - count)
+        }
         selectedGroup = group
         replaceSelectedGroup(group)
     }
@@ -3772,21 +3790,6 @@ final class IntercomViewModel {
 
     private func credential(for group: IntercomGroup) -> GroupAccessCredential {
         credentialProvider.credential(for: group, store: credentialStore)
-    }
-
-    private func groupForTransport(_ group: IntercomGroup) -> IntercomGroup {
-        guard let credential = credentialStore.credential(for: group.id) else { return group }
-        var updated = group
-        updated.accessSecret = credential.secret
-        return updated
-    }
-
-    private func inviterMemberID(for group: IntercomGroup) -> String? {
-        if group.members.contains(where: { $0.id == localMemberIdentity.memberID }) {
-            return localMemberIdentity.memberID
-        }
-
-        return group.members.first?.id
     }
 }
 
