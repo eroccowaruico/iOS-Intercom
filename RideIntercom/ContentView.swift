@@ -548,11 +548,10 @@ private struct TransmitCodecPanel: View {
             )) {
                 Text("PCM 16-bit").tag(AudioCodecIdentifier.pcm16)
                 Text("HE-AAC v2 VBR").tag(AudioCodecIdentifier.heAACv2)
-                if viewModel.supportsOpusCodec {
-                    Text("Opus").tag(AudioCodecIdentifier.opus)
-                }
+                Text("Opus").tag(AudioCodecIdentifier.opus)
             }
             .pickerStyle(.segmented)
+            .disabled(true)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("transmitCodecPicker")
 
@@ -658,14 +657,6 @@ private struct AudioCheckPanel: View {
         }
     }
 
-    private func snappedThreshold(_ value: Double) -> Double {
-        let minValue = Double(VoiceActivityDetector.minThreshold)
-        let maxValue = Double(VoiceActivityDetector.maxThreshold)
-        let clamped = min(max(minValue, value), maxValue)
-        let step = 0.00025
-        let snapped = (clamped / step).rounded() * step
-        return min(max(minValue, snapped), maxValue)
-    }
 }
 
 private struct SoundIsolationPanel: View {
@@ -706,7 +697,14 @@ private struct VADThresholdPanel: View {
             Slider(
                 value: Binding(
                     get: { Double(viewModel.voiceActivityDetectionThreshold) },
-                    set: { viewModel.setVoiceActivityDetectionThreshold(Float(snappedThreshold($0))) }
+                    set: {
+                        let minValue = Double(VoiceActivityDetector.minThreshold)
+                        let maxValue = Double(VoiceActivityDetector.maxThreshold)
+                        let clamped = min(max(minValue, $0), maxValue)
+                        let step = 0.00025
+                        let snapped = (clamped / step).rounded() * step
+                        viewModel.setVoiceActivityDetectionThreshold(Float(min(max(minValue, snapped), maxValue)))
+                    }
                 ),
                 in: Double(VoiceActivityDetector.minThreshold)...Double(VoiceActivityDetector.maxThreshold)
             )
@@ -715,15 +713,6 @@ private struct VADThresholdPanel: View {
             Label("VAD Threshold", systemImage: "waveform.badge.mic")
         }
         .accessibilityIdentifier("vadThresholdPanel")
-    }
-
-    private func snappedThreshold(_ value: Double) -> Double {
-        let minValue = Double(VoiceActivityDetector.minThreshold)
-        let maxValue = Double(VoiceActivityDetector.maxThreshold)
-        let clamped = min(max(minValue, value), maxValue)
-        let step = 0.00025
-        let snapped = (clamped / step).rounded() * step
-        return min(max(minValue, snapped), maxValue)
     }
 }
 

@@ -4308,26 +4308,6 @@ struct RideIntercomTests {
         #expect(remote is URLSessionInternetTransportAdapter)
     }
 
-    @Test func defaultOpusBackendInstallerRespectsEnvironmentToggle() throws {
-        OpusCodecBackendRegistry.uninstall()
-        defer { OpusCodecBackendRegistry.uninstall() }
-
-        DefaultOpusCodecBackendFactory.installIfEnabled(
-            environment: [:],
-            backendFactory: { TestOpusBackend() }
-        )
-        #expect(throws: AudioCodecError.codecUnavailable(.opus)) {
-            try OpusAudioEncoding().encode([0.1, -0.1])
-        }
-
-        DefaultOpusCodecBackendFactory.installIfEnabled(
-            environment: [DefaultOpusCodecBackendFactory.environmentKey: "1"],
-            backendFactory: { TestOpusBackend() }
-        )
-        let encoded = try OpusAudioEncoding().encode([0.1, -0.1])
-        #expect(encoded.isEmpty == false)
-    }
-
     @Test func applicationAndUISourcesDoNotContainOSConditionalCompilationBranches() throws {
         let contentViewSource = try Self.source("RideIntercom/ContentView.swift")
         let intercomCoreSource = try Self.source("RideIntercom/IntercomCore.swift")

@@ -15,15 +15,12 @@ enum SingleWindowPolicy {
 
     static func openMainWindowWhenNeeded(using opener: (() -> Void)?) {
         DispatchQueue.main.async {
-            if visibleApplicationWindows().isEmpty {
+            let hasVisibleTitledWindow = NSApplication.shared.windows.contains { window in
+                window.isVisible && window.styleMask.contains(.titled)
+            }
+            if !hasVisibleTitledWindow {
                 opener?()
             }
-        }
-    }
-
-    private static func visibleApplicationWindows() -> [NSWindow] {
-        NSApplication.shared.windows.filter { window in
-            window.isVisible && window.styleMask.contains(.titled)
         }
     }
 

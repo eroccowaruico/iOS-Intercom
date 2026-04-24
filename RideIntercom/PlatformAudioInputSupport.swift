@@ -105,13 +105,15 @@ final class SystemAudioInputMonitor: AudioInputMonitoring {
 
         soundIsolationEnabled = applySoundIsolation(soundIsolationEnabled)
         installInputTap()
-        try startEngine()
+        engine.prepare()
+        try engine.start()
         isRunning = true
     }
 
     func stop() {
         guard isRunning else { return }
-        stopEngineAndRemoveTap()
+        engine.inputNode.removeTap(onBus: bus)
+        engine.stop()
         isRunning = false
     }
 
@@ -131,10 +133,15 @@ final class SystemAudioInputMonitor: AudioInputMonitoring {
         let format = input.outputFormat(forBus: bus)
         input.removeTap(onBus: bus)
         input.installTap(onBus: bus, bufferSize: 128, format: format) { [weak self] buffer, _ in
-            let level = AudioLevelMeter.rmsLevel(buffer: buffer)
-            let rawSamples = AudioSampleExtractor.samples(buffer: buffer)
-            let sourceSampleRate = buffer.format.sampleRate
-            let samples = AudioResampler.resample(rawSamples, fromRate: sourceSampleRate, toRate: 16_000)
+            guard let channelData = buffer.floatChannelData else { return }
+
+            let frameLength = Int(buffer.frameLength)
+            guard frameLength > 0 else { return }
+
+            let channelSamples = channelData[0]
+            let sourceSamples = (0..<frameLength).map { channelSamples[$0] }
+            let level = AudioLevelMeter.rmsLevel(samples: sourceSamples)
+            let samples = AudioResampler.resample(sourceSamples, fromRate: buffer.format.sampleRate, toRate: 16_000)
             Task { @MainActor in
                 if let onSamples = self?.onSamples {
                     onSamples(samples)
@@ -145,15 +152,6 @@ final class SystemAudioInputMonitor: AudioInputMonitoring {
         }
     }
 
-    private func startEngine() throws {
-        engine.prepare()
-        try engine.start()
-    }
-
-    private func stopEngineAndRemoveTap() {
-        engine.inputNode.removeTap(onBus: bus)
-        engine.stop()
-    }
 }
 
 private enum SoundIsolationBackend {
@@ -179,38 +177,6 @@ private enum SoundIsolationBackend {
 
     enum SoundIsolationError: Error {
         case unsupported
-    }
-}
-
-private extension AudioLevelMeter {
-    static func rmsLevel(buffer: AVAudioPCMBuffer) -> Float {
-        guard let channelData = buffer.floatChannelData else { return 0 }
-        let frameLength = Int(buffer.frameLength)
-        let channelCount = Int(buffer.format.channelCount)
-        guard frameLength > 0, channelCount > 0 else { return 0 }
-
-        var sumOfSquares = Float.zero
-        for channel in 0..<channelCount {
-            let samples = channelData[channel]
-            for frame in 0..<frameLength {
-                let sample = samples[frame]
-                sumOfSquares += sample * sample
-            }
-        }
-
-        return sqrt(sumOfSquares / Float(frameLength * channelCount))
-    }
-}
-
-private enum AudioSampleExtractor {
-    static func samples(buffer: AVAudioPCMBuffer) -> [Float] {
-        guard let channelData = buffer.floatChannelData else { return [] }
-
-        let frameLength = Int(buffer.frameLength)
-        guard frameLength > 0 else { return [] }
-
-        let samples = channelData[0]
-        return (0..<frameLength).map { samples[$0] }
     }
 }
 #endif
