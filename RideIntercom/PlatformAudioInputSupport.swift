@@ -30,16 +30,6 @@ struct SystemMicrophonePermissionAuthorizer: MicrophonePermissionAuthorizing {
     }
 }
 
-enum AudioInputMonitorFactory {
-    static func makeDefault() -> AudioInputMonitoring {
-        #if canImport(AVFAudio)
-        SystemAudioInputMonitor()
-        #else
-        NoOpAudioInputMonitor()
-        #endif
-    }
-}
-
 #if canImport(AVFAudio)
 final class SystemAudioInputMonitor: AudioInputMonitoring {
     var onLevel: (@MainActor (Float) -> Void)?

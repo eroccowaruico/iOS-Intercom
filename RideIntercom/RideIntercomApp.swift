@@ -12,7 +12,13 @@ struct RideIntercomApp: App {
     #endif
 
     var body: some Scene {
-        let _ = configureOpenWindowBridge()
+        #if canImport(AppKit)
+        let _ = {
+            appDelegate.openMainWindow = {
+                openWindow(id: SingleWindowPolicy.mainWindowID)
+            }
+        }()
+        #endif
 
         return WindowGroup(id: SingleWindowPolicy.mainWindowID) {
             ContentView()
@@ -25,13 +31,5 @@ struct RideIntercomApp: App {
                 EmptyView()
             }
         }
-    }
-
-    private func configureOpenWindowBridge() {
-        #if canImport(AppKit)
-        appDelegate.openMainWindow = {
-            openWindow(id: SingleWindowPolicy.mainWindowID)
-        }
-        #endif
     }
 }

@@ -276,16 +276,4 @@ extension MultipeerLocalTransport: MCSessionDelegate {
         withError error: Error?
     ) {}
 }
-
-enum DefaultLocalTransportFactory {
-    static func make(displayName: String) -> Transport {
-        MultipeerLocalTransport(displayName: displayName)
-    }
-}
-#else
-enum DefaultLocalTransportFactory {
-    static func make(displayName: String) -> Transport {
-        LocalTransport()
-    }
-}
 #endif

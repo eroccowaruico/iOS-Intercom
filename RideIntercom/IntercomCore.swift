@@ -2139,48 +2139,6 @@ final class BufferedAudioFramePlayer: AudioFramePlaying {
 }
 
 
-enum DefaultGroupStoreFactory {
-    static func make(defaults: UserDefaults = .standard) -> GroupStoring {
-        UserDefaultsGroupStore(defaults: defaults)
-    }
-}
-
-enum DefaultGroupCredentialStoreFactory {
-    static func make() -> GroupCredentialStoring {
-        KeychainGroupCredentialStore()
-    }
-}
-
-enum CurrentProcessRuntimeFactory {
-    static func makeLive() -> IntercomViewModel {
-        if ProcessInfo.processInfo.arguments.contains("UI-TEST") {
-            let localMemberIdentityStore = InMemoryLocalMemberIdentityStore(
-                identity: LocalMemberIdentity(memberID: "member-uitest", displayName: "You")
-            )
-            let localMemberIdentity = localMemberIdentityStore.loadOrCreate()
-            return IntercomViewModel(
-                localTransport: DefaultLocalTransportFactory.make(displayName: localMemberIdentity.memberID),
-                internetTransport: InternetTransport(adapter: DefaultInternetTransportAdapterFactory.make()),
-                credentialStore: InMemoryGroupCredentialStore(),
-                groupStore: InMemoryGroupStore(),
-                localMemberIdentityStore: localMemberIdentityStore,
-                audioFramePlayer: AudioFramePlayerFactory.makeDefault()
-            )
-        }
-
-        let localMemberIdentityStore = UserDefaultsLocalMemberIdentityStore()
-        let localMemberIdentity = localMemberIdentityStore.loadOrCreate()
-        return IntercomViewModel(
-            localTransport: DefaultLocalTransportFactory.make(displayName: localMemberIdentity.memberID),
-            internetTransport: InternetTransport(adapter: DefaultInternetTransportAdapterFactory.make()),
-            credentialStore: DefaultGroupCredentialStoreFactory.make(),
-            groupStore: DefaultGroupStoreFactory.make(),
-            localMemberIdentityStore: localMemberIdentityStore,
-            audioFramePlayer: AudioFramePlayerFactory.makeDefault()
-        )
-    }
-}
-
 enum AudioPacketCodec {
     static func encode(_ envelope: AudioPacketEnvelope) throws -> Data {
         let encoder = JSONEncoder()
@@ -2459,7 +2417,63 @@ final class IntercomViewModel {
     private let diagnosticsLogger = Logger(subsystem: "com.yowamushi-inc.RideIntercom", category: "codec-diagnostics")
 
     static func makeForCurrentProcess() -> IntercomViewModel {
-        return CurrentProcessRuntimeFactory.makeLive()
+        let internetAdapter: any InternetTransportAdapting
+        if let endpoint = ProcessInfo.processInfo.environment[InternetTransportEndpointConfig.environmentKey],
+           let url = URL(string: endpoint),
+           let scheme = url.scheme?.lowercased(),
+           ["ws", "wss"].contains(scheme),
+           url.host?.isEmpty == false {
+            internetAdapter = URLSessionInternetTransportAdapter(baseURL: url)
+        } else {
+            internetAdapter = LoopbackInternetTransportAdapter()
+        }
+
+        let audioFramePlayer: AudioFramePlaying
+        #if canImport(AVFAudio)
+        audioFramePlayer = BufferedAudioFramePlayer(renderer: SystemAudioOutputRenderer())
+        #else
+        audioFramePlayer = NoOpAudioFramePlayer()
+        #endif
+
+        if ProcessInfo.processInfo.arguments.contains("UI-TEST") {
+            let localMemberIdentityStore = InMemoryLocalMemberIdentityStore(
+                identity: LocalMemberIdentity(memberID: "member-uitest", displayName: "You")
+            )
+            let localMemberIdentity = localMemberIdentityStore.loadOrCreate()
+            let localTransport: Transport
+            #if canImport(MultipeerConnectivity)
+            localTransport = MultipeerLocalTransport(displayName: localMemberIdentity.memberID)
+            #else
+            localTransport = LocalTransport()
+            #endif
+
+            return IntercomViewModel(
+                localTransport: localTransport,
+                internetTransport: InternetTransport(adapter: internetAdapter),
+                credentialStore: InMemoryGroupCredentialStore(),
+                groupStore: InMemoryGroupStore(),
+                localMemberIdentityStore: localMemberIdentityStore,
+                audioFramePlayer: audioFramePlayer
+            )
+        }
+
+        let localMemberIdentityStore = UserDefaultsLocalMemberIdentityStore()
+        let localMemberIdentity = localMemberIdentityStore.loadOrCreate()
+        let localTransport: Transport
+        #if canImport(MultipeerConnectivity)
+        localTransport = MultipeerLocalTransport(displayName: localMemberIdentity.memberID)
+        #else
+        localTransport = LocalTransport()
+        #endif
+
+        return IntercomViewModel(
+            localTransport: localTransport,
+            internetTransport: InternetTransport(adapter: internetAdapter),
+            credentialStore: KeychainGroupCredentialStore(),
+            groupStore: UserDefaultsGroupStore(),
+            localMemberIdentityStore: localMemberIdentityStore,
+            audioFramePlayer: audioFramePlayer
+        )
     }
 
     init(
@@ -2484,12 +2498,28 @@ final class IntercomViewModel {
         self.localTransport = localTransport ?? LocalTransport()
         self.internetTransport = internetTransport ?? InternetTransport()
         self.audioSessionManager = audioSessionManager ?? AudioSessionManager()
-        self.audioInputMonitor = audioInputMonitor ?? AudioInputMonitorFactory.makeDefault()
+        if let audioInputMonitor {
+            self.audioInputMonitor = audioInputMonitor
+        } else {
+            #if canImport(AVFAudio)
+            self.audioInputMonitor = SystemAudioInputMonitor()
+            #else
+            self.audioInputMonitor = NoOpAudioInputMonitor()
+            #endif
+        }
         let initialVoiceActivityDetectionThreshold = AudioTransmissionController.defaultVoiceActivityThreshold
         self.voiceActivityDetectionThreshold = initialVoiceActivityDetectionThreshold
         self.audioTransmissionController = audioTransmissionController ?? AudioTransmissionController()
         self.callTicker = callTicker ?? RepeatingCallTicker()
-        self.audioFramePlayer = audioFramePlayer ?? AudioFramePlayerFactory.makeDefault()
+        if let audioFramePlayer {
+            self.audioFramePlayer = audioFramePlayer
+        } else {
+            #if canImport(AVFAudio)
+            self.audioFramePlayer = BufferedAudioFramePlayer(renderer: SystemAudioOutputRenderer())
+            #else
+            self.audioFramePlayer = NoOpAudioFramePlayer()
+            #endif
+        }
         self.credentialStore = credentialStore ?? InMemoryGroupCredentialStore()
         self.credentialProvider = DefaultGroupCredentialProvider()
         self.groupStore = groupStore
@@ -2686,11 +2716,14 @@ final class IntercomViewModel {
               let inviterMemberID = inviterMemberID(for: selectedGroup) else { return nil }
 
         let credential = credential(for: selectedGroup)
-        return InviteService.makeInviteURL(
-            group: selectedGroup,
+        let token = try? GroupInviteToken.make(
+            groupID: selectedGroup.id,
+            groupName: selectedGroup.name,
+            groupSecret: credential.secret,
             inviterMemberID: inviterMemberID,
-            credential: credential
+            expiresAt: Date().timeIntervalSince1970 + 7 * 24 * 60 * 60
         )
+        return token.flatMap { try? GroupInviteTokenCodec.joinURL(for: $0) }
     }
 
     func receptionDebugSummary(now: TimeInterval) -> String {

@@ -4,19 +4,6 @@ struct InternetTransportEndpointConfig {
     static let environmentKey = "RIDEINTERCOM_INTERNET_URL"
 }
 
-enum DefaultInternetTransportAdapterFactory {
-    static func make(environment: [String: String] = ProcessInfo.processInfo.environment) -> any InternetTransportAdapting {
-        guard let endpoint = environment[InternetTransportEndpointConfig.environmentKey],
-              let url = URL(string: endpoint),
-              let scheme = url.scheme?.lowercased(),
-              ["ws", "wss"].contains(scheme),
-              url.host?.isEmpty == false else {
-            return LoopbackInternetTransportAdapter()
-        }
-        return URLSessionInternetTransportAdapter(baseURL: url)
-    }
-}
-
 final class URLSessionInternetTransportAdapter: NSObject, InternetTransportAdapting {
     var onEvent: (@MainActor (InternetTransportAdapterEvent) -> Void)?
 

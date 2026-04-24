@@ -62,13 +62,3 @@ final class SystemAudioOutputRenderer: AudioOutputRendering {
     }
 }
 #endif
-
-enum AudioFramePlayerFactory {
-    static func makeDefault() -> AudioFramePlaying {
-        #if canImport(AVFAudio)
-        BufferedAudioFramePlayer(renderer: SystemAudioOutputRenderer())
-        #else
-        NoOpAudioFramePlayer()
-        #endif
-    }
-}
