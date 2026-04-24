@@ -16,7 +16,7 @@ final class RideIntercomUITests: XCTestCase {
         app.activate()
 
         XCTAssertTrue(waitForVisibleRoot(in: app), "Expected the app to launch into a visible root screen")
-        removeExistingSquadGroups()
+        removeExistingTalkGroups()
 
         if startOnDiagnostics {
             openDiagnosticsTab()
@@ -30,7 +30,7 @@ final class RideIntercomUITests: XCTestCase {
 
     @MainActor
     func testGroupSelectionOpensCallScreen() throws {
-        createSquadGroupAndOpenCall()
+        createTalkGroupAndOpenCall()
 
         XCTAssertTrue(app.staticTexts["Participants"].waitForExistence(timeout: 3))
         XCTAssertFalse(app.descendants(matching: .any)["localMicrophonePanel"].exists)
@@ -51,7 +51,7 @@ final class RideIntercomUITests: XCTestCase {
 
     @MainActor
     func testManualAddRiderButtonIsNotShownInCallUI() throws {
-        createSquadGroupAndOpenCall()
+        createTalkGroupAndOpenCall()
 
         XCTAssertFalse(app.buttons["Add Rider"].exists)
         XCTAssertTrue(app.buttons["inviteButton"].waitForExistence(timeout: 3))
@@ -59,7 +59,7 @@ final class RideIntercomUITests: XCTestCase {
 
     @MainActor
     func testMuteControlLivesWithHeaderMicrophoneMeter() throws {
-        createSquadGroupAndOpenCall()
+        createTalkGroupAndOpenCall()
 
         XCTAssertTrue(app.descendants(matching: .any)["localMicrophoneMeter"].waitForExistence(timeout: 3))
         let muteButton = app.buttons["localMicrophoneMuteButton"]
@@ -70,7 +70,7 @@ final class RideIntercomUITests: XCTestCase {
 
     @MainActor
     func testParticipantDeletionIsNotShownForLocalMemberOnly() throws {
-        createSquadGroupAndOpenCall()
+        createTalkGroupAndOpenCall()
 
         XCTAssertFalse(app.buttons["Add Rider"].exists)
         XCTAssertFalse(app.buttons["removeParticipantButton0"].exists)
@@ -105,7 +105,7 @@ final class RideIntercomUITests: XCTestCase {
 
     @MainActor
     func testVoiceActivityAndHandoverCanBeExercisedFromUI() throws {
-        createSquadGroupAndOpenCall()
+        createTalkGroupAndOpenCall()
 
         XCTAssertTrue(app.buttons["connectButton"].exists)
         XCTAssertFalse(app.buttons["Refresh"].exists)
@@ -115,7 +115,7 @@ final class RideIntercomUITests: XCTestCase {
 
     @MainActor
     func testCallKeepsDiagnosticsOutOfPrimaryExperience() throws {
-        createSquadGroupAndOpenCall()
+        createTalkGroupAndOpenCall()
 
         XCTAssertFalse(app.descendants(matching: .any)["realDeviceCallDebugSummaryLabel"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["transportDebugSummaryLabel"].exists)
@@ -125,17 +125,17 @@ final class RideIntercomUITests: XCTestCase {
 
     @MainActor
     func testGroupDeletionCanBeExercisedFromUI() throws {
-        createSquadGroupAndOpenCall()
+        createTalkGroupAndOpenCall()
         openGroupsTab()
 
-        let groupRows = app.buttons.matching(identifier: "groupRow-Squad Group")
+        let groupRows = app.buttons.matching(identifier: "groupRow-Talk Group")
         let initialCount = groupRows.count
         let groupRow = groupRows.firstMatch
         XCTAssertTrue(groupRow.waitForExistence(timeout: 3))
         groupRow.swipeLeft()
         XCTAssertTrue(app.buttons["Delete"].waitForExistence(timeout: 2))
         app.buttons["Delete"].tap()
-        XCTAssertLessThan(app.buttons.matching(identifier: "groupRow-Squad Group").count, initialCount)
+        XCTAssertLessThan(app.buttons.matching(identifier: "groupRow-Talk Group").count, initialCount)
     }
 
     @MainActor
@@ -169,7 +169,7 @@ final class RideIntercomUITests: XCTestCase {
 
     @MainActor
     func testShowGroupsButtonReturnsFromCallToGroupSelection() throws {
-        createSquadGroupAndOpenCall()
+        createTalkGroupAndOpenCall()
 
         XCTAssertTrue(app.descendants(matching: .any)["callScreen"].firstMatch.waitForExistence(timeout: 3))
         XCTAssertTrue(app.buttons["showGroupsButton"].firstMatch.waitForExistence(timeout: 3))
@@ -180,7 +180,7 @@ final class RideIntercomUITests: XCTestCase {
 
     @MainActor
     func testConnectAndDisconnectButtonsTransitionInCall() throws {
-        createSquadGroupAndOpenCall()
+        createTalkGroupAndOpenCall()
 
         let connectButton = app.buttons["connectButton"].firstMatch
         XCTAssertTrue(connectButton.waitForExistence(timeout: 3))
@@ -206,12 +206,12 @@ final class RideIntercomUITests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["audioInputProcessingSummaryLabel"].firstMatch.exists)
     }
 
-    private func createSquadGroupAndOpenCall() {
+    private func createTalkGroupAndOpenCall() {
         openGroupsTab()
-        removeExistingSquadGroups()
+        removeExistingTalkGroups()
         let createButton = app.buttons["createGroupButton"].firstMatch.exists
             ? app.buttons["createGroupButton"].firstMatch
-            : app.buttons["Create Squad Group"].firstMatch
+            : app.buttons["Create Talk Group"].firstMatch
         XCTAssertTrue(createButton.waitForExistence(timeout: 3))
         createButton.tap()
         XCTAssertTrue(app.descendants(matching: .any)["callScreen"].waitForExistence(timeout: 3))
@@ -357,10 +357,10 @@ final class RideIntercomUITests: XCTestCase {
         return byIdentifier
     }
 
-    private func removeExistingSquadGroups() {
+    private func removeExistingTalkGroups() {
         openGroupsTab()
 
-        let groupRows = app.buttons.matching(identifier: "groupRow-Squad Group")
+        let groupRows = app.buttons.matching(identifier: "groupRow-Talk Group")
         while groupRows.count > 0 {
             let countBeforeDelete = groupRows.count
             let groupRow = groupRows.firstMatch
@@ -371,7 +371,7 @@ final class RideIntercomUITests: XCTestCase {
             XCTAssertTrue(deleteButton.waitForExistence(timeout: 2))
             deleteButton.tap()
 
-            XCTAssertLessThan(app.buttons.matching(identifier: "groupRow-Squad Group").count, countBeforeDelete)
+            XCTAssertLessThan(app.buttons.matching(identifier: "groupRow-Talk Group").count, countBeforeDelete)
         }
     }
 

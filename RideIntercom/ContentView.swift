@@ -143,9 +143,9 @@ private struct GroupSelectionView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    viewModel.createSquadGroup()
+                    viewModel.createTalkGroup()
                 } label: {
-                    Label("Create Squad Group", systemImage: "plus")
+                    Label("Create Talk Group", systemImage: "plus")
                 }
                 .accessibilityIdentifier("createGroupButton")
             }

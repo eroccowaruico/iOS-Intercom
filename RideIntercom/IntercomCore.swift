@@ -2485,11 +2485,11 @@ final class IntercomViewModel {
         persistGroups()
     }
 
-    func createSquadGroup() {
+    func createTalkGroup() {
         let groupID = UUID()
         let newGroup = try? IntercomGroup(
             id: groupID,
-            name: "Squad Group",
+            name: "Talk Group",
             members: [
                 GroupMember(id: localMemberIdentity.memberID, displayName: localMemberIdentity.displayName)
             ]
