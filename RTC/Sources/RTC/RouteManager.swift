@@ -12,6 +12,7 @@ public final class RouteManager: CallSession {
     private var activeRouteKind: RouteKind?
     private var currentGroup: CallGroup?
     private var fallbackTask: Task<Void, Never>?
+    private var isMediaActive = false
 
     public init(preferredRoute: CallRoute) {
         self.configuration = CallRouteConfiguration(
@@ -76,6 +77,7 @@ public final class RouteManager: CallSession {
     public func connect(group: CallGroup) {
         currentGroup = group
         fallbackTask?.cancel()
+        isMediaActive = false
 
         if let preferredRoute = route(for: configuration.preferredRoute) {
             activeRouteKind = preferredRoute.kind
@@ -87,12 +89,26 @@ public final class RouteManager: CallSession {
         activateFirstAvailableRoute(group: group)
     }
 
+    public func startMedia() {
+        guard !isMediaActive else { return }
+        activeRoute?.startMedia()
+        isMediaActive = true
+    }
+
+    public func stopMedia() {
+        guard isMediaActive else { return }
+        activeRoute?.stopMedia()
+        isMediaActive = false
+    }
+
     public func disconnect() {
         fallbackTask?.cancel()
         fallbackTask = nil
         for route in routes.values {
+            route.stopMedia()
             route.deactivate()
         }
+        isMediaActive = false
         activeRouteKind = nil
         currentGroup = nil
     }
@@ -135,8 +151,14 @@ public final class RouteManager: CallSession {
         guard activeRouteKind == configuration.preferredRoute,
               let fallbackRoute = route(for: .webRTC) else { return }
 
+        if isMediaActive {
+            activeRoute?.stopMedia()
+        }
         activeRouteKind = fallbackRoute.kind
         fallbackRoute.activate(group: group)
+        if isMediaActive {
+            fallbackRoute.startMedia()
+        }
     }
 
     private func handleRouteEvent(_ event: TransportEvent, from routeKind: RouteKind) {
@@ -159,8 +181,14 @@ public final class RouteManager: CallSession {
                   configuration.automaticFallbackEnabled,
                   let group = currentGroup else { return }
             if let fallbackRoute = routes.values.first(where: { $0.kind != routeKind }) {
+                if isMediaActive {
+                    route(for: routeKind)?.stopMedia()
+                }
                 activeRouteKind = fallbackRoute.kind
                 fallbackRoute.activate(group: group)
+                if isMediaActive {
+                    fallbackRoute.startMedia()
+                }
             }
         default:
             break
@@ -181,6 +209,9 @@ public final class UnavailableCallSession: CallSession {
     public func connect(group: CallGroup) {
         notifyUnavailable()
     }
+
+    public func startMedia() {}
+    public func stopMedia() {}
 
     public func disconnect() {
         Task { @MainActor [weak self] in
@@ -221,6 +252,9 @@ public final class WebRTCInternetRoute: CallRoute {
     public func activate(group: CallGroup) {
         notify(.linkFailed(internetAvailable: true))
     }
+
+    public func startMedia() {}
+    public func stopMedia() {}
 
     public func deactivate() {
         notify(.disconnected)

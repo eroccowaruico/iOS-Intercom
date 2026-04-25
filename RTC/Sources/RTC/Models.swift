@@ -341,6 +341,8 @@ public protocol CallSession: AnyObject {
 
     func startStandby(group: CallGroup)
     func connect(group: CallGroup)
+    func startMedia()
+    func stopMedia()
     func disconnect()
     func sendAudioFrame(_ frame: OutboundAudioPacket)
     func sendControl(_ message: ControlMessage)
@@ -427,6 +429,8 @@ public protocol CallRoute: AnyObject {
 
     func startStandby(group: CallGroup)
     func activate(group: CallGroup)
+    func startMedia()
+    func stopMedia()
     func deactivate()
     func sendAudioFrame(_ frame: OutboundAudioPacket)
     func sendControl(_ message: ControlMessage)

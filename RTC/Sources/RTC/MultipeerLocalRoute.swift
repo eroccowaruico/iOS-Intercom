@@ -36,6 +36,14 @@ public final class MultipeerLocalRoute: CallRoute {
         transport.connect(group: group)
     }
 
+    public func startMedia() {
+        transport.startMedia()
+    }
+
+    public func stopMedia() {
+        transport.stopMedia()
+    }
+
     public func deactivate() {
         transport.disconnect()
     }
@@ -65,6 +73,7 @@ final class MultipeerLocalTransport: NSObject {
     private(set) var receivedPackets: [ReceivedAudioPacket] = []
     private var pendingOutgoingInvitationPeerIDs: Set<String> = []
     private var invitationTasksByPeerID: [String: Task<Void, Never>] = [:]
+    private var isMediaActive = false
 
     init(displayName: String) {
         self.localPeerID = MCPeerID(displayName: displayName)
@@ -81,6 +90,7 @@ final class MultipeerLocalTransport: NSObject {
         receivedPacketFilter = ReceivedAudioPacketFilter(groupID: group.id)
         receivedPackets.removeAll()
         resetInvitationState()
+        isMediaActive = false
         notify(.localNetworkStatus(LocalNetworkEvent(status: .advertisingBrowsing)))
 
         let advertiser = MCNearbyServiceAdvertiser(
@@ -106,10 +116,21 @@ final class MultipeerLocalTransport: NSObject {
         receivedPacketFilter = nil
         receivedPackets.removeAll()
         resetInvitationState()
+        isMediaActive = false
         notify(.disconnected)
     }
 
+    func startMedia() {
+        isMediaActive = true
+    }
+
+    func stopMedia() {
+        isMediaActive = false
+        receivedPackets.removeAll()
+    }
+
     func sendAudioFrame(_ frame: OutboundAudioPacket) {
+        guard isMediaActive else { return }
         send(frame)
     }
 
@@ -310,6 +331,7 @@ extension MultipeerLocalTransport: MCSessionDelegate {
         }
 
         guard handshakeRegistry?.isAuthenticated(peerID: peerID.displayName) == true,
+              isMediaActive,
               var filter = receivedPacketFilter else { return }
 
         do {

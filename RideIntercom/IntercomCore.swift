@@ -1127,6 +1127,8 @@ protocol CallSession: AnyObject {
 
     func startStandby(group: IntercomGroup)
     func connect(group: IntercomGroup)
+    func startMedia()
+    func stopMedia()
     func disconnect()
     func sendAudioFrame(_ frame: OutboundAudioPacket)
     func sendControl(_ message: ControlMessage)
@@ -1168,6 +1170,14 @@ final class RideIntercomCallSessionAdapter: CallSession {
 
     func connect(group: IntercomGroup) {
         rtcSession.connect(group: makeRTCGroup(from: group))
+    }
+
+    func startMedia() {
+        rtcSession.startMedia()
+    }
+
+    func stopMedia() {
+        rtcSession.stopMedia()
     }
 
     func disconnect() {
@@ -2368,7 +2378,10 @@ final class IntercomViewModel {
     }
 
     var connectionLabel: String {
-        connectionState.label
+        if hasPresentedAuthenticatedConnection && !isAudioReady {
+            return "\(connectionState.label) / Audio Idle"
+        }
+        return connectionState.label
     }
 
     var selectedGroupConnectionState: CallConnectionState {
@@ -2419,6 +2432,9 @@ final class IntercomViewModel {
         if connectionState == .idle, localNetworkStatus != .idle {
             return "Waiting for Riders"
         }
+        if hasPresentedAuthenticatedConnection && !isAudioReady {
+            return "Connected / Audio Idle"
+        }
         return connectionState.label
     }
 
@@ -2428,7 +2444,17 @@ final class IntercomViewModel {
     }
 
     var routeLabel: String {
-        switch presentedConnectionState {
+        if hasPresentedAuthenticatedConnection && !isAudioReady {
+            switch presentedConnectionState {
+            case .localConnected, .localConnecting:
+                return "Local / Control Only"
+            case .internetConnected, .internetConnecting:
+                return "Internet / Control Only"
+            case .idle, .reconnectingOffline:
+                return "Offline"
+            }
+        }
+        return switch presentedConnectionState {
         case .localConnected, .localConnecting:
             TransportRoute.local.rawValue
         case .internetConnected, .internetConnecting:
@@ -2579,6 +2605,11 @@ final class IntercomViewModel {
     private var presentedLocalNetworkStatus: LocalNetworkStatus {
         guard selectedGroup?.id == activeGroupID else { return .idle }
         return localNetworkStatus
+    }
+
+    private var hasPresentedAuthenticatedConnection: Bool {
+        guard selectedGroup?.id == activeGroupID else { return false }
+        return !authenticatedPeerIDs.isEmpty
     }
 
     private func resetConnectionRuntimeState() {
@@ -2740,7 +2771,6 @@ final class IntercomViewModel {
             resetConnectionRuntimeState()
         }
 
-        guard startAudioPipelineIfNeeded() else { return }
         isLocalStandbyOnly = false
         connectionState = connectedPeerIDs.isEmpty ? .localConnecting : .localConnected
         markMembers(connectionState == .localConnected ? .connected : .connecting)
@@ -2751,14 +2781,16 @@ final class IntercomViewModel {
             }
             callSession.connect(group: group)
         }
+        if !authenticatedPeerIDs.isEmpty {
+            startActiveCallAfterAuthenticatedPeer()
+        }
     }
 
     private func startActiveCallAfterAuthenticatedPeer() {
-        guard isLocalStandbyOnly,
+        guard !isLocalStandbyOnly,
               !authenticatedPeerIDs.isEmpty,
               startAudioPipelineIfNeeded() else { return }
 
-        isLocalStandbyOnly = false
         connectionState = .localConnected
         markConnectedMembers(peerIDs: connectedPeerIDs)
     }
@@ -2769,6 +2801,7 @@ final class IntercomViewModel {
         }
 
         do {
+            callSession.startMedia()
             try audioSessionManager.configureForIntercom()
             audioInputMonitor.setOtherAudioDuckingEnabled(isDuckOthersEnabled)
             try audioInputMonitor.start()
@@ -2781,6 +2814,7 @@ final class IntercomViewModel {
             audioErrorMessage = nil
             return true
         } catch {
+            callSession.stopMedia()
             isAudioReady = false
             audioErrorMessage = audioSetupMessage(for: error)
             return false
@@ -2819,6 +2853,7 @@ final class IntercomViewModel {
         audioCheckTask?.cancel()
         muteAutoStopTask?.cancel()
         muteAutoStopTask = nil
+        callSession.stopMedia()
         callSession.disconnect()
         audioInputMonitor.stop()
         audioFramePlayer.stop()
@@ -3204,7 +3239,7 @@ final class IntercomViewModel {
 
     private func broadcastMetadataKeepalive(preferredRoute: TransportRoute? = nil) {
         _ = preferredRoute
-        callSession.sendAudioFrame(.keepalive)
+        callSession.sendControl(.keepalive)
     }
 
     private func sendStateMetadataSnapshot(for route: TransportRoute) {
@@ -3252,18 +3287,32 @@ final class IntercomViewModel {
         case .remotePeerMuteState(let peerID, let isMuted):
             setRemotePeerMuteState(peerID: peerID, isMuted: isMuted)
         case .disconnected:
+            callSession.stopMedia()
+            audioInputMonitor.stop()
+            audioFramePlayer.stop()
+            callTicker.stop()
+            try? audioSessionManager.deactivate()
             connectedPeerIDs = []
             authenticatedPeerIDs = []
             localNetworkStatus = .idle
             connectionState = .idle
             isVoiceActive = false
+            isAudioReady = false
+            isMicrophoneCaptureSuspendedByMute = false
             markMembers(.offline)
         case .linkFailed(let internetAvailable):
             _ = internetAvailable
+            callSession.stopMedia()
+            audioInputMonitor.stop()
+            audioFramePlayer.stop()
+            callTicker.stop()
+            try? audioSessionManager.deactivate()
             connectedPeerIDs = []
             authenticatedPeerIDs = []
             localNetworkStatus = .unavailable
             connectionState = .reconnectingOffline
+            isAudioReady = false
+            isMicrophoneCaptureSuspendedByMute = false
             markMembers(.connecting)
         case .receivedPacket(let packet):
             handleReceivedPacket(packet)

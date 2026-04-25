@@ -374,7 +374,10 @@ private struct CallView: View {
     }
 
     private var connectionIconName: String {
-        switch viewModel.selectedGroupConnectionState {
+        if viewModel.selectedGroupConnectionState != .idle && !viewModel.isAudioReady && viewModel.canDisconnectCall {
+            return "dot.radiowaves.left.and.right"
+        }
+        return switch viewModel.selectedGroupConnectionState {
         case .idle:
             "wifi.slash"
         case .localConnecting, .internetConnecting:
@@ -387,7 +390,10 @@ private struct CallView: View {
     }
 
     private var connectionStatusColor: Color {
-        switch viewModel.selectedGroupConnectionState {
+        if viewModel.selectedGroupConnectionState != .idle && !viewModel.isAudioReady && viewModel.canDisconnectCall {
+            return AppColorPalette.warning
+        }
+        return switch viewModel.selectedGroupConnectionState {
         case .idle:
             AppColorPalette.neutral
         case .localConnecting, .internetConnecting:
