@@ -2064,7 +2064,7 @@ final class IntercomViewModel {
     private static let pendingInviteMemberPrefix = "invite-pending-"
     nonisolated static let muteAutoStopDelayDefault: Duration = .seconds(2)
     nonisolated static let normalMasterOutputVolume: Float = 1
-    nonisolated static let maximumMasterOutputVolume: Float = 2
+    nonisolated static let maximumMasterOutputVolume: Float = 4
 
     private(set) var groups: [IntercomGroup]
     private(set) var selectedGroup: IntercomGroup?
@@ -3334,7 +3334,7 @@ final class IntercomViewModel {
                 streamID: frame.streamID,
                 sequenceNumber: frame.sequenceNumber,
                 frameID: frame.frameID,
-                samples: frame.samples.map { clampedAudioSample($0 * gain) }
+                samples: frame.samples.map { softClippedAudioSample($0 * gain) }
             )
         }
     }
@@ -3347,8 +3347,10 @@ final class IntercomViewModel {
         min(1, max(0, value))
     }
 
-    private func clampedAudioSample(_ value: Float) -> Float {
-        min(1, max(-1, value))
+    private func softClippedAudioSample(_ value: Float) -> Float {
+        guard value != 0 else { return 0 }
+        let clipped = tanh(Double(value))
+        return Float(clipped)
     }
 
     private func markConnectedMembers(peerIDs: [String]) {

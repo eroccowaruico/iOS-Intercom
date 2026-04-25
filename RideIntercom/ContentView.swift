@@ -91,7 +91,7 @@ private struct GroupSelectionView: View {
                     } label: {
                         HStack(spacing: AppSpacing.xl) {
                             Image(systemName: "person.3")
-                                .foregroundStyle(AppColorPalette.textSecondary)
+                                .foregroundStyle(groupRowIconColor(for: group))
                                 .frame(width: AppSize.iconM)
 
                             VStack(alignment: .leading, spacing: AppSpacing.xs) {
@@ -150,6 +150,10 @@ private struct GroupSelectionView: View {
             }
         }
         .accessibilityIdentifier("groupSelectionList")
+    }
+
+    private func groupRowIconColor(for group: IntercomGroup) -> Color {
+        viewModel.activeGroupID == group.id ? AppColorPalette.success : AppColorPalette.textSecondary
     }
 }
 
