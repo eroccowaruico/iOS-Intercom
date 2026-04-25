@@ -194,6 +194,14 @@ protocol MediaSession: AnyObject {
 
 `RTC.CallSession` は app 向け façade として残しつつ、内部では `ConnectionSession` と `MediaSession` を束ねる。`RouteManager` は Control Plane の active route を先に決め、Media Plane の start/stop は認証状態に応じて別に管理する。
 
+現行実装補足:
+
+| 項目 | 現在の実装 |
+|---|---|
+| `RTC.CallSession` | `startMedia()` / `stopMedia()` を持つ |
+| `RTC.RouteManager` | active route に対して connection lifecycle と media lifecycle を分けて中継する |
+| `RTC.MultipeerLocalRoute` | route 内に `isMediaActive` を持ち、認証後に `startMedia()` が呼ばれるまで音声送受信を通さない |
+
 ## Route 抽象
 
 `RTCCallRoute` は Core API ではなく、`RTC.RouteManager` 内部の plugin 境界とする。

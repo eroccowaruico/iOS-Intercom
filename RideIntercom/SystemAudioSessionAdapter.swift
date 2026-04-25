@@ -190,9 +190,6 @@ private extension AudioSessionConfiguration {
         if options.contains(.mixWithOthers) {
             mapped.insert(.mixWithOthers)
         }
-        if options.contains(.duckOthers) {
-            mapped.insert(.duckOthers)
-        }
         if options.contains(.allowBluetooth) {
             mapped.insert(.allowBluetoothHFP)
         }

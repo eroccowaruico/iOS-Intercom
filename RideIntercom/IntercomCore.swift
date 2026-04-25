@@ -608,7 +608,6 @@ struct IntercomAudioOptions: OptionSet, Equatable {
     static let allowBluetooth = IntercomAudioOptions(rawValue: 1 << 1)
     static let allowBluetoothA2DP = IntercomAudioOptions(rawValue: 1 << 2)
     static let defaultToSpeaker = IntercomAudioOptions(rawValue: 1 << 3)
-    static let duckOthers = IntercomAudioOptions(rawValue: 1 << 4)
 }
 
 struct AudioPortInfo: Identifiable, Equatable, Hashable {
@@ -625,13 +624,9 @@ struct AudioSessionConfiguration: Equatable {
     let options: IntercomAudioOptions
 
     static func intercom(
-        duckOthers: Bool = false,
         prefersSpeakerOutput: Bool = false
     ) -> AudioSessionConfiguration {
         var options: IntercomAudioOptions = [.mixWithOthers, .allowBluetooth, .allowBluetoothA2DP]
-        if duckOthers {
-            options.insert(.duckOthers)
-        }
         if prefersSpeakerOutput {
             options.insert(.defaultToSpeaker)
         }
@@ -643,13 +638,9 @@ struct AudioSessionConfiguration: Equatable {
     }
 
     static func audioCheck(
-        duckOthers: Bool = false,
         prefersSpeakerOutput: Bool = false
     ) -> AudioSessionConfiguration {
         var options: IntercomAudioOptions = [.allowBluetooth, .allowBluetoothA2DP]
-        if duckOthers {
-            options.insert(.duckOthers)
-        }
         if prefersSpeakerOutput {
             options.insert(.defaultToSpeaker)
         }
@@ -771,12 +762,10 @@ final class AudioSessionManager {
         switch kind {
         case .intercom:
             AudioSessionConfiguration.intercom(
-                duckOthers: false,
                 prefersSpeakerOutput: selectedOutputPort == .speaker
             )
         case .audioCheck:
             AudioSessionConfiguration.audioCheck(
-                duckOthers: false,
                 prefersSpeakerOutput: selectedOutputPort == .speaker
             )
         }
@@ -2821,6 +2810,16 @@ final class IntercomViewModel {
         }
     }
 
+    private func stopAudioPipeline() {
+        callSession.stopMedia()
+        audioInputMonitor.stop()
+        audioFramePlayer.stop()
+        callTicker.stop()
+        try? audioSessionManager.deactivate()
+        isAudioReady = false
+        isMicrophoneCaptureSuspendedByMute = false
+    }
+
     private func startLocalStandby() {
         guard let selectedGroup,
               !isAudioReady,
@@ -2853,16 +2852,10 @@ final class IntercomViewModel {
         audioCheckTask?.cancel()
         muteAutoStopTask?.cancel()
         muteAutoStopTask = nil
-        callSession.stopMedia()
+        stopAudioPipeline()
         callSession.disconnect()
-        audioInputMonitor.stop()
-        audioFramePlayer.stop()
-        callTicker.stop()
-        try? audioSessionManager.deactivate()
         connectionState = .idle
         isVoiceActive = false
-        isAudioReady = false
-        isMicrophoneCaptureSuspendedByMute = false
         remoteVoiceReceivedAt.removeAll()
         resetVoiceLevelWindows()
         connectedPeerIDs = []
@@ -3287,32 +3280,20 @@ final class IntercomViewModel {
         case .remotePeerMuteState(let peerID, let isMuted):
             setRemotePeerMuteState(peerID: peerID, isMuted: isMuted)
         case .disconnected:
-            callSession.stopMedia()
-            audioInputMonitor.stop()
-            audioFramePlayer.stop()
-            callTicker.stop()
-            try? audioSessionManager.deactivate()
+            stopAudioPipeline()
             connectedPeerIDs = []
             authenticatedPeerIDs = []
             localNetworkStatus = .idle
             connectionState = .idle
             isVoiceActive = false
-            isAudioReady = false
-            isMicrophoneCaptureSuspendedByMute = false
             markMembers(.offline)
         case .linkFailed(let internetAvailable):
             _ = internetAvailable
-            callSession.stopMedia()
-            audioInputMonitor.stop()
-            audioFramePlayer.stop()
-            callTicker.stop()
-            try? audioSessionManager.deactivate()
+            stopAudioPipeline()
             connectedPeerIDs = []
             authenticatedPeerIDs = []
             localNetworkStatus = .unavailable
             connectionState = .reconnectingOffline
-            isAudioReady = false
-            isMicrophoneCaptureSuspendedByMute = false
             markMembers(.connecting)
         case .receivedPacket(let packet):
             handleReceivedPacket(packet)
