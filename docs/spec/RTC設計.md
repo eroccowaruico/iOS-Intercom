@@ -163,6 +163,37 @@ WebRTC MediaStream を使う場合、control と media を明確に分ける。
 | keepalive / metrics | control packet / packet timestamps | DataChannel ping + WebRTC stats |
 | playout | app-managed jitter buffer + mixer | WebRTC internal playout、または将来 custom sink |
 
+追加方針:
+
+| 項目 | 方針 |
+|---|---|
+| 接続 I/F と音声 I/F | 分ける。接続成立だけで mic / playout を起動しない |
+| metadata/control | Control Plane の責務として、Media Plane 起動前でも送受信可能にする |
+| 音声開始条件 | peer 認証完了後、または route が media ready を通知した後 |
+| 音声停止条件 | 明示的 stop、route 切替、切断時 |
+| Core からの見え方 | 「接続済みだが音声未開始」の状態を正式に持つ |
+
+### 想定する新しい抽象境界
+
+```swift
+protocol ConnectionSession: AnyObject {
+    var onEvent: (@MainActor (TransportEvent) -> Void)? { get set }
+
+    func startStandby(group: CallGroup)
+    func connect(group: CallGroup)
+    func disconnect()
+    func sendControl(_ message: ControlMessage)
+}
+
+protocol MediaSession: AnyObject {
+    func startMedia()
+    func stopMedia()
+    func sendAudioFrame(_ frame: OutboundAudioPacket)
+}
+```
+
+`RTC.CallSession` は app 向け façade として残しつつ、内部では `ConnectionSession` と `MediaSession` を束ねる。`RouteManager` は Control Plane の active route を先に決め、Media Plane の start/stop は認証状態に応じて別に管理する。
+
 ## Route 抽象
 
 `RTCCallRoute` は Core API ではなく、`RTC.RouteManager` 内部の plugin 境界とする。
@@ -190,8 +221,10 @@ public protocol RTCCallRoute: AnyObject {
     var events: AsyncStream<RouteEvent> { get }
 
     func prepare(_ request: CallStartRequest) async
-    func activate() async
-    func deactivate() async
+    func activateConnection() async
+    func deactivateConnection() async
+    func startMedia() async
+    func stopMedia() async
     func stop() async
 
     func setLocalMute(_ muted: Bool) async
@@ -201,6 +234,8 @@ public protocol RTCCallRoute: AnyObject {
 ```
 
 `RTC.RouteManager` は `RTCCallRoute` の event を集約し、active route を決める。RideIntercom は route の実体を直接操作しない。
+
+補足: `activateConnection()` は discovery / invite / signaling / handshake を開始する。`startMedia()` はその後段で音声面だけを上げる。
 
 ## `RTC.MultipeerLocalRoute`
 
@@ -222,11 +257,20 @@ flowchart LR
 
 | 項目 | 内容 |
 |---|---|
-| discovery | group hash を `discoveryInfo` に載せて同一グループ候補のみ invite |
+| discovery / invite | group hash を `discoveryInfo` に載せて同一グループ候補のみ invite |
 | handshake | group secret 由来 MAC で認証 |
-| media | app-managed packet audio |
+| control metadata | mute state, keepalive, peer state を control payload で流す |
+| media | app-managed packet audio。認証完了後にだけ開始する |
 | 暗号 | group secret 由来鍵で audio payload を暗号化 |
 | 診断 | packet loss, jitter, peer count, local network status |
+
+分離方針:
+
+| 層 | 役割 |
+|---|---|
+| `MultipeerConnectionTransport` | advertiser / browser / MCSession 接続 / invite / handshake / control payload |
+| `MultipeerPacketMediaSession` | sequencer / audio payload build / receive filter / jitter / media state |
+| `MultipeerLocalRoute` | 上記 2 つを束ね、route event と lifecycle を公開 |
 
 `MultipeerConnectivity` は Apple platform 依存なので、`RTC.MultipeerLocalRoute` は `canImport(MultipeerConnectivity)` の範囲で提供する。platform 非対応時は route factory で利用不可として扱い、dummy route は作らない。
 
@@ -491,6 +535,7 @@ WebKit + Cloudflare Realtime SFU/TURN は、低レベル制御と managed SFU/TU
 | 作業 | 内容 |
 |---|---|
 | `RTC.MultipeerLocalRoute` 追加 | 現行 `MultipeerLocalTransport` と packet media を `RTC` の route 実装へ移す |
+| connection / media 分離 | Multipeer の discovery / handshake / control と packet audio を別コンポーネントへ分ける |
 | local standby 移動 | group 選択時の discovery 待受を `RTC.RouteManager` へ移す |
 | diagnostics 維持 | 現行 `LocalNetworkStatus` は `RouteAvailability` として引き継ぐ |
 
