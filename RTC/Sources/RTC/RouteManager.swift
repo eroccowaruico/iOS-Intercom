@@ -117,8 +117,12 @@ public final class RouteManager: CallSession {
         activeRoute?.sendAudioFrame(frame)
     }
 
-    public func sendControl(_ message: ControlMessage) {
-        activeRoute?.sendControl(message)
+    public func sendConnectionKeepalive() {
+        activeRoute?.sendConnectionKeepalive()
+    }
+
+    public func sendApplicationData(_ message: ApplicationDataMessage) {
+        activeRoute?.sendApplicationData(message)
     }
 
     private func activateFirstAvailableRoute(group: CallGroup) {
@@ -220,7 +224,8 @@ public final class UnavailableCallSession: CallSession {
     }
 
     public func sendAudioFrame(_ frame: OutboundAudioPacket) {}
-    public func sendControl(_ message: ControlMessage) {}
+    public func sendConnectionKeepalive() {}
+    public func sendApplicationData(_ message: ApplicationDataMessage) {}
 
     private func notifyUnavailable() {
         Task { @MainActor [weak self] in
@@ -239,6 +244,8 @@ public final class WebRTCInternetRoute: CallRoute {
         supportsAppManagedPacketMedia: false,
         supportsReliableControl: true,
         supportsUnreliableControl: false,
+        supportsReliableApplicationData: true,
+        supportsUnreliableApplicationData: true,
         requiresSignaling: true
     )
     public var onEvent: (@MainActor (TransportEvent) -> Void)?
@@ -261,7 +268,8 @@ public final class WebRTCInternetRoute: CallRoute {
     }
 
     public func sendAudioFrame(_ frame: OutboundAudioPacket) {}
-    public func sendControl(_ message: ControlMessage) {}
+    public func sendConnectionKeepalive() {}
+    public func sendApplicationData(_ message: ApplicationDataMessage) {}
 
     private func notify(_ event: TransportEvent) {
         Task { @MainActor [weak self] in

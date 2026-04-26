@@ -59,43 +59,32 @@ public enum AudioCodecFallbackReason: String, Codable, Equatable, Sendable {
     case encodingFailed
 }
 
-public struct AudioTransmitMetadata: Codable, Equatable, Sendable {
-    public let requestedCodec: AudioCodecIdentifier
-    public let encodedCodec: AudioCodecIdentifier
-    public let fallbackReason: AudioCodecFallbackReason?
+public enum ApplicationDataDelivery: String, Codable, Equatable, Sendable {
+    case reliable
+    case unreliable
+}
 
-    public init(
-        requestedCodec: AudioCodecIdentifier,
-        encodedCodec: AudioCodecIdentifier,
-        fallbackReason: AudioCodecFallbackReason?
-    ) {
-        self.requestedCodec = requestedCodec
-        self.encodedCodec = encodedCodec
-        self.fallbackReason = fallbackReason
+public struct ApplicationDataMessage: Codable, Equatable, Sendable {
+    public let namespace: String
+    public let payload: Data
+    public let delivery: ApplicationDataDelivery
+
+    public init(namespace: String, payload: Data, delivery: ApplicationDataDelivery = .reliable) {
+        self.namespace = namespace
+        self.payload = payload
+        self.delivery = delivery
     }
 }
 
-public struct AudioFrameMetadata: Codable, Equatable, Sendable {
-    public let streamID: UUID
-    public let sequenceNumber: Int
-    public let frameID: Int?
-    public let requestedCodec: AudioCodecIdentifier
-    public let encodedCodec: AudioCodecIdentifier
+public struct AudioTransmitMetadata: Codable, Equatable, Sendable {
+    public let mediaCodec: AudioCodecIdentifier
     public let fallbackReason: AudioCodecFallbackReason?
 
     public init(
-        streamID: UUID,
-        sequenceNumber: Int,
-        frameID: Int?,
-        requestedCodec: AudioCodecIdentifier,
-        encodedCodec: AudioCodecIdentifier,
+        mediaCodec: AudioCodecIdentifier,
         fallbackReason: AudioCodecFallbackReason?
     ) {
-        self.streamID = streamID
-        self.sequenceNumber = sequenceNumber
-        self.frameID = frameID
-        self.requestedCodec = requestedCodec
-        self.encodedCodec = encodedCodec
+        self.mediaCodec = mediaCodec
         self.fallbackReason = fallbackReason
     }
 }
@@ -218,11 +207,9 @@ public struct ReceivedAudioPacket: Equatable, Sendable {
     }
 }
 
-public enum ControlMessage: Equatable, Sendable {
+enum RouteControlMessage: Equatable, Sendable {
     case keepalive
     case handshake(HandshakeMessage)
-    case peerMuteState(isMuted: Bool)
-    case audioFrameMetadata(AudioFrameMetadata)
 }
 
 public struct HandshakeMessage: Codable, Equatable, Sendable {
@@ -325,8 +312,7 @@ public enum TransportEvent: Equatable, Sendable {
     case localNetworkStatus(LocalNetworkEvent)
     case connected(peerIDs: [String])
     case authenticated(peerIDs: [String])
-    case remotePeerMuteState(peerID: String, isMuted: Bool)
-    case receivedAudioFrameMetadata(peerID: String, metadata: AudioFrameMetadata)
+    case receivedApplicationData(peerID: String, message: ApplicationDataMessage)
     case disconnected
     case linkFailed(internetAvailable: Bool)
     case receivedPacket(ReceivedAudioPacket)
@@ -343,7 +329,8 @@ public protocol CallSession: AnyObject {
     func stopMedia()
     func disconnect()
     func sendAudioFrame(_ frame: OutboundAudioPacket)
-    func sendControl(_ message: ControlMessage)
+    func sendConnectionKeepalive()
+    func sendApplicationData(_ message: ApplicationDataMessage)
 }
 
 public enum RouteKind: String, CaseIterable, Codable, Sendable {
@@ -392,6 +379,8 @@ public struct RouteCapabilities: Equatable, Sendable {
     public var supportsAppManagedPacketMedia: Bool
     public var supportsReliableControl: Bool
     public var supportsUnreliableControl: Bool
+    public var supportsReliableApplicationData: Bool
+    public var supportsUnreliableApplicationData: Bool
     public var requiresSignaling: Bool
 
     public init(
@@ -401,6 +390,8 @@ public struct RouteCapabilities: Equatable, Sendable {
         supportsAppManagedPacketMedia: Bool,
         supportsReliableControl: Bool,
         supportsUnreliableControl: Bool,
+        supportsReliableApplicationData: Bool,
+        supportsUnreliableApplicationData: Bool,
         requiresSignaling: Bool
     ) {
         self.supportsLocalDiscovery = supportsLocalDiscovery
@@ -409,6 +400,8 @@ public struct RouteCapabilities: Equatable, Sendable {
         self.supportsAppManagedPacketMedia = supportsAppManagedPacketMedia
         self.supportsReliableControl = supportsReliableControl
         self.supportsUnreliableControl = supportsUnreliableControl
+        self.supportsReliableApplicationData = supportsReliableApplicationData
+        self.supportsUnreliableApplicationData = supportsUnreliableApplicationData
         self.requiresSignaling = requiresSignaling
     }
 }
@@ -431,5 +424,6 @@ public protocol CallRoute: AnyObject {
     func stopMedia()
     func deactivate()
     func sendAudioFrame(_ frame: OutboundAudioPacket)
-    func sendControl(_ message: ControlMessage)
+    func sendConnectionKeepalive()
+    func sendApplicationData(_ message: ApplicationDataMessage)
 }

@@ -126,6 +126,8 @@ struct RideIntercomTests {
             sentControlMessages.append(message)
         }
 
+        func sendApplicationData(_ message: ApplicationDataMessage) {}
+
         func simulateLinkFailure(internetAvailable: Bool) {
             connectedGroup = nil
             emit(.linkFailed(internetAvailable: internetAvailable))
@@ -4460,6 +4462,8 @@ final class VirtualDuplexTransport: Transport {
     }
 
     func sendControl(_ message: ControlMessage) {}
+
+    func sendApplicationData(_ message: ApplicationDataMessage) {}
 }
 
 @MainActor
@@ -4524,6 +4528,8 @@ final class SecureVirtualDuplexTransport: Transport {
     }
 
     func sendControl(_ message: ControlMessage) {}
+
+    func sendApplicationData(_ message: ApplicationDataMessage) {}
 
     private func establishLinkIfPossible() {
         guard !linkEstablished,

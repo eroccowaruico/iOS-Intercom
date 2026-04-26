@@ -220,58 +220,50 @@ struct MultipeerPayload: Equatable {
 struct AudioPayloadBuildResult: Equatable {
     let payload: MultipeerPayload
     let envelope: AudioPacketEnvelope
-    let frameMetadata: AudioFrameMetadata
+    let transmitMetadata: AudioTransmitMetadata
 }
 
 struct ControlPayloadEnvelope: Codable, Equatable {
     let kind: Kind
     let handshake: HandshakeMessage?
-    let peerMuteStateIsMuted: Bool?
-    let audioFrameMetadata: AudioFrameMetadata?
 
     enum Kind: String, Codable {
         case keepalive
         case handshake
-        case peerMuteState
-        case audioFrameMetadata
     }
 
-    init(message: ControlMessage) {
+    init(message: RouteControlMessage) {
         switch message {
         case .keepalive:
             kind = .keepalive
             handshake = nil
-            peerMuteStateIsMuted = nil
-            audioFrameMetadata = nil
         case .handshake(let handshake):
             kind = .handshake
             self.handshake = handshake
-            peerMuteStateIsMuted = nil
-            audioFrameMetadata = nil
-        case .peerMuteState(let isMuted):
-            kind = .peerMuteState
-            handshake = nil
-            peerMuteStateIsMuted = isMuted
-            audioFrameMetadata = nil
-        case .audioFrameMetadata(let metadata):
-            kind = .audioFrameMetadata
-            handshake = nil
-            peerMuteStateIsMuted = nil
-            audioFrameMetadata = metadata
         }
     }
 
-    var message: ControlMessage? {
+    var message: RouteControlMessage? {
         switch kind {
         case .keepalive:
             .keepalive
         case .handshake:
-            handshake.map(ControlMessage.handshake)
-        case .peerMuteState:
-            peerMuteStateIsMuted.map { .peerMuteState(isMuted: $0) }
-        case .audioFrameMetadata:
-            audioFrameMetadata.map(ControlMessage.audioFrameMetadata)
+            handshake.map(RouteControlMessage.handshake)
         }
+    }
+}
+
+struct ApplicationDataPayloadEnvelope: Codable, Equatable {
+    let payloadKind: String
+    let message: ApplicationDataMessage
+
+    init(message: ApplicationDataMessage) {
+        self.payloadKind = "applicationData"
+        self.message = message
+    }
+
+    var applicationData: ApplicationDataMessage? {
+        payloadKind == "applicationData" ? message : nil
     }
 }
 
@@ -289,37 +281,47 @@ enum MultipeerPayloadBuilder {
         } else {
             data = try AudioPacketCodec.encode(envelope)
         }
-        let metadata = AudioFrameMetadata(
-            streamID: envelope.streamID,
-            sequenceNumber: envelope.sequenceNumber,
-            frameID: envelope.frameID,
-            requestedCodec: .pcm16,
-            encodedCodec: envelope.encodedVoice?.codec ?? .pcm16,
+        let metadata = AudioTransmitMetadata(
+            mediaCodec: envelope.encodedVoice?.codec ?? .pcm16,
             fallbackReason: envelope.encodedVoice == nil ? .encodingFailed : nil
         )
         return AudioPayloadBuildResult(
             payload: MultipeerPayload(data: data, mode: .unreliable),
             envelope: envelope,
-            frameMetadata: metadata
+            transmitMetadata: metadata
         )
     }
 
-    static func makePayload(for message: ControlMessage) throws -> MultipeerPayload {
+    static func makePayload(for message: RouteControlMessage) throws -> MultipeerPayload {
         let data = try JSONEncoder().encode(ControlPayloadEnvelope(message: message))
         let mode: TransportSendMode
         switch message {
         case .keepalive:
             mode = .unreliable
-        case .audioFrameMetadata:
-            mode = .unreliable
-        case .handshake, .peerMuteState:
+        case .handshake:
             mode = .reliable
         }
         return MultipeerPayload(data: data, mode: mode)
     }
 
-    static func decodeControlPayload(_ data: Data) throws -> ControlMessage? {
+    static func makePayload(for message: ApplicationDataMessage) throws -> MultipeerPayload {
+        let data = try JSONEncoder().encode(ApplicationDataPayloadEnvelope(message: message))
+        let mode: TransportSendMode
+        switch message.delivery {
+        case .reliable:
+            mode = .reliable
+        case .unreliable:
+            mode = .unreliable
+        }
+        return MultipeerPayload(data: data, mode: mode)
+    }
+
+    static func decodeControlPayload(_ data: Data) throws -> RouteControlMessage? {
         try JSONDecoder().decode(ControlPayloadEnvelope.self, from: data).message
+    }
+
+    static func decodeApplicationDataPayload(_ data: Data) throws -> ApplicationDataMessage? {
+        try JSONDecoder().decode(ApplicationDataPayloadEnvelope.self, from: data).applicationData
     }
 
     static func decodeAudioPayload(_ data: Data, credential: GroupAccessCredential? = nil) throws -> AudioPacketEnvelope {

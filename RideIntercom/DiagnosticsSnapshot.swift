@@ -73,9 +73,7 @@ struct DiagnosticsSnapshot: Equatable {
     let localNetwork: LocalNetworkDebugSnapshot
     let reception: ReceptionDebugSnapshot
     let transmitFallbackCount: Int
-    let receiveMetadataMismatchCount: Int
     let lastTransmitFallbackSummary: String?
-    let lastReceiveMetadataMismatchSummary: String?
 
     var connectionSummary: String {
         "PEERS \(connectedPeerCount)"
@@ -115,9 +113,7 @@ struct DiagnosticsSnapshot: Equatable {
     }
 
     var codecSafetySummary: String {
-        let txSummary = lastTransmitFallbackSummary ?? "TX FB #0"
-        let rxSummary = lastReceiveMetadataMismatchSummary ?? "RX META #0"
-        return "\(txSummary) / \(rxSummary)"
+        lastTransmitFallbackSummary ?? "TX FB #0"
     }
 
     func realDeviceCallSummary(connectionLabel: String, isAudioReady: Bool, now: TimeInterval) -> String {
@@ -150,9 +146,7 @@ enum DiagnosticsSnapshotBuilder {
         droppedAudioPacketCount: Int,
         jitterQueuedFrameCount: Int,
         transmitFallbackCount: Int,
-        receiveMetadataMismatchCount: Int,
-        lastTransmitFallbackSummary: String?,
-        lastReceiveMetadataMismatchSummary: String?
+        lastTransmitFallbackSummary: String?
     ) -> DiagnosticsSnapshot {
         DiagnosticsSnapshot(
             audio: AudioDebugSnapshot(
@@ -185,9 +179,7 @@ enum DiagnosticsSnapshotBuilder {
                 jitterQueuedFrameCount: jitterQueuedFrameCount
             ),
             transmitFallbackCount: transmitFallbackCount,
-            receiveMetadataMismatchCount: receiveMetadataMismatchCount,
-            lastTransmitFallbackSummary: lastTransmitFallbackSummary,
-            lastReceiveMetadataMismatchSummary: lastReceiveMetadataMismatchSummary
+            lastTransmitFallbackSummary: lastTransmitFallbackSummary
         )
     }
 }

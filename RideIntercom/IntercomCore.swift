@@ -1037,6 +1037,23 @@ enum ControlMessage: Equatable {
     case peerMuteState(isMuted: Bool)
 }
 
+enum ApplicationDataDelivery: String, Codable, Equatable {
+    case reliable
+    case unreliable
+}
+
+struct ApplicationDataMessage: Equatable {
+    let namespace: String
+    let payload: Data
+    let delivery: ApplicationDataDelivery
+
+    nonisolated init(namespace: String, payload: Data, delivery: ApplicationDataDelivery = .reliable) {
+        self.namespace = namespace
+        self.payload = payload
+        self.delivery = delivery
+    }
+}
+
 enum LocalNetworkRejectReason: String, Equatable {
     case groupMismatch = "group mismatch"
     case handshakeInvalid = "handshake invalid"
@@ -1089,7 +1106,7 @@ enum TransportEvent: Equatable {
     case connected(peerIDs: [String])
     case authenticated(peerIDs: [String])
     case remotePeerMuteState(peerID: String, isMuted: Bool)
-    case receivedAudioFrameMetadata(peerID: String, metadata: AudioFrameMetadata)
+    case receivedApplicationData(peerID: String, message: ApplicationDataMessage)
     case disconnected
     case linkFailed(internetAvailable: Bool)
     case receivedPacket(ReceivedAudioPacket)
@@ -1115,12 +1132,18 @@ protocol CallSession: AnyObject {
     func disconnect()
     func sendAudioFrame(_ frame: OutboundAudioPacket)
     func sendControl(_ message: ControlMessage)
+    func sendApplicationData(_ message: ApplicationDataMessage)
+}
+
+private struct PeerMuteStateApplicationPayload: Codable, Equatable {
+    let isMuted: Bool
 }
 
 final class RideIntercomCallSessionAdapter: CallSession {
     var onEvent: ((TransportEvent) -> Void)?
     var activeRouteDebugTypeName: String { rtcSession.activeRouteDebugTypeName }
 
+    private nonisolated static let peerMuteStateNamespace = "rideintercom.peerMuteState"
     private let rtcSession: RTC.CallSession
 
     init(memberID: String) {
@@ -1172,12 +1195,21 @@ final class RideIntercomCallSessionAdapter: CallSession {
         case .voice(let frameID, let samples):
             rtcSession.sendAudioFrame(.voice(frameID: frameID, samples: samples))
         case .keepalive:
-            rtcSession.sendControl(.keepalive)
+            rtcSession.sendConnectionKeepalive()
         }
     }
 
     func sendControl(_ message: ControlMessage) {
-        rtcSession.sendControl(makeRTCControlMessage(from: message))
+        switch message {
+        case .keepalive:
+            rtcSession.sendConnectionKeepalive()
+        case .peerMuteState(let isMuted):
+            sendPeerMuteState(isMuted: isMuted)
+        }
+    }
+
+    func sendApplicationData(_ message: ApplicationDataMessage) {
+        rtcSession.sendApplicationData(makeRTCApplicationDataMessage(from: message))
     }
 
     private func bindEvents() {
@@ -1190,16 +1222,7 @@ final class RideIntercomCallSessionAdapter: CallSession {
         RTC.CallGroup(id: group.id, accessSecret: group.accessSecret)
     }
 
-    private func makeRTCControlMessage(from message: ControlMessage) -> RTC.ControlMessage {
-        switch message {
-        case .keepalive:
-            .keepalive
-        case .peerMuteState(let isMuted):
-            .peerMuteState(isMuted: isMuted)
-        }
-    }
-
-    private nonisolated static func makeAppEvent(from event: RTC.TransportEvent) -> TransportEvent {
+    private static func makeAppEvent(from event: RTC.TransportEvent) -> TransportEvent {
         switch event {
         case .localNetworkStatus(let event):
             .localNetworkStatus(LocalNetworkEvent(
@@ -1211,10 +1234,8 @@ final class RideIntercomCallSessionAdapter: CallSession {
             .connected(peerIDs: peerIDs)
         case .authenticated(let peerIDs):
             .authenticated(peerIDs: peerIDs)
-        case .remotePeerMuteState(let peerID, let isMuted):
-            .remotePeerMuteState(peerID: peerID, isMuted: isMuted)
-        case .receivedAudioFrameMetadata(let peerID, let metadata):
-            .receivedAudioFrameMetadata(peerID: peerID, metadata: makeAppAudioFrameMetadata(from: metadata))
+        case .receivedApplicationData(let peerID, let message):
+            makeAppEvent(peerID: peerID, applicationData: message)
         case .disconnected:
             .disconnected
         case .linkFailed(let internetAvailable):
@@ -1223,6 +1244,58 @@ final class RideIntercomCallSessionAdapter: CallSession {
             .receivedPacket(makeAppReceivedPacket(from: packet))
         case .outboundPacketBuilt(let diagnostics):
             .outboundPacketBuilt(makeAppOutboundDiagnostics(from: diagnostics))
+        }
+    }
+
+    private func sendPeerMuteState(isMuted: Bool) {
+        guard let payload = try? JSONEncoder().encode(PeerMuteStateApplicationPayload(isMuted: isMuted)) else { return }
+        rtcSession.sendApplicationData(RTC.ApplicationDataMessage(
+            namespace: Self.peerMuteStateNamespace,
+            payload: payload,
+            delivery: .reliable
+        ))
+    }
+
+    private static func makeAppEvent(peerID: String, applicationData message: RTC.ApplicationDataMessage) -> TransportEvent {
+        if message.namespace == peerMuteStateNamespace,
+           let payload = try? JSONDecoder().decode(PeerMuteStateApplicationPayload.self, from: message.payload) {
+            return .remotePeerMuteState(peerID: peerID, isMuted: payload.isMuted)
+        }
+
+        return .receivedApplicationData(peerID: peerID, message: makeAppApplicationDataMessage(from: message))
+    }
+
+    private func makeRTCApplicationDataMessage(from message: ApplicationDataMessage) -> RTC.ApplicationDataMessage {
+        RTC.ApplicationDataMessage(
+            namespace: message.namespace,
+            payload: message.payload,
+            delivery: makeRTCDelivery(from: message.delivery)
+        )
+    }
+
+    private func makeRTCDelivery(from delivery: ApplicationDataDelivery) -> RTC.ApplicationDataDelivery {
+        switch delivery {
+        case .reliable:
+            .reliable
+        case .unreliable:
+            .unreliable
+        }
+    }
+
+    private nonisolated static func makeAppApplicationDataMessage(from message: RTC.ApplicationDataMessage) -> ApplicationDataMessage {
+        ApplicationDataMessage(
+            namespace: message.namespace,
+            payload: message.payload,
+            delivery: makeAppDelivery(from: message.delivery)
+        )
+    }
+
+    private nonisolated static func makeAppDelivery(from delivery: RTC.ApplicationDataDelivery) -> ApplicationDataDelivery {
+        switch delivery {
+        case .reliable:
+            .reliable
+        case .unreliable:
+            .unreliable
         }
     }
 
@@ -1268,7 +1341,7 @@ final class RideIntercomCallSessionAdapter: CallSession {
             streamID: diagnostics.streamID,
             sequenceNumber: diagnostics.sequenceNumber,
             packetKind: makeAppPacketKind(from: diagnostics.packetKind),
-            metadata: diagnostics.metadata.map(makeAppTransmitMetadata(from:))
+            metadata: diagnostics.metadata.map { makeAppTransmitMetadata(from: $0, requestedCodec: .pcm16) }
         )
     }
 
@@ -1322,21 +1395,13 @@ final class RideIntercomCallSessionAdapter: CallSession {
         }
     }
 
-    private nonisolated static func makeAppTransmitMetadata(from metadata: RTC.AudioTransmitMetadata) -> AudioTransmitMetadata {
+    private nonisolated static func makeAppTransmitMetadata(
+        from metadata: RTC.AudioTransmitMetadata,
+        requestedCodec: AudioCodecIdentifier
+    ) -> AudioTransmitMetadata {
         AudioTransmitMetadata(
-            requestedCodec: makeAppCodecIdentifier(from: metadata.requestedCodec),
-            encodedCodec: makeAppCodecIdentifier(from: metadata.encodedCodec),
-            fallbackReason: metadata.fallbackReason.map(makeAppFallbackReason(from:))
-        )
-    }
-
-    private nonisolated static func makeAppAudioFrameMetadata(from metadata: RTC.AudioFrameMetadata) -> AudioFrameMetadata {
-        AudioFrameMetadata(
-            streamID: metadata.streamID,
-            sequenceNumber: metadata.sequenceNumber,
-            frameID: metadata.frameID,
-            requestedCodec: makeAppCodecIdentifier(from: metadata.requestedCodec),
-            encodedCodec: makeAppCodecIdentifier(from: metadata.encodedCodec),
+            requestedCodec: requestedCodec,
+            mediaCodec: makeAppCodecIdentifier(from: metadata.mediaCodec),
             fallbackReason: metadata.fallbackReason.map(makeAppFallbackReason(from:))
         )
     }
@@ -1535,16 +1600,7 @@ enum AudioCodecFallbackReason: String, Codable, Equatable {
 
 struct AudioTransmitMetadata: Codable, Equatable {
     let requestedCodec: AudioCodecIdentifier
-    let encodedCodec: AudioCodecIdentifier
-    let fallbackReason: AudioCodecFallbackReason?
-}
-
-struct AudioFrameMetadata: Codable, Equatable {
-    let streamID: UUID
-    let sequenceNumber: Int
-    let frameID: Int?
-    let requestedCodec: AudioCodecIdentifier
-    let encodedCodec: AudioCodecIdentifier
+    let mediaCodec: AudioCodecIdentifier
     let fallbackReason: AudioCodecFallbackReason?
 }
 
@@ -2060,15 +2116,11 @@ final class IntercomViewModel {
     private(set) var lastLocalNetworkEventAt: TimeInterval?
     private(set) var lastReceivedAudioAt: TimeInterval?
     private var lastAudibleReceivedAudioAt: TimeInterval?
-    private var pendingReceivedAudioFrameMetadata: [ReceivedAudioFrameKey: AudioFrameMetadata] = [:]
-    private var pendingReceivedAudioFrameCodecs: [ReceivedAudioFrameKey: AudioCodecIdentifier] = [:]
     private(set) var droppedAudioPacketCount = 0
     private(set) var jitterQueuedFrameCount = 0
     private(set) var inviteStatusMessage: String?
     private(set) var transmitFallbackCount = 0
-    private(set) var receiveMetadataMismatchCount = 0
     private(set) var lastTransmitFallbackSummary: String?
-    private(set) var lastReceiveMetadataMismatchSummary: String?
     private(set) var uiEventRevision = 0
     private let callSession: CallSession
     private let audioSessionManager: AudioSessionManager
@@ -2237,9 +2289,7 @@ final class IntercomViewModel {
                 jitterQueuedFrameCount: jitterQueuedFrameCount
             ),
             transmitFallbackCount: transmitFallbackCount,
-            receiveMetadataMismatchCount: receiveMetadataMismatchCount,
-            lastTransmitFallbackSummary: lastTransmitFallbackSummary,
-            lastReceiveMetadataMismatchSummary: lastReceiveMetadataMismatchSummary
+            lastTransmitFallbackSummary: lastTransmitFallbackSummary
         )
     }
 
@@ -2700,8 +2750,6 @@ final class IntercomViewModel {
         lastLocalNetworkPeerID = nil
         lastLocalNetworkEventAt = nil
         lastReceivedAudioAt = nil
-        pendingReceivedAudioFrameMetadata.removeAll()
-        pendingReceivedAudioFrameCodecs.removeAll()
         droppedAudioPacketCount = 0
         jitterQueuedFrameCount = 0
         resetAudioDebugCounters()
@@ -3124,8 +3172,8 @@ final class IntercomViewModel {
             sendStateMetadataSnapshot()
         case .remotePeerMuteState(let peerID, let isMuted):
             setRemotePeerMuteState(peerID: peerID, isMuted: isMuted)
-        case .receivedAudioFrameMetadata(let peerID, let metadata):
-            handleReceivedAudioFrameMetadata(peerID: peerID, metadata: metadata)
+        case .receivedApplicationData:
+            break
         case .disconnected:
             stopAudioPipeline()
             connectedPeerIDs = []
@@ -3179,8 +3227,6 @@ final class IntercomViewModel {
         if let codec = packet.envelope.encodedVoice?.codec {
             setRemotePeerCodec(packet.peerID, codec: codec)
         }
-        captureReceiveAudioFrameCodecIfNeeded(packet)
-
         switch packet.packet {
         case .voice(_, let samples):
             jitterBuffer.enqueue(packet, receivedAt: receivedAt)
@@ -3226,15 +3272,11 @@ final class IntercomViewModel {
         scheduledOutputFrameCount = 0
         lastReceivedAudioAt = nil
         lastAudibleReceivedAudioAt = nil
-        pendingReceivedAudioFrameMetadata.removeAll()
-        pendingReceivedAudioFrameCodecs.removeAll()
         droppedAudioPacketCount = 0
         jitterQueuedFrameCount = 0
         playbackOutputPeakWindow = VoicePeakWindow()
         transmitFallbackCount = 0
-        receiveMetadataMismatchCount = 0
         lastTransmitFallbackSummary = nil
-        lastReceiveMetadataMismatchSummary = nil
     }
 
     private func refreshOtherAudioDuckingState(now: TimeInterval = Date().timeIntervalSince1970) {
@@ -3270,49 +3312,21 @@ final class IntercomViewModel {
     }
 
     private func handleOutboundPacketDiagnostics(_ diagnostics: OutboundPacketDiagnostics) {
-        guard let metadata = diagnostics.metadata else { return }
-        setLocalActiveCodec(metadata.encodedCodec)
-        let hasFallback = metadata.fallbackReason != nil || metadata.requestedCodec != metadata.encodedCodec
+        guard let rawMetadata = diagnostics.metadata else { return }
+        let metadata = AudioTransmitMetadata(
+            requestedCodec: preferredTransmitCodec,
+            mediaCodec: rawMetadata.mediaCodec,
+            fallbackReason: rawMetadata.fallbackReason
+        )
+        setLocalActiveCodec(metadata.mediaCodec)
+        let hasFallback = metadata.fallbackReason != nil || metadata.requestedCodec != metadata.mediaCodec
         guard hasFallback else { return }
 
         transmitFallbackCount += 1
         let reason = metadata.fallbackReason?.rawValue ?? "codecMismatch"
-        let summary = "TX FB #\(transmitFallbackCount) / \(metadata.requestedCodec.rawValue)->\(metadata.encodedCodec.rawValue) / \(reason)"
+        let summary = "TX FB #\(transmitFallbackCount) / \(metadata.requestedCodec.rawValue)->\(metadata.mediaCodec.rawValue) / \(reason)"
         lastTransmitFallbackSummary = summary
-        diagnosticsLogger.error("tx fallback route=\(diagnostics.route.rawValue, privacy: .public) stream=\(diagnostics.streamID.uuidString, privacy: .public) seq=\(diagnostics.sequenceNumber) req=\(metadata.requestedCodec.rawValue, privacy: .public) enc=\(metadata.encodedCodec.rawValue, privacy: .public) reason=\(reason, privacy: .public)")
-    }
-
-    private func handleReceivedAudioFrameMetadata(peerID: String, metadata: AudioFrameMetadata) {
-        setRemotePeerCodec(peerID, codec: metadata.encodedCodec)
-        let key = ReceivedAudioFrameKey(peerID: peerID, streamID: metadata.streamID, sequenceNumber: metadata.sequenceNumber)
-        pendingReceivedAudioFrameMetadata[key] = metadata
-        captureReceiveMetadataMismatchIfNeeded(for: key)
-    }
-
-    private func captureReceiveAudioFrameCodecIfNeeded(_ packet: ReceivedAudioPacket) {
-        guard let actualCodec = packet.envelope.encodedVoice?.codec else { return }
-        let key = ReceivedAudioFrameKey(
-            peerID: packet.peerID,
-            streamID: packet.envelope.streamID,
-            sequenceNumber: packet.envelope.sequenceNumber
-        )
-        pendingReceivedAudioFrameCodecs[key] = actualCodec
-        captureReceiveMetadataMismatchIfNeeded(for: key)
-    }
-
-    private func captureReceiveMetadataMismatchIfNeeded(for key: ReceivedAudioFrameKey) {
-        guard let metadata = pendingReceivedAudioFrameMetadata[key],
-              let actualCodec = pendingReceivedAudioFrameCodecs[key] else { return }
-
-        pendingReceivedAudioFrameMetadata.removeValue(forKey: key)
-        pendingReceivedAudioFrameCodecs.removeValue(forKey: key)
-
-        guard metadata.encodedCodec != actualCodec else { return }
-
-        receiveMetadataMismatchCount += 1
-        let summary = "RX META #\(receiveMetadataMismatchCount) / meta=\(metadata.encodedCodec.rawValue) actual=\(actualCodec.rawValue)"
-        lastReceiveMetadataMismatchSummary = summary
-        diagnosticsLogger.error("rx metadata mismatch peer=\(key.peerID, privacy: .public) stream=\(key.streamID.uuidString, privacy: .public) seq=\(key.sequenceNumber) meta=\(metadata.encodedCodec.rawValue, privacy: .public) actual=\(actualCodec.rawValue, privacy: .public)")
+        diagnosticsLogger.error("tx fallback route=\(diagnostics.route.rawValue, privacy: .public) stream=\(diagnostics.streamID.uuidString, privacy: .public) seq=\(diagnostics.sequenceNumber) req=\(metadata.requestedCodec.rawValue, privacy: .public) media=\(metadata.mediaCodec.rawValue, privacy: .public) reason=\(reason, privacy: .public)")
     }
 
     private func setLocalVoiceLevel(_ level: Float) {

@@ -13,6 +13,8 @@ public final class MultipeerLocalRoute: CallRoute {
         supportsAppManagedPacketMedia: true,
         supportsReliableControl: true,
         supportsUnreliableControl: true,
+        supportsReliableApplicationData: true,
+        supportsUnreliableApplicationData: true,
         requiresSignaling: false
     )
     public var onEvent: (@MainActor (TransportEvent) -> Void)? {
@@ -52,8 +54,12 @@ public final class MultipeerLocalRoute: CallRoute {
         transport.sendAudioFrame(frame)
     }
 
-    public func sendControl(_ message: ControlMessage) {
-        transport.sendControl(message)
+    public func sendConnectionKeepalive() {
+        transport.sendConnectionKeepalive()
+    }
+
+    public func sendApplicationData(_ message: ApplicationDataMessage) {
+        transport.sendApplicationData(message)
     }
 }
 
@@ -134,11 +140,15 @@ final class MultipeerLocalTransport: NSObject {
         send(frame)
     }
 
-    func sendControl(_ message: ControlMessage) {
+    func sendConnectionKeepalive() {
+        send(.keepalive)
+    }
+
+    func sendApplicationData(_ message: ApplicationDataMessage) {
         send(message)
     }
 
-    private func send(_ message: ControlMessage, toPeers peers: [MCPeerID]? = nil) {
+    private func send(_ message: RouteControlMessage, toPeers peers: [MCPeerID]? = nil) {
         let targetPeers = peers ?? session.connectedPeers
         guard !targetPeers.isEmpty else { return }
 
@@ -147,6 +157,18 @@ final class MultipeerLocalTransport: NSObject {
             try session.send(payload.data, toPeers: targetPeers, with: payload.mcMode)
         } catch {
             logger.error("Failed to send control payload: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func send(_ message: ApplicationDataMessage, toPeers peers: [MCPeerID]? = nil) {
+        let targetPeers = peers ?? session.connectedPeers
+        guard !targetPeers.isEmpty else { return }
+
+        do {
+            let payload = try MultipeerPayloadBuilder.makePayload(for: message)
+            try session.send(payload.data, toPeers: targetPeers, with: payload.mcMode)
+        } catch {
+            logger.error("Failed to send application data payload: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -165,14 +187,9 @@ final class MultipeerLocalTransport: NSObject {
                 streamID: result.envelope.streamID,
                 sequenceNumber: result.envelope.sequenceNumber,
                 packetKind: result.envelope.kind,
-                metadata: AudioTransmitMetadata(
-                    requestedCodec: result.frameMetadata.requestedCodec,
-                    encodedCodec: result.frameMetadata.encodedCodec,
-                    fallbackReason: result.frameMetadata.fallbackReason
-                )
+                metadata: result.transmitMetadata
             )))
             try session.send(result.payload.data, toPeers: session.connectedPeers, with: result.payload.mcMode)
-            send(.audioFrameMetadata(result.frameMetadata))
         } catch {
             logger.error("Failed to send audio payload: \(error.localizedDescription, privacy: .public)")
         }
@@ -329,8 +346,13 @@ extension MultipeerLocalTransport: MCSessionDelegate {
             return
         }
 
-        guard handshakeRegistry?.isAuthenticated(peerID: peerID.displayName) == true,
-              isMediaActive,
+        guard handshakeRegistry?.isAuthenticated(peerID: peerID.displayName) == true else { return }
+
+        if handleApplicationDataPayload(data, fromPeer: peerID) {
+            return
+        }
+
+        guard isMediaActive,
               var filter = receivedPacketFilter else { return }
 
         do {
@@ -345,6 +367,12 @@ extension MultipeerLocalTransport: MCSessionDelegate {
         } catch {
             receivedPacketFilter = filter
         }
+    }
+
+    private func handleApplicationDataPayload(_ data: Data, fromPeer peerID: MCPeerID) -> Bool {
+        guard let message = try? MultipeerPayloadBuilder.decodeApplicationDataPayload(data) else { return false }
+        notify(.receivedApplicationData(peerID: peerID.displayName, message: message))
+        return true
     }
 
     private func handleControlPayload(_ data: Data, fromPeer peerID: MCPeerID) -> Bool {
@@ -363,12 +391,6 @@ extension MultipeerLocalTransport: MCSessionDelegate {
                 notify(.localNetworkStatus(LocalNetworkEvent(status: .rejected(.handshakeInvalid), peerID: peerID.displayName)))
                 session.cancelConnectPeer(peerID)
             }
-            return true
-        case .peerMuteState(let isMuted):
-            notify(.remotePeerMuteState(peerID: peerID.displayName, isMuted: isMuted))
-            return true
-        case .audioFrameMetadata(let metadata):
-            notify(.receivedAudioFrameMetadata(peerID: peerID.displayName, metadata: metadata))
             return true
         }
     }

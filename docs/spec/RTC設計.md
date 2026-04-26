@@ -19,6 +19,7 @@
 | Transport と Media を分ける | discovery / signaling / control と、音声 capture / encode / playout を別責務として扱う |
 | Multipeer を優先する | 近距離・低遅延・オフライン動作を優先し、WebRTC は広域 fallback とする |
 | WebRTC MediaStream を尊重する | WebRTC は DataChannel だけに押し込まず、音声本体は MediaStream / RTP / SRTP を使う |
+| アプリデータを RTC 内部制御から分ける | WebRTC の `RTCDataChannel` と同じく、任意バイナリデータを音声 MediaStream と別チャンネルで扱い、RTC route 内部 control の固定種別に閉じ込めない |
 | 自動復帰を標準動作にする | WebRTC 利用中も Multipeer discovery を継続し、復帰可能なら Multipeer へ戻す |
 | 設定で経路を無効化できる | Multipeer only, WebRTC only, hybrid を構成可能にする |
 | 将来の transport 追加に備える | 新経路は `RTC` の `RTCCallRoute` として追加し、RideIntercom Core API を増やさない |
@@ -159,6 +160,7 @@ WebRTC MediaStream を使う場合、control と media を明確に分ける。
 | discovery | `MCNearbyServiceAdvertiser`, `MCNearbyServiceBrowser` | signaling server 上の room / participant |
 | authentication | group hash + handshake MAC | server-issued participant token + app-level group credential |
 | control | reliable `MCSession.send` | `RTCDataChannel` または signaling |
+| application data | reliable / unreliable `MCSession.send` の専用 payload | `RTCDataChannel`。任意バイナリ、metadata、presence、UI同期など |
 | audio media | encrypted packet over `MCSession` | `RTCAudioTrack` over RTP/SRTP |
 | keepalive / metrics | control packet / packet timestamps | DataChannel ping + WebRTC stats |
 | playout | app-managed jitter buffer + mixer | WebRTC internal playout、または将来 custom sink |
@@ -168,7 +170,8 @@ WebRTC MediaStream を使う場合、control と media を明確に分ける。
 | 項目 | 方針 |
 |---|---|
 | 接続 I/F と音声 I/F | 分ける。接続成立だけで mic / playout を起動しない |
-| metadata/control | Control Plane の責務として、Media Plane 起動前でも送受信可能にする |
+| metadata/control | Control Plane の責務として、Media Plane 起動前でも送受信可能にする。handshake や keepalive は RTC route 内部 control として扱い、アプリ送信 API へ露出しない |
+| app data | `ApplicationDataMessage` として Control Plane 上に独立した payload を持つ。RTC は namespace と binary payload と配送信頼性だけを扱い、中身の schema を定義しない |
 | 音声開始条件 | peer 認証完了後、または route が media ready を通知した後 |
 | 音声停止条件 | 明示的 stop、route 切替、切断時 |
 | Core からの見え方 | 「接続済みだが音声未開始」の状態を正式に持つ |
@@ -182,7 +185,8 @@ protocol ConnectionSession: AnyObject {
     func startStandby(group: CallGroup)
     func connect(group: CallGroup)
     func disconnect()
-    func sendControl(_ message: ControlMessage)
+    func sendConnectionKeepalive()
+    func sendApplicationData(_ message: ApplicationDataMessage)
 }
 
 protocol MediaSession: AnyObject {
@@ -201,8 +205,9 @@ protocol MediaSession: AnyObject {
 | `RTC.CallSession` | `startMedia()` / `stopMedia()` を持つ |
 | `RTC.RouteManager` | active route に対して connection lifecycle と media lifecycle を分けて中継する |
 | `RTC.MultipeerLocalRoute` | route 内に `isMediaActive` を持ち、認証後に `startMedia()` が呼ばれるまで音声送受信を通さない |
-| metadata keepalive | `ControlMessage.keepalive` として control payload にだけ流し、audio packet path へ混在させない |
-| codec / fallback metadata | `ControlMessage.audioFrameMetadata` として control payload に載せ、audio frame 本体から分離する |
+| metadata keepalive | `sendConnectionKeepalive()` から RTC route 内部 control payload にだけ流し、audio packet path へ混在させない |
+| codec / fallback diagnostics | 実際の codec は media payload の `EncodedVoicePacket.codec` を使う。fallback は送信側のローカル診断 event として扱い、別control payloadでは送らない |
+| app mute sync | RideIntercom の `rideintercom.peerMuteState` application data として扱い、RTC package は schema を持たない |
 
 ## Route 抽象
 
@@ -240,8 +245,32 @@ public protocol RTCCallRoute: AnyObject {
     func setLocalMute(_ muted: Bool) async
     func setOutputMute(_ muted: Bool) async
     func setRemoteOutputVolume(peerID: PeerID, volume: Float) async
+    func sendConnectionKeepalive() async
+    func sendApplicationData(_ message: ApplicationDataMessage) async
 }
 ```
+
+アプリ自由データは RTC route 内部 control ではなく専用型で扱う。
+
+```swift
+public enum ApplicationDataDelivery: String, Codable, Equatable, Sendable {
+    case reliable
+    case unreliable
+}
+
+public struct ApplicationDataMessage: Codable, Equatable, Sendable {
+    public let namespace: String
+    public let payload: Data
+    public let delivery: ApplicationDataDelivery
+}
+```
+
+| 項目 | 仕様 |
+|---|---|
+| `namespace` | アプリ側が自由に定義する用途識別子。RTC は値の意味を解釈しない |
+| `payload` | 任意バイナリ。JSON、CBOR、Protocol Buffers、独自形式などの選択はアプリ側に委ねる |
+| `delivery` | reliable / unreliable の希望を表す。route が未対応の場合は capability に基づいて送信可否を判断する |
+| 受信 event | `TransportEvent.receivedApplicationData(peerID:message:)` として返す |
 
 `RTC.RouteManager` は `RTCCallRoute` の event を集約し、active route を決める。RideIntercom は route の実体を直接操作しない。
 
@@ -269,7 +298,8 @@ flowchart LR
 |---|---|
 | discovery / invite | group hash を `discoveryInfo` に載せて同一グループ候補のみ invite |
 | handshake | group secret 由来 MAC で認証 |
-| control metadata | mute state, keepalive, peer state を control payload で流す |
+| control metadata | handshake, keepalive を RTC route 内部 control payload で流す |
+| application data | アプリ定義の metadata / presence / UI 同期などを専用 payload で流す。音声 packet と `ControlMessage` enum へ混在させない |
 | media | app-managed packet audio。認証完了後にだけ開始する |
 | 暗号 | group secret 由来鍵で audio payload を暗号化 |
 | 診断 | packet loss, jitter, peer count, local network status |
@@ -307,10 +337,13 @@ flowchart LR
 | signaling | meeting / participant / offer / answer / ICE |
 | media | `RTCAudioTrack` を publish / subscribe |
 | control | DataChannel で mute, metadata, ping, route probe |
+| application data | DataChannel で任意バイナリを送受信する。RTC はアプリ schema を持たず route と配送信頼性だけを扱う |
 | security | DTLS-SRTP と provider token。必要に応じて app-level group credential を control に載せる |
 | 診断 | WebRTC stats から RTT, jitter, packet loss, selected candidate pair を取得 |
 
 WebRTC では音声本体を既存 `AudioPacketEnvelope` に変換しない。`AudioPacketEnvelope` は `RTC.MultipeerLocalRoute` の内部実装として残す。
+
+WebRTC では `RTCPeerConnection` の上に media stream と data channel が併存する。音声は `RTCAudioTrack` / RTP / SRTP の Media Plane に置き、アプリ定義の metadata や任意バイナリは `RTCDataChannel` 相当の Application Data Plane に置く。これにより、将来 WebRTC route を実装しても、RideIntercom のアプリ機能は音声 codec や WebRTC media track の制約に引きずられない。
 
 ## `RTC.WebRTCSignalingClient`
 
