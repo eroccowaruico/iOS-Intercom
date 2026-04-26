@@ -211,14 +211,6 @@ struct RideIntercomTests {
         return try String(contentsOf: fileURL, encoding: .utf8)
     }
 
-    @Test func defaultAudioInputMonitorUsesSystemMonitorWhenAvailable() {
-        #if canImport(AVFAudio)
-        #expect(AudioInputMonitorFactory.makeDefault() is SystemAudioInputMonitor)
-        #else
-        #expect(AudioInputMonitorFactory.makeDefault() is NoOpAudioInputMonitor)
-        #endif
-    }
-
     @Test func currentProcessUsesRealMultipeerTransportWhenAvailable() {
         #if canImport(MultipeerConnectivity)
         let viewModel = IntercomViewModel.makeForCurrentProcess()
@@ -1610,10 +1602,14 @@ struct RideIntercomTests {
 
     @MainActor
     @Test func diagnosticsInputMeterUsesLiveLocalVoiceLevel() {
-        let viewModel = IntercomViewModel(groups: IntercomSeedData.recentGroups)
+        let audioInputMonitor = NoOpAudioInputMonitor()
+        let viewModel = IntercomViewModel(
+            groups: IntercomSeedData.recentGroups,
+            audioInputMonitor: audioInputMonitor
+        )
 
         viewModel.selectGroup(IntercomSeedData.recentGroups[0])
-        viewModel.processMicrophoneLevelForDebug(0.42)
+        audioInputMonitor.simulate(level: 0.42)
 
         #expect(viewModel.diagnosticsInputLevel > 0.41)
         #expect(viewModel.diagnosticsInputPeakLevel >= viewModel.diagnosticsInputLevel)
@@ -2897,6 +2893,7 @@ struct RideIntercomTests {
     @MainActor
     @Test func callDebugSummaryShowsTransmitAndReceiveCounts() throws {
         let localTransport = LocalTransport()
+        let audioInputMonitor = NoOpAudioInputMonitor()
         let group = try IntercomGroup(
             id: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!,
             name: "Pair",
@@ -2909,14 +2906,14 @@ struct RideIntercomTests {
             groups: [group],
             localTransport: localTransport,
             audioSessionManager: AudioSessionManager(session: NoOpAudioSession()),
-            audioInputMonitor: NoOpAudioInputMonitor()
+            audioInputMonitor: audioInputMonitor
         )
 
         viewModel.selectGroup(group)
         viewModel.connectLocal()
-        viewModel.processMicrophoneLevelForDebug(0.8)
-        viewModel.processMicrophoneLevelForDebug(0.8)
-        viewModel.processMicrophoneLevelForDebug(0.8)
+        audioInputMonitor.simulate(level: 0.8)
+        audioInputMonitor.simulate(level: 0.8)
+        audioInputMonitor.simulate(level: 0.8)
         localTransport.simulateAuthenticatedPeers(["member-002"])
         localTransport.simulateReceivedPacket(ReceivedAudioPacket(
             peerID: "member-002",
@@ -4267,85 +4264,6 @@ struct RideIntercomTests {
 
         #expect(viewModel.connectionState == .reconnectingOffline)
         #expect(viewModel.localNetworkStatus == .unavailable)
-    }
-
-    @Test func handoverMovesFromLocalToInternetOrOffline() {
-        var controller = HandoverController()
-
-        controller.connectLocal()
-        #expect(controller.state == .localConnected)
-
-        controller.localLinkDidFail(internetAvailable: true)
-        #expect(controller.state == .internetConnecting)
-
-        controller.internetDidConnect()
-        #expect(controller.state == .internetConnected)
-
-        controller.localCandidateDidPassProbe()
-        #expect(controller.state == .localConnected)
-
-        controller.localLinkDidFail(internetAvailable: false)
-        #expect(controller.state == .reconnectingOffline)
-    }
-
-    @Test func routePolicyPrefersLocalOnlyWhenProbeMetricsAreHealthy() {
-        let policy = DefaultRoutePolicy(
-            maxRTTMilliseconds: 150,
-            maxJitterMilliseconds: 40,
-            maxPacketLossRate: 0.08
-        )
-
-        let healthy = RouteProbeMetrics(
-            rttMilliseconds: 40,
-            jitterMilliseconds: 8,
-            packetLossRate: 0.01,
-            peerCount: 3,
-            expectedPeerCount: 3
-        )
-        let degraded = RouteProbeMetrics(
-            rttMilliseconds: 220,
-            jitterMilliseconds: 90,
-            packetLossRate: 0.2,
-            peerCount: 2,
-            expectedPeerCount: 3
-        )
-
-        #expect(policy.shouldPreferLocal(afterProbe: healthy))
-        #expect(policy.shouldPreferLocal(afterProbe: degraded) == false)
-    }
-
-    @Test func routeCoordinatorMovesBetweenLocalInternetAndOfflineStates() {
-        var coordinator = RouteCoordinator(
-            policy: DefaultRoutePolicy(),
-            probeWindow: 5,
-            dualSendWindow: 1
-        )
-
-        coordinator.connectLocal()
-        #expect(coordinator.state == .localConnected)
-
-        coordinator.localLinkDidFail(internetAvailable: true)
-        #expect(coordinator.state == .internetConnecting)
-
-        coordinator.internetDidConnect()
-        #expect(coordinator.state == .internetConnected)
-        coordinator.localCandidateDetected(now: 100)
-
-        coordinator.evaluateLocalProbe(RouteProbeMetrics(
-            rttMilliseconds: 30,
-            jitterMilliseconds: 5,
-            packetLossRate: 0,
-            peerCount: 2,
-            expectedPeerCount: 2
-        ), now: 100)
-        #expect(coordinator.shouldDualSend)
-        #expect(coordinator.state == .internetConnected)
-        coordinator.advance(now: 101.2)
-        #expect(coordinator.state == .localConnected)
-        #expect(coordinator.shouldDualSend == false)
-
-        coordinator.localLinkDidFail(internetAvailable: false)
-        #expect(coordinator.state == .reconnectingOffline)
     }
 
     // MARK: - AudioResampler

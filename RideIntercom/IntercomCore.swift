@@ -707,21 +707,11 @@ final class AudioSessionManager {
     }
 
     func configureForIntercom() throws {
-        currentConfigurationKind = .intercom
-        try session.apply(makeConfiguration(for: .intercom))
-        try session.setActive(true)
-        try session.setPreferredInputPort(selectedInputPort)
-        try session.setPreferredOutputPort(selectedOutputPort)
-        isConfigured = true
+        try configure(.intercom)
     }
 
     func configureForAudioCheck() throws {
-        currentConfigurationKind = .audioCheck
-        try session.apply(makeConfiguration(for: .audioCheck))
-        try session.setActive(true)
-        try session.setPreferredInputPort(selectedInputPort)
-        try session.setPreferredOutputPort(selectedOutputPort)
-        isConfigured = true
+        try configure(.audioCheck)
     }
 
     func setInputPort(_ port: AudioPortInfo) throws {
@@ -749,6 +739,15 @@ final class AudioSessionManager {
         try session.setActive(false)
         isConfigured = false
         currentConfigurationKind = nil
+    }
+
+    private func configure(_ kind: ConfigurationKind) throws {
+        currentConfigurationKind = kind
+        try session.apply(makeConfiguration(for: kind))
+        try session.setActive(true)
+        try session.setPreferredInputPort(selectedInputPort)
+        try session.setPreferredOutputPort(selectedOutputPort)
+        isConfigured = true
     }
 
     private func reapplyConfigurationIfNeeded() throws {
@@ -822,12 +821,6 @@ extension AudioInputMonitoring {
     func setSoundIsolationEnabled(_ enabled: Bool) {}
     var supportsOtherAudioDucking: Bool { false }
     func setOtherAudioDuckingEnabled(_ enabled: Bool) {}
-}
-
-enum AudioInputMonitorFactory {
-    static func makeDefault() -> AudioInputMonitoring {
-        SystemAudioInputMonitor()
-    }
 }
 
 enum MicrophoneAuthorizationState: Equatable {
@@ -1364,168 +1357,6 @@ final class RideIntercomCallSessionAdapter: CallSession {
         case .encodingFailed:
             .encodingFailed
         }
-    }
-}
-
-struct HandoverController {
-    private var coordinator = RouteCoordinator()
-
-    var state: CallConnectionState { coordinator.state }
-
-    mutating func connectLocal() {
-        coordinator.connectLocal()
-    }
-
-    mutating func localLinkDidFail(internetAvailable: Bool) {
-        coordinator.localLinkDidFail(internetAvailable: internetAvailable)
-    }
-
-    mutating func internetDidConnect() {
-        coordinator.internetDidConnect()
-    }
-
-    mutating func localCandidateDidPassProbe() {
-        coordinator.connectLocal()
-    }
-}
-
-struct RouteProbeMetrics: Equatable {
-    let rttMilliseconds: Double
-    let jitterMilliseconds: Double
-    let packetLossRate: Double
-    let peerCount: Int
-    let expectedPeerCount: Int
-}
-
-protocol RoutePolicy {
-    func shouldPreferLocal(afterProbe metrics: RouteProbeMetrics) -> Bool
-}
-
-struct DefaultRoutePolicy: RoutePolicy {
-    let maxRTTMilliseconds: Double
-    let maxJitterMilliseconds: Double
-    let maxPacketLossRate: Double
-
-    init(
-        maxRTTMilliseconds: Double = 180,
-        maxJitterMilliseconds: Double = 60,
-        maxPacketLossRate: Double = 0.10
-    ) {
-        self.maxRTTMilliseconds = maxRTTMilliseconds
-        self.maxJitterMilliseconds = maxJitterMilliseconds
-        self.maxPacketLossRate = maxPacketLossRate
-    }
-
-    func shouldPreferLocal(afterProbe metrics: RouteProbeMetrics) -> Bool {
-        guard metrics.peerCount >= metrics.expectedPeerCount else { return false }
-        guard metrics.rttMilliseconds <= maxRTTMilliseconds else { return false }
-        guard metrics.jitterMilliseconds <= maxJitterMilliseconds else { return false }
-        guard metrics.packetLossRate <= maxPacketLossRate else { return false }
-        return true
-    }
-}
-
-struct RouteCoordinator {
-    enum Phase: Equatable {
-        case idle
-        case localConnected
-        case internetConnecting
-        case internetConnected
-        case localCandidate(deadline: TimeInterval)
-        case localProbing(deadline: TimeInterval)
-        case handoverToLocal(deadline: TimeInterval)
-        case reconnectingOffline
-    }
-
-    private(set) var state: CallConnectionState = .idle
-    private(set) var phase: Phase = .idle
-    private var policy: any RoutePolicy
-    private let probeWindow: TimeInterval
-    private let dualSendWindow: TimeInterval
-
-    init(policy: any RoutePolicy = DefaultRoutePolicy()) {
-        self.policy = policy
-        self.probeWindow = 7.5
-        self.dualSendWindow = 1.0
-    }
-
-    init(
-        policy: any RoutePolicy = DefaultRoutePolicy(),
-        probeWindow: TimeInterval,
-        dualSendWindow: TimeInterval
-    ) {
-        self.policy = policy
-        self.probeWindow = probeWindow
-        self.dualSendWindow = dualSendWindow
-    }
-
-    mutating func connectLocal() {
-        state = .localConnected
-        phase = .localConnected
-    }
-
-    mutating func localLinkDidFail(internetAvailable: Bool) {
-        if internetAvailable {
-            state = .internetConnecting
-            phase = .internetConnecting
-        } else {
-            state = .reconnectingOffline
-            phase = .reconnectingOffline
-        }
-    }
-
-    mutating func internetDidConnect() {
-        state = .internetConnected
-        phase = .internetConnected
-    }
-
-    mutating func localCandidateDetected(now: TimeInterval = Date().timeIntervalSince1970) {
-        guard case .internetConnected = phase else { return }
-        phase = .localCandidate(deadline: now + probeWindow)
-    }
-
-    mutating func beginLocalProbe(now: TimeInterval = Date().timeIntervalSince1970) {
-        switch phase {
-        case .internetConnected, .localCandidate:
-            phase = .localProbing(deadline: now + probeWindow)
-        default:
-            break
-        }
-    }
-
-    mutating func evaluateLocalProbe(_ metrics: RouteProbeMetrics, now: TimeInterval = Date().timeIntervalSince1970) {
-        beginLocalProbe(now: now)
-        if policy.shouldPreferLocal(afterProbe: metrics) {
-            phase = .handoverToLocal(deadline: now + dualSendWindow)
-        }
-    }
-
-    mutating func advance(now: TimeInterval = Date().timeIntervalSince1970) {
-        switch phase {
-        case .localCandidate(let deadline), .localProbing(let deadline):
-            if now >= deadline {
-                phase = .internetConnected
-            }
-        case .handoverToLocal(let deadline):
-            if now >= deadline {
-                phase = .localConnected
-                state = .localConnected
-            }
-        default:
-            break
-        }
-    }
-
-    var shouldDualSend: Bool {
-        if case .handoverToLocal = phase {
-            return true
-        }
-        return false
-    }
-
-    mutating func disconnect() {
-        state = .idle
-        phase = .idle
     }
 }
 
@@ -2264,39 +2095,39 @@ final class IntercomViewModel {
     private let diagnosticsLogger = Logger(subsystem: "com.yowamushi-inc.RideIntercom", category: "codec-diagnostics")
 
     static func makeForCurrentProcess() -> IntercomViewModel {
-        let audioFramePlayer = BufferedAudioFramePlayer(renderer: SystemAudioOutputRenderer())
-
         if isUITestProcess {
             let localMemberIdentityStore = InMemoryLocalMemberIdentityStore(
                 identity: LocalMemberIdentity(memberID: "member-uitest", displayName: "You")
             )
-            let localMemberIdentity = localMemberIdentityStore.loadOrCreate()
-            let callSession = RideIntercomCallSessionAdapter(memberID: localMemberIdentity.memberID)
-
             return IntercomViewModel(
-                callSession: callSession,
+                callSession: makeDefaultCallSession(localMemberIdentityStore: localMemberIdentityStore),
                 credentialStore: InMemoryGroupCredentialStore(),
                 groupStore: InMemoryGroupStore(),
                 localMemberIdentityStore: localMemberIdentityStore,
-                audioFramePlayer: audioFramePlayer
+                audioFramePlayer: makeDefaultAudioFramePlayer()
             )
         }
 
         let localMemberIdentityStore = UserDefaultsLocalMemberIdentityStore()
-        let localMemberIdentity = localMemberIdentityStore.loadOrCreate()
-        let callSession = RideIntercomCallSessionAdapter(memberID: localMemberIdentity.memberID)
-
         return IntercomViewModel(
-            callSession: callSession,
+            callSession: makeDefaultCallSession(localMemberIdentityStore: localMemberIdentityStore),
             credentialStore: KeychainGroupCredentialStore(),
             groupStore: UserDefaultsGroupStore(),
             localMemberIdentityStore: localMemberIdentityStore,
-            audioFramePlayer: audioFramePlayer
+            audioFramePlayer: makeDefaultAudioFramePlayer()
         )
     }
 
     private static var isUITestProcess: Bool {
         ProcessInfo.processInfo.arguments.contains("UI-TEST")
+    }
+
+    private static func makeDefaultCallSession(localMemberIdentityStore: any LocalMemberIdentityStoring) -> CallSession {
+        RideIntercomCallSessionAdapter(memberID: localMemberIdentityStore.loadOrCreate().memberID)
+    }
+
+    private static func makeDefaultAudioFramePlayer() -> AudioFramePlaying {
+        BufferedAudioFramePlayer(renderer: SystemAudioOutputRenderer())
     }
 
     init(
@@ -2321,20 +2152,12 @@ final class IntercomViewModel {
         self.groups = groups ?? storedGroups
         self.callSession = callSession ?? RideIntercomCallSessionAdapter(memberID: localMemberIdentity.memberID)
         self.audioSessionManager = audioSessionManager ?? AudioSessionManager()
-        if let audioInputMonitor {
-            self.audioInputMonitor = audioInputMonitor
-        } else {
-            self.audioInputMonitor = SystemAudioInputMonitor()
-        }
+        self.audioInputMonitor = audioInputMonitor ?? SystemAudioInputMonitor()
         let initialVoiceActivityDetectionThreshold = AudioTransmissionController.defaultVoiceActivityThreshold
         self.voiceActivityDetectionThreshold = initialVoiceActivityDetectionThreshold
         self.audioTransmissionController = audioTransmissionController ?? AudioTransmissionController()
         self.callTicker = callTicker ?? RepeatingCallTicker()
-        if let audioFramePlayer {
-            self.audioFramePlayer = audioFramePlayer
-        } else {
-            self.audioFramePlayer = BufferedAudioFramePlayer(renderer: SystemAudioOutputRenderer())
-        }
+        self.audioFramePlayer = audioFramePlayer ?? Self.makeDefaultAudioFramePlayer()
         self.credentialStore = credentialStore ?? InMemoryGroupCredentialStore()
         self.credentialProvider = DefaultGroupCredentialProvider()
         self.groupStore = groupStore
@@ -2931,14 +2754,6 @@ final class IntercomViewModel {
         }
     }
 
-    func toggleVoiceActivity() {
-        setVoiceActive(!isVoiceActive)
-    }
-
-    func processMicrophoneLevelForDebug(_ level: Float) {
-        handleMicrophoneLevel(level)
-    }
-
     func setPreferredTransmitCodec(_ codec: AudioCodecIdentifier) {
         preferredTransmitCodec = .pcm16
         setLocalActiveCodec(.pcm16)
@@ -3225,19 +3040,17 @@ final class IntercomViewModel {
         }
     }
 
-    private func broadcastControl(_ message: ControlMessage, preferredRoute: TransportRoute? = nil) {
-        _ = preferredRoute
+    private func broadcastControl(_ message: ControlMessage) {
         callSession.sendControl(message)
     }
 
-    private func broadcastMetadataKeepalive(preferredRoute: TransportRoute? = nil) {
-        _ = preferredRoute
+    private func broadcastMetadataKeepalive() {
         callSession.sendControl(.keepalive)
     }
 
-    private func sendStateMetadataSnapshot(for route: TransportRoute) {
-        broadcastControl(.peerMuteState(isMuted: isMuted), preferredRoute: route)
-        broadcastMetadataKeepalive(preferredRoute: route)
+    private func sendStateMetadataSnapshot() {
+        broadcastControl(.peerMuteState(isMuted: isMuted))
+        broadcastMetadataKeepalive()
     }
 
     private func setVoiceActive(_ isActive: Bool) {
@@ -3276,7 +3089,7 @@ final class IntercomViewModel {
             }
             markConnectedMembers(peerIDs: connectedPeerIDs)
             startActiveCallAfterAuthenticatedPeer()
-            sendStateMetadataSnapshot(for: .local)
+            sendStateMetadataSnapshot()
         case .remotePeerMuteState(let peerID, let isMuted):
             setRemotePeerMuteState(peerID: peerID, isMuted: isMuted)
         case .disconnected:
