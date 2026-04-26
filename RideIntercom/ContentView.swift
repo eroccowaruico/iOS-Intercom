@@ -1092,9 +1092,6 @@ private struct RemoteParticipantRowView: View {
                         .font(AppTypography.caption)
                         .foregroundStyle(audioPipelineColor)
 
-                    Text(member.audioPipelineState.rawValue)
-                        .font(AppTypography.captionStrongMono)
-                        .foregroundStyle(audioPipelineColor)
                 }
                 .accessibilityIdentifier("participantAudioPipelineState\(index)")
             }
