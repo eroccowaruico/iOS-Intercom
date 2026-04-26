@@ -373,6 +373,7 @@ private struct CallView: View {
                 } label: {
                     Label("Disconnect", systemImage: "xmark.circle.fill")
                 }
+                .tint(AppColorPalette.danger)
                 .accessibilityIdentifier("disconnectButton")
             } else {
                 Button {
