@@ -135,6 +135,10 @@ struct RideIntercomTests {
             emit(.receivedPacket(packet))
         }
 
+        func simulateReceivedAudioFrameMetadata(peerID: String, metadata: AudioFrameMetadata) {
+            emit(.receivedAudioFrameMetadata(peerID: peerID, metadata: metadata))
+        }
+
         func simulateAuthenticatedPeers(_ peerIDs: [String]) {
             emit(.authenticated(peerIDs: peerIDs))
         }
@@ -4175,12 +4179,7 @@ struct RideIntercomTests {
             streamID: UUID(),
             sequenceNumber: 1,
             sentAt: 100,
-            encodedVoice: EncodedVoicePacket(frameID: 1, codec: .pcm16, payload: payload),
-            transmitMetadata: AudioTransmitMetadata(
-                requestedCodec: .heAACv2,
-                encodedCodec: .heAACv2,
-                fallbackReason: nil
-            )
+            encodedVoice: EncodedVoicePacket(frameID: 1, codec: .pcm16, payload: payload)
         )
 
         viewModel.selectGroup(group)
@@ -4191,6 +4190,17 @@ struct RideIntercomTests {
                 peerID: "member-002",
                 envelope: envelope,
                 packet: .voice(frameID: 1, samples: [0.2, -0.2])
+            )
+        )
+        localTransport.simulateReceivedAudioFrameMetadata(
+            peerID: "member-002",
+            metadata: AudioFrameMetadata(
+                streamID: envelope.streamID,
+                sequenceNumber: envelope.sequenceNumber,
+                frameID: 1,
+                requestedCodec: .heAACv2,
+                encodedCodec: .heAACv2,
+                fallbackReason: nil
             )
         )
 

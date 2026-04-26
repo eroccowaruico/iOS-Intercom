@@ -45,7 +45,6 @@ public enum TransportRoute: String, Equatable, Sendable {
 
 public enum OutboundAudioPacket: Equatable, Sendable {
     case voice(frameID: Int, samples: [Float] = [])
-    case keepalive
 }
 
 public enum AudioCodecIdentifier: String, Codable, Equatable, Sendable {
@@ -76,6 +75,31 @@ public struct AudioTransmitMetadata: Codable, Equatable, Sendable {
     }
 }
 
+public struct AudioFrameMetadata: Codable, Equatable, Sendable {
+    public let streamID: UUID
+    public let sequenceNumber: Int
+    public let frameID: Int?
+    public let requestedCodec: AudioCodecIdentifier
+    public let encodedCodec: AudioCodecIdentifier
+    public let fallbackReason: AudioCodecFallbackReason?
+
+    public init(
+        streamID: UUID,
+        sequenceNumber: Int,
+        frameID: Int?,
+        requestedCodec: AudioCodecIdentifier,
+        encodedCodec: AudioCodecIdentifier,
+        fallbackReason: AudioCodecFallbackReason?
+    ) {
+        self.streamID = streamID
+        self.sequenceNumber = sequenceNumber
+        self.frameID = frameID
+        self.requestedCodec = requestedCodec
+        self.encodedCodec = encodedCodec
+        self.fallbackReason = fallbackReason
+    }
+}
+
 public struct EncodedVoicePacket: Codable, Equatable, Sendable {
     public let frameID: Int
     public let codec: AudioCodecIdentifier
@@ -93,7 +117,6 @@ public struct EncodedVoicePacket: Codable, Equatable, Sendable {
 public struct AudioPacketEnvelope: Codable, Equatable, Sendable {
     public enum PacketKind: String, Codable, Equatable, Sendable {
         case voice
-        case keepalive
     }
 
     public let groupID: UUID
@@ -104,7 +127,6 @@ public struct AudioPacketEnvelope: Codable, Equatable, Sendable {
     public let frameID: Int?
     public let samples: [Float]
     public let encodedVoice: EncodedVoicePacket?
-    public let transmitMetadata: AudioTransmitMetadata?
 
     public init(
         groupID: UUID,
@@ -114,8 +136,7 @@ public struct AudioPacketEnvelope: Codable, Equatable, Sendable {
         kind: PacketKind,
         frameID: Int?,
         samples: [Float] = [],
-        encodedVoice: EncodedVoicePacket? = nil,
-        transmitMetadata: AudioTransmitMetadata? = nil
+        encodedVoice: EncodedVoicePacket? = nil
     ) {
         self.groupID = groupID
         self.streamID = streamID
@@ -125,7 +146,6 @@ public struct AudioPacketEnvelope: Codable, Equatable, Sendable {
         self.frameID = frameID
         self.samples = samples
         self.encodedVoice = encodedVoice
-        self.transmitMetadata = transmitMetadata
     }
 
     public init(
@@ -133,8 +153,7 @@ public struct AudioPacketEnvelope: Codable, Equatable, Sendable {
         streamID: UUID,
         sequenceNumber: Int,
         sentAt: TimeInterval,
-        encodedVoice: EncodedVoicePacket,
-        transmitMetadata: AudioTransmitMetadata? = nil
+        encodedVoice: EncodedVoicePacket
     ) {
         self.groupID = groupID
         self.streamID = streamID
@@ -144,7 +163,6 @@ public struct AudioPacketEnvelope: Codable, Equatable, Sendable {
         self.frameID = encodedVoice.frameID
         self.samples = []
         self.encodedVoice = encodedVoice
-        self.transmitMetadata = transmitMetadata
     }
 
     public init(
@@ -166,32 +184,12 @@ public struct AudioPacketEnvelope: Codable, Equatable, Sendable {
                 self.frameID = frameID
                 self.samples = []
                 self.encodedVoice = encodedVoice
-                self.transmitMetadata = AudioTransmitMetadata(
-                    requestedCodec: .pcm16,
-                    encodedCodec: .pcm16,
-                    fallbackReason: nil
-                )
             } else {
-                self.kind = .keepalive
-                self.frameID = nil
-                self.samples = []
+                self.kind = .voice
+                self.frameID = frameID
+                self.samples = samples
                 self.encodedVoice = nil
-                self.transmitMetadata = AudioTransmitMetadata(
-                    requestedCodec: .pcm16,
-                    encodedCodec: .pcm16,
-                    fallbackReason: .encodingFailed
-                )
             }
-        case .keepalive:
-            self.kind = .keepalive
-            self.frameID = nil
-            self.samples = []
-            self.encodedVoice = nil
-            self.transmitMetadata = AudioTransmitMetadata(
-                requestedCodec: .pcm16,
-                encodedCodec: .pcm16,
-                fallbackReason: nil
-            )
         }
     }
 
@@ -204,8 +202,6 @@ public struct AudioPacketEnvelope: Codable, Equatable, Sendable {
             }
             guard let frameID else { return nil }
             return .voice(frameID: frameID, samples: samples)
-        case .keepalive:
-            return .keepalive
         }
     }
 }
@@ -226,6 +222,7 @@ public enum ControlMessage: Equatable, Sendable {
     case keepalive
     case handshake(HandshakeMessage)
     case peerMuteState(isMuted: Bool)
+    case audioFrameMetadata(AudioFrameMetadata)
 }
 
 public struct HandshakeMessage: Codable, Equatable, Sendable {
@@ -329,6 +326,7 @@ public enum TransportEvent: Equatable, Sendable {
     case connected(peerIDs: [String])
     case authenticated(peerIDs: [String])
     case remotePeerMuteState(peerID: String, isMuted: Bool)
+    case receivedAudioFrameMetadata(peerID: String, metadata: AudioFrameMetadata)
     case disconnected
     case linkFailed(internetAvailable: Bool)
     case receivedPacket(ReceivedAudioPacket)

@@ -135,12 +135,7 @@ final class MultipeerLocalTransport: NSObject {
     }
 
     func sendControl(_ message: ControlMessage) {
-        switch message {
-        case .keepalive:
-            send(OutboundAudioPacket.keepalive)
-        case .handshake, .peerMuteState:
-            send(message)
-        }
+        send(message)
     }
 
     private func send(_ message: ControlMessage, toPeers peers: [MCPeerID]? = nil) {
@@ -159,21 +154,25 @@ final class MultipeerLocalTransport: NSObject {
         guard !session.connectedPeers.isEmpty, var sequencer else { return }
 
         do {
-            let payload = try MultipeerPayloadBuilder.makePayload(
+            let result = try MultipeerPayloadBuilder.makePayload(
                 for: packet,
                 sequencer: &sequencer,
                 credential: credential
             )
-            let envelope = try MultipeerPayloadBuilder.decodeAudioPayload(payload.data, credential: credential)
             self.sequencer = sequencer
             notify(.outboundPacketBuilt(OutboundPacketDiagnostics(
                 route: route,
-                streamID: envelope.streamID,
-                sequenceNumber: envelope.sequenceNumber,
-                packetKind: envelope.kind,
-                metadata: envelope.transmitMetadata
+                streamID: result.envelope.streamID,
+                sequenceNumber: result.envelope.sequenceNumber,
+                packetKind: result.envelope.kind,
+                metadata: AudioTransmitMetadata(
+                    requestedCodec: result.frameMetadata.requestedCodec,
+                    encodedCodec: result.frameMetadata.encodedCodec,
+                    fallbackReason: result.frameMetadata.fallbackReason
+                )
             )))
-            try session.send(payload.data, toPeers: session.connectedPeers, with: payload.mcMode)
+            try session.send(result.payload.data, toPeers: session.connectedPeers, with: result.payload.mcMode)
+            send(.audioFrameMetadata(result.frameMetadata))
         } catch {
             logger.error("Failed to send audio payload: \(error.localizedDescription, privacy: .public)")
         }
@@ -367,6 +366,9 @@ extension MultipeerLocalTransport: MCSessionDelegate {
             return true
         case .peerMuteState(let isMuted):
             notify(.remotePeerMuteState(peerID: peerID.displayName, isMuted: isMuted))
+            return true
+        case .audioFrameMetadata(let metadata):
+            notify(.receivedAudioFrameMetadata(peerID: peerID.displayName, metadata: metadata))
             return true
         }
     }

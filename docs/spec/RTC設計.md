@@ -201,6 +201,8 @@ protocol MediaSession: AnyObject {
 | `RTC.CallSession` | `startMedia()` / `stopMedia()` を持つ |
 | `RTC.RouteManager` | active route に対して connection lifecycle と media lifecycle を分けて中継する |
 | `RTC.MultipeerLocalRoute` | route 内に `isMediaActive` を持ち、認証後に `startMedia()` が呼ばれるまで音声送受信を通さない |
+| metadata keepalive | `ControlMessage.keepalive` として control payload にだけ流し、audio packet path へ混在させない |
+| codec / fallback metadata | `ControlMessage.audioFrameMetadata` として control payload に載せ、audio frame 本体から分離する |
 
 ## Route 抽象
 

@@ -103,16 +103,7 @@ struct AudioPacketSequencer {
         switch packet {
         case .voice(let frameID, let samples):
             envelope = makeVoiceEnvelope(frameID: frameID, samples: samples, sentAt: sentAt)
-        case .keepalive:
-            envelope = AudioPacketEnvelope(
-                groupID: groupID,
-                streamID: streamID,
-                sequenceNumber: nextSequenceNumber,
-                sentAt: sentAt,
-                packet: .keepalive
-            )
         }
-
         nextSequenceNumber += 1
         return envelope
     }
@@ -125,12 +116,7 @@ struct AudioPacketSequencer {
                 streamID: streamID,
                 sequenceNumber: nextSequenceNumber,
                 sentAt: sentAt,
-                encodedVoice: encodedVoice,
-                transmitMetadata: AudioTransmitMetadata(
-                    requestedCodec: .pcm16,
-                    encodedCodec: .pcm16,
-                    fallbackReason: nil
-                )
+                encodedVoice: encodedVoice
             )
         } catch {
             return AudioPacketEnvelope(
@@ -138,15 +124,10 @@ struct AudioPacketSequencer {
                 streamID: streamID,
                 sequenceNumber: nextSequenceNumber,
                 sentAt: sentAt,
-                kind: .keepalive,
-                frameID: nil,
-                samples: [],
-                encodedVoice: nil,
-                transmitMetadata: AudioTransmitMetadata(
-                    requestedCodec: .pcm16,
-                    encodedCodec: .pcm16,
-                    fallbackReason: .encodingFailed
-                )
+                kind: .voice,
+                frameID: frameID,
+                samples: samples,
+                encodedVoice: nil
             )
         }
     }
@@ -236,15 +217,23 @@ struct MultipeerPayload: Equatable {
     let mode: TransportSendMode
 }
 
+struct AudioPayloadBuildResult: Equatable {
+    let payload: MultipeerPayload
+    let envelope: AudioPacketEnvelope
+    let frameMetadata: AudioFrameMetadata
+}
+
 struct ControlPayloadEnvelope: Codable, Equatable {
     let kind: Kind
     let handshake: HandshakeMessage?
     let peerMuteStateIsMuted: Bool?
+    let audioFrameMetadata: AudioFrameMetadata?
 
     enum Kind: String, Codable {
         case keepalive
         case handshake
         case peerMuteState
+        case audioFrameMetadata
     }
 
     init(message: ControlMessage) {
@@ -253,14 +242,22 @@ struct ControlPayloadEnvelope: Codable, Equatable {
             kind = .keepalive
             handshake = nil
             peerMuteStateIsMuted = nil
+            audioFrameMetadata = nil
         case .handshake(let handshake):
             kind = .handshake
             self.handshake = handshake
             peerMuteStateIsMuted = nil
+            audioFrameMetadata = nil
         case .peerMuteState(let isMuted):
             kind = .peerMuteState
             handshake = nil
             peerMuteStateIsMuted = isMuted
+            audioFrameMetadata = nil
+        case .audioFrameMetadata(let metadata):
+            kind = .audioFrameMetadata
+            handshake = nil
+            peerMuteStateIsMuted = nil
+            audioFrameMetadata = metadata
         }
     }
 
@@ -272,6 +269,8 @@ struct ControlPayloadEnvelope: Codable, Equatable {
             handshake.map(ControlMessage.handshake)
         case .peerMuteState:
             peerMuteStateIsMuted.map { .peerMuteState(isMuted: $0) }
+        case .audioFrameMetadata:
+            audioFrameMetadata.map(ControlMessage.audioFrameMetadata)
         }
     }
 }
@@ -282,7 +281,7 @@ enum MultipeerPayloadBuilder {
         sequencer: inout AudioPacketSequencer,
         credential: GroupAccessCredential? = nil,
         sentAt: TimeInterval = Date().timeIntervalSince1970
-    ) throws -> MultipeerPayload {
+    ) throws -> AudioPayloadBuildResult {
         let envelope = sequencer.makeEnvelope(for: packet, sentAt: sentAt)
         let data: Data
         if let credential {
@@ -290,7 +289,19 @@ enum MultipeerPayloadBuilder {
         } else {
             data = try AudioPacketCodec.encode(envelope)
         }
-        return MultipeerPayload(data: data, mode: .unreliable)
+        let metadata = AudioFrameMetadata(
+            streamID: envelope.streamID,
+            sequenceNumber: envelope.sequenceNumber,
+            frameID: envelope.frameID,
+            requestedCodec: .pcm16,
+            encodedCodec: envelope.encodedVoice?.codec ?? .pcm16,
+            fallbackReason: envelope.encodedVoice == nil ? .encodingFailed : nil
+        )
+        return AudioPayloadBuildResult(
+            payload: MultipeerPayload(data: data, mode: .unreliable),
+            envelope: envelope,
+            frameMetadata: metadata
+        )
     }
 
     static func makePayload(for message: ControlMessage) throws -> MultipeerPayload {
@@ -298,6 +309,8 @@ enum MultipeerPayloadBuilder {
         let mode: TransportSendMode
         switch message {
         case .keepalive:
+            mode = .unreliable
+        case .audioFrameMetadata:
             mode = .unreliable
         case .handshake, .peerMuteState:
             mode = .reliable

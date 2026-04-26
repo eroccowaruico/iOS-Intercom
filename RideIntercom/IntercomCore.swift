@@ -1089,6 +1089,7 @@ enum TransportEvent: Equatable {
     case connected(peerIDs: [String])
     case authenticated(peerIDs: [String])
     case remotePeerMuteState(peerID: String, isMuted: Bool)
+    case receivedAudioFrameMetadata(peerID: String, metadata: AudioFrameMetadata)
     case disconnected
     case linkFailed(internetAvailable: Bool)
     case receivedPacket(ReceivedAudioPacket)
@@ -1167,7 +1168,12 @@ final class RideIntercomCallSessionAdapter: CallSession {
     }
 
     func sendAudioFrame(_ frame: OutboundAudioPacket) {
-        rtcSession.sendAudioFrame(makeRTCAudioPacket(from: frame))
+        switch frame {
+        case .voice(let frameID, let samples):
+            rtcSession.sendAudioFrame(.voice(frameID: frameID, samples: samples))
+        case .keepalive:
+            rtcSession.sendControl(.keepalive)
+        }
     }
 
     func sendControl(_ message: ControlMessage) {
@@ -1182,15 +1188,6 @@ final class RideIntercomCallSessionAdapter: CallSession {
 
     private func makeRTCGroup(from group: IntercomGroup) -> RTC.CallGroup {
         RTC.CallGroup(id: group.id, accessSecret: group.accessSecret)
-    }
-
-    private func makeRTCAudioPacket(from packet: OutboundAudioPacket) -> RTC.OutboundAudioPacket {
-        switch packet {
-        case .voice(let frameID, let samples):
-            .voice(frameID: frameID, samples: samples)
-        case .keepalive:
-            .keepalive
-        }
     }
 
     private func makeRTCControlMessage(from message: ControlMessage) -> RTC.ControlMessage {
@@ -1216,6 +1213,8 @@ final class RideIntercomCallSessionAdapter: CallSession {
             .authenticated(peerIDs: peerIDs)
         case .remotePeerMuteState(let peerID, let isMuted):
             .remotePeerMuteState(peerID: peerID, isMuted: isMuted)
+        case .receivedAudioFrameMetadata(let peerID, let metadata):
+            .receivedAudioFrameMetadata(peerID: peerID, metadata: makeAppAudioFrameMetadata(from: metadata))
         case .disconnected:
             .disconnected
         case .linkFailed(let internetAvailable):
@@ -1286,8 +1285,6 @@ final class RideIntercomCallSessionAdapter: CallSession {
         switch kind {
         case .voice:
             .voice
-        case .keepalive:
-            .keepalive
         }
     }
 
@@ -1302,8 +1299,7 @@ final class RideIntercomCallSessionAdapter: CallSession {
                     frameID: encodedVoice.frameID,
                     codec: makeAppCodecIdentifier(from: encodedVoice.codec),
                     payload: encodedVoice.payload
-                ),
-                transmitMetadata: envelope.transmitMetadata.map(makeAppTransmitMetadata(from:))
+                )
             )
         }
 
@@ -1315,8 +1311,7 @@ final class RideIntercomCallSessionAdapter: CallSession {
             kind: makeAppPacketKind(from: envelope.kind),
             frameID: envelope.frameID,
             samples: envelope.samples,
-            encodedVoice: nil,
-            transmitMetadata: envelope.transmitMetadata.map(makeAppTransmitMetadata(from:))
+            encodedVoice: nil
         )
     }
 
@@ -1324,13 +1319,22 @@ final class RideIntercomCallSessionAdapter: CallSession {
         switch packet {
         case .voice(let frameID, let samples):
             .voice(frameID: frameID, samples: samples)
-        case .keepalive:
-            .keepalive
         }
     }
 
     private nonisolated static func makeAppTransmitMetadata(from metadata: RTC.AudioTransmitMetadata) -> AudioTransmitMetadata {
         AudioTransmitMetadata(
+            requestedCodec: makeAppCodecIdentifier(from: metadata.requestedCodec),
+            encodedCodec: makeAppCodecIdentifier(from: metadata.encodedCodec),
+            fallbackReason: metadata.fallbackReason.map(makeAppFallbackReason(from:))
+        )
+    }
+
+    private nonisolated static func makeAppAudioFrameMetadata(from metadata: RTC.AudioFrameMetadata) -> AudioFrameMetadata {
+        AudioFrameMetadata(
+            streamID: metadata.streamID,
+            sequenceNumber: metadata.sequenceNumber,
+            frameID: metadata.frameID,
             requestedCodec: makeAppCodecIdentifier(from: metadata.requestedCodec),
             encodedCodec: makeAppCodecIdentifier(from: metadata.encodedCodec),
             fallbackReason: metadata.fallbackReason.map(makeAppFallbackReason(from:))
@@ -1535,6 +1539,15 @@ struct AudioTransmitMetadata: Codable, Equatable {
     let fallbackReason: AudioCodecFallbackReason?
 }
 
+struct AudioFrameMetadata: Codable, Equatable {
+    let streamID: UUID
+    let sequenceNumber: Int
+    let frameID: Int?
+    let requestedCodec: AudioCodecIdentifier
+    let encodedCodec: AudioCodecIdentifier
+    let fallbackReason: AudioCodecFallbackReason?
+}
+
 enum RemoteMemberAudioStateService {
     static func applyReceivedVoice(
         to group: IntercomGroup,
@@ -1636,7 +1649,6 @@ enum RemoteAudioPipelineService {
 struct AudioPacketEnvelope: Codable, Equatable {
     enum PacketKind: String, Codable {
         case voice
-        case keepalive
     }
 
     let groupID: UUID
@@ -1647,7 +1659,6 @@ struct AudioPacketEnvelope: Codable, Equatable {
     let frameID: Int?
     let samples: [Float]
     let encodedVoice: EncodedVoicePacket?
-    let transmitMetadata: AudioTransmitMetadata?
 
     nonisolated init(
         groupID: UUID,
@@ -1657,8 +1668,7 @@ struct AudioPacketEnvelope: Codable, Equatable {
         kind: PacketKind,
         frameID: Int?,
         samples: [Float] = [],
-        encodedVoice: EncodedVoicePacket? = nil,
-        transmitMetadata: AudioTransmitMetadata? = nil
+        encodedVoice: EncodedVoicePacket? = nil
     ) {
         self.groupID = groupID
         self.streamID = streamID
@@ -1668,7 +1678,6 @@ struct AudioPacketEnvelope: Codable, Equatable {
         self.frameID = frameID
         self.samples = samples
         self.encodedVoice = encodedVoice
-        self.transmitMetadata = transmitMetadata
     }
 
     nonisolated init(
@@ -1676,8 +1685,7 @@ struct AudioPacketEnvelope: Codable, Equatable {
         streamID: UUID,
         sequenceNumber: Int,
         sentAt: TimeInterval,
-        encodedVoice: EncodedVoicePacket,
-        transmitMetadata: AudioTransmitMetadata? = nil
+        encodedVoice: EncodedVoicePacket
     ) {
         self.groupID = groupID
         self.streamID = streamID
@@ -1687,7 +1695,6 @@ struct AudioPacketEnvelope: Codable, Equatable {
         self.frameID = encodedVoice.frameID
         self.samples = []
         self.encodedVoice = encodedVoice
-        self.transmitMetadata = transmitMetadata
     }
 
     nonisolated init(
@@ -1709,32 +1716,17 @@ struct AudioPacketEnvelope: Codable, Equatable {
                 self.frameID = frameID
                 self.samples = []
                 self.encodedVoice = encodedVoice
-                self.transmitMetadata = AudioTransmitMetadata(
-                    requestedCodec: .pcm16,
-                    encodedCodec: .pcm16,
-                    fallbackReason: nil
-                )
             } else {
-                self.kind = .keepalive
-                self.frameID = nil
-                self.samples = []
+                self.kind = .voice
+                self.frameID = frameID
+                self.samples = samples
                 self.encodedVoice = nil
-                self.transmitMetadata = AudioTransmitMetadata(
-                    requestedCodec: .pcm16,
-                    encodedCodec: .pcm16,
-                    fallbackReason: .encodingFailed
-                )
             }
         case .keepalive:
-            self.kind = .keepalive
+            self.kind = .voice
             self.frameID = nil
             self.samples = []
             self.encodedVoice = nil
-            self.transmitMetadata = AudioTransmitMetadata(
-                requestedCodec: .pcm16,
-                encodedCodec: .pcm16,
-                fallbackReason: nil
-            )
         }
     }
 
@@ -1747,8 +1739,6 @@ struct AudioPacketEnvelope: Codable, Equatable {
             }
             guard let frameID else { return nil }
             return .voice(frameID: frameID, samples: samples)
-        case .keepalive:
-            return .keepalive
         }
     }
 }
@@ -1765,6 +1755,12 @@ struct JitterBufferedAudioFrame: Equatable {
     let sequenceNumber: Int
     let frameID: Int
     let samples: [Float]
+}
+
+private struct ReceivedAudioFrameKey: Hashable {
+    let peerID: String
+    let streamID: UUID
+    let sequenceNumber: Int
 }
 
 enum RemoteAudioJitterBufferDefaults {
@@ -2064,6 +2060,8 @@ final class IntercomViewModel {
     private(set) var lastLocalNetworkEventAt: TimeInterval?
     private(set) var lastReceivedAudioAt: TimeInterval?
     private var lastAudibleReceivedAudioAt: TimeInterval?
+    private var pendingReceivedAudioFrameMetadata: [ReceivedAudioFrameKey: AudioFrameMetadata] = [:]
+    private var pendingReceivedAudioFrameCodecs: [ReceivedAudioFrameKey: AudioCodecIdentifier] = [:]
     private(set) var droppedAudioPacketCount = 0
     private(set) var jitterQueuedFrameCount = 0
     private(set) var inviteStatusMessage: String?
@@ -2702,6 +2700,8 @@ final class IntercomViewModel {
         lastLocalNetworkPeerID = nil
         lastLocalNetworkEventAt = nil
         lastReceivedAudioAt = nil
+        pendingReceivedAudioFrameMetadata.removeAll()
+        pendingReceivedAudioFrameCodecs.removeAll()
         droppedAudioPacketCount = 0
         jitterQueuedFrameCount = 0
         resetAudioDebugCounters()
@@ -2917,9 +2917,6 @@ final class IntercomViewModel {
         droppedAudioPacketCount = jitterBuffer.droppedFrameCount
         jitterQueuedFrameCount = jitterBuffer.queuedFrameCount
         markPlayedAudioFrames(readyFrames)
-        if hasAudibleOutput(for: readyFrames) {
-            lastAudibleReceivedAudioAt = now
-        }
         let outputFrames = applyOutputGain(to: readyFrames)
         let mixedOutput = AudioMixer.mix(outputFrames)
         let outputLevel = AudioLevelMeter.rmsLevel(samples: mixedOutput)
@@ -2930,6 +2927,10 @@ final class IntercomViewModel {
             scheduledOutputFrameCount += outputFrames.count
         }
         audioFramePlayer.play(outputFrames)
+        if hasAudibleScheduledOutput(for: outputFrames) {
+            lastAudibleReceivedAudioAt = now
+            refreshOtherAudioDuckingState(now: now)
+        }
     }
 
     private func handleMicrophoneLevel(_ level: Float) {
@@ -3123,6 +3124,8 @@ final class IntercomViewModel {
             sendStateMetadataSnapshot()
         case .remotePeerMuteState(let peerID, let isMuted):
             setRemotePeerMuteState(peerID: peerID, isMuted: isMuted)
+        case .receivedAudioFrameMetadata(let peerID, let metadata):
+            handleReceivedAudioFrameMetadata(peerID: peerID, metadata: metadata)
         case .disconnected:
             stopAudioPipeline()
             connectedPeerIDs = []
@@ -3173,10 +3176,10 @@ final class IntercomViewModel {
         let receivedAt = packet.envelope.sentAt < 1_000_000
             ? packet.envelope.sentAt
             : Date().timeIntervalSince1970
-        if let codec = packet.envelope.encodedVoice?.codec ?? packet.envelope.transmitMetadata?.encodedCodec {
+        if let codec = packet.envelope.encodedVoice?.codec {
             setRemotePeerCodec(packet.peerID, codec: codec)
         }
-        captureReceiveMetadataMismatchIfNeeded(packet)
+        captureReceiveAudioFrameCodecIfNeeded(packet)
 
         switch packet.packet {
         case .voice(_, let samples):
@@ -3223,6 +3226,8 @@ final class IntercomViewModel {
         scheduledOutputFrameCount = 0
         lastReceivedAudioAt = nil
         lastAudibleReceivedAudioAt = nil
+        pendingReceivedAudioFrameMetadata.removeAll()
+        pendingReceivedAudioFrameCodecs.removeAll()
         droppedAudioPacketCount = 0
         jitterQueuedFrameCount = 0
         playbackOutputPeakWindow = VoicePeakWindow()
@@ -3252,13 +3257,10 @@ final class IntercomViewModel {
         audioInputMonitor.setOtherAudioDuckingEnabled(isActive)
     }
 
-    private func hasAudibleOutput(for frames: [JitterBufferedAudioFrame]) -> Bool {
-        guard !isOutputMuted, masterOutputVolume > 0 else { return false }
-        return frames.contains { frame in
-            let gain = masterOutputVolume * remoteOutputVolume(for: frame.peerID)
-            guard gain > 0, !frame.samples.isEmpty else { return false }
-            let outputLevel = AudioLevelMeter.rmsLevel(samples: frame.samples) * gain
-            return outputLevel > VoiceActivityDetector.minThreshold
+    private func hasAudibleScheduledOutput(for frames: [JitterBufferedAudioFrame]) -> Bool {
+        frames.contains { frame in
+            guard !frame.samples.isEmpty else { return false }
+            return AudioLevelMeter.rmsLevel(samples: frame.samples) > VoiceActivityDetector.minThreshold
         }
     }
 
@@ -3280,15 +3282,37 @@ final class IntercomViewModel {
         diagnosticsLogger.error("tx fallback route=\(diagnostics.route.rawValue, privacy: .public) stream=\(diagnostics.streamID.uuidString, privacy: .public) seq=\(diagnostics.sequenceNumber) req=\(metadata.requestedCodec.rawValue, privacy: .public) enc=\(metadata.encodedCodec.rawValue, privacy: .public) reason=\(reason, privacy: .public)")
     }
 
-    private func captureReceiveMetadataMismatchIfNeeded(_ packet: ReceivedAudioPacket) {
-        guard let metadata = packet.envelope.transmitMetadata else { return }
+    private func handleReceivedAudioFrameMetadata(peerID: String, metadata: AudioFrameMetadata) {
+        setRemotePeerCodec(peerID, codec: metadata.encodedCodec)
+        let key = ReceivedAudioFrameKey(peerID: peerID, streamID: metadata.streamID, sequenceNumber: metadata.sequenceNumber)
+        pendingReceivedAudioFrameMetadata[key] = metadata
+        captureReceiveMetadataMismatchIfNeeded(for: key)
+    }
+
+    private func captureReceiveAudioFrameCodecIfNeeded(_ packet: ReceivedAudioPacket) {
         guard let actualCodec = packet.envelope.encodedVoice?.codec else { return }
+        let key = ReceivedAudioFrameKey(
+            peerID: packet.peerID,
+            streamID: packet.envelope.streamID,
+            sequenceNumber: packet.envelope.sequenceNumber
+        )
+        pendingReceivedAudioFrameCodecs[key] = actualCodec
+        captureReceiveMetadataMismatchIfNeeded(for: key)
+    }
+
+    private func captureReceiveMetadataMismatchIfNeeded(for key: ReceivedAudioFrameKey) {
+        guard let metadata = pendingReceivedAudioFrameMetadata[key],
+              let actualCodec = pendingReceivedAudioFrameCodecs[key] else { return }
+
+        pendingReceivedAudioFrameMetadata.removeValue(forKey: key)
+        pendingReceivedAudioFrameCodecs.removeValue(forKey: key)
+
         guard metadata.encodedCodec != actualCodec else { return }
 
         receiveMetadataMismatchCount += 1
         let summary = "RX META #\(receiveMetadataMismatchCount) / meta=\(metadata.encodedCodec.rawValue) actual=\(actualCodec.rawValue)"
         lastReceiveMetadataMismatchSummary = summary
-        diagnosticsLogger.error("rx metadata mismatch peer=\(packet.peerID, privacy: .public) stream=\(packet.envelope.streamID.uuidString, privacy: .public) seq=\(packet.envelope.sequenceNumber) meta=\(metadata.encodedCodec.rawValue, privacy: .public) actual=\(actualCodec.rawValue, privacy: .public)")
+        diagnosticsLogger.error("rx metadata mismatch peer=\(key.peerID, privacy: .public) stream=\(key.streamID.uuidString, privacy: .public) seq=\(key.sequenceNumber) meta=\(metadata.encodedCodec.rawValue, privacy: .public) actual=\(actualCodec.rawValue, privacy: .public)")
     }
 
     private func setLocalVoiceLevel(_ level: Float) {
