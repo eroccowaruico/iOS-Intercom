@@ -67,7 +67,14 @@ final class SystemAudioInputMonitor: AudioInputMonitoring {
         }
 
         soundIsolationEnabled = enabled
-        applyConfigurationIfRunning()
+        applySoundIsolationConfigurationIfRunning()
+    }
+
+    func setInputMuted(_ muted: Bool) {
+        guard isRunning else { return }
+        #if os(iOS)
+        engine.inputNode.isVoiceProcessingInputMuted = muted
+        #endif
     }
 
     func setOtherAudioDuckingEnabled(_ enabled: Bool) {
@@ -77,7 +84,7 @@ final class SystemAudioInputMonitor: AudioInputMonitoring {
         }
 
         otherAudioDuckingEnabled = enabled
-        applyConfigurationIfRunning()
+        applyDuckingConfigurationIfRunning()
     }
 
     func start() throws {
@@ -109,7 +116,7 @@ final class SystemAudioInputMonitor: AudioInputMonitoring {
         isRunning = false
     }
 
-    private func applyConfigurationIfRunning() {
+    private func applySoundIsolationConfigurationIfRunning() {
         guard isRunning else { return }
         let requestedSoundIsolation = soundIsolationEnabled
         let requestedOtherAudioDucking = otherAudioDuckingEnabled
@@ -124,6 +131,17 @@ final class SystemAudioInputMonitor: AudioInputMonitoring {
                 self?.otherAudioDuckingEnabled = applied.otherAudioDuckingEnabled
             }
         }
+    }
+
+    private func applyDuckingConfigurationIfRunning() {
+        guard isRunning else { return }
+        #if os(iOS)
+        engine.inputNode.voiceProcessingOtherAudioDuckingConfiguration =
+            AVAudioVoiceProcessingOtherAudioDuckingConfiguration(
+                enableAdvancedDucking: ObjCBool(true),
+                duckingLevel: otherAudioDuckingEnabled ? .default : .min
+            )
+        #endif
     }
 
     private func startEngine(

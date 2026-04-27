@@ -808,6 +808,7 @@ protocol AudioInputMonitoring: AnyObject {
 
     func start() throws
     func stop()
+    func setInputMuted(_ muted: Bool)
     var supportsSoundIsolation: Bool { get }
     var isSoundIsolationEnabled: Bool { get }
     func setSoundIsolationEnabled(_ enabled: Bool)
@@ -816,6 +817,7 @@ protocol AudioInputMonitoring: AnyObject {
 }
 
 extension AudioInputMonitoring {
+    func setInputMuted(_ muted: Bool) {}
     var supportsSoundIsolation: Bool { false }
     var isSoundIsolationEnabled: Bool { false }
     func setSoundIsolationEnabled(_ enabled: Bool) {}
@@ -2020,7 +2022,6 @@ struct AudioTransmissionController {
 final class IntercomViewModel {
     private static let pendingMemberPrefix = "pending-"
     private static let pendingInviteMemberPrefix = "invite-pending-"
-    nonisolated static let muteAutoStopDelayDefault: Duration = .seconds(2)
     nonisolated static let normalMasterOutputVolume: Float = 1
     nonisolated static let maximumMasterOutputVolume: Float = 2
     nonisolated static let defaultSoundIsolationEnabled = true
@@ -2047,7 +2048,7 @@ final class IntercomViewModel {
     private(set) var isOutputMuted = false
     private(set) var remoteOutputVolumes: [String: Float] = [:]
     var isMicrophoneCaptureRunning: Bool {
-        isAudioReady && !isMicrophoneCaptureSuspendedByMute
+        isAudioReady && !isMuted
     }
 
     var availableInputPorts: [AudioPortInfo] { audioSessionManager.availableInputPorts }
@@ -2117,7 +2118,6 @@ final class IntercomViewModel {
     private let groupStore: GroupStoring
     private let localMemberIdentity: LocalMemberIdentity
     private let remoteTalkerTimeout: TimeInterval
-    private let muteAutoStopDelay: Duration
     private var audioTransmissionController: AudioTransmissionController
     private var jitterBuffer: JitterBuffer
     private var remoteVoiceReceivedAt: [String: TimeInterval] = [:]
@@ -2128,9 +2128,7 @@ final class IntercomViewModel {
     private var audioCheckOutputPeakWindow = VoicePeakWindow()
     private var audioCheckRecordedSamples: [Float] = []
     private var audioCheckTask: Task<Void, Never>?
-    private var muteAutoStopTask: Task<Void, Never>?
     private var audioCheckOwnsAudioPipeline = false
-    private var isMicrophoneCaptureSuspendedByMute = false
     private var isLocalStandbyOnly = false
     private var nextAudioFrameID = 1
     private var isOtherAudioDuckingActiveInternal = false
@@ -2184,8 +2182,7 @@ final class IntercomViewModel {
         callTicker: CallTicking? = nil,
         audioFramePlayer: AudioFramePlaying? = nil,
         jitterBuffer: JitterBuffer? = nil,
-        remoteTalkerTimeout: TimeInterval = 0.6,
-        muteAutoStopDelay: Duration = IntercomViewModel.muteAutoStopDelayDefault
+        remoteTalkerTimeout: TimeInterval = 0.6
     ) {
         let localMemberIdentityStore = localMemberIdentityStore ?? InMemoryLocalMemberIdentityStore()
         let localMemberIdentity = localMemberIdentityStore.loadOrCreate()
@@ -2206,7 +2203,6 @@ final class IntercomViewModel {
         self.localMemberIdentity = localMemberIdentity
         self.jitterBuffer = jitterBuffer ?? JitterBuffer()
         self.remoteTalkerTimeout = remoteTalkerTimeout
-        self.muteAutoStopDelay = muteAutoStopDelay
         self.audioTransmissionController.setVoiceActivityThreshold(initialVoiceActivityDetectionThreshold)
         self.selectedInputPort = self.audioSessionManager.selectedInputPort
         self.selectedOutputPort = self.audioSessionManager.selectedOutputPort
@@ -2662,13 +2658,11 @@ final class IntercomViewModel {
             try audioSessionManager.configureForIntercom()
             refreshOtherAudioDuckingState()
             try audioInputMonitor.start()
+            audioInputMonitor.setInputMuted(isMuted)
             try audioFramePlayer.start()
             callTicker.start()
             isAudioReady = true
             refreshOtherAudioDuckingState()
-            if isMuted {
-                scheduleMuteAutoStopIfNeeded()
-            }
             audioErrorMessage = nil
             return true
         } catch {
@@ -2687,7 +2681,6 @@ final class IntercomViewModel {
         callTicker.stop()
         try? audioSessionManager.deactivate()
         isAudioReady = false
-        isMicrophoneCaptureSuspendedByMute = false
     }
 
     private func startLocalStandby() {
@@ -2720,8 +2713,6 @@ final class IntercomViewModel {
     func disconnect() {
         let disconnectingGroupID = activeGroupID
         audioCheckTask?.cancel()
-        muteAutoStopTask?.cancel()
-        muteAutoStopTask = nil
         stopAudioPipeline()
         callSession.disconnect()
         connectionState = .idle
@@ -2745,11 +2736,7 @@ final class IntercomViewModel {
 
     func toggleMute() {
         isMuted.toggle()
-        if isMuted {
-            scheduleMuteAutoStopIfNeeded()
-        } else {
-            restoreMicrophoneCaptureIfNeeded()
-        }
+        audioInputMonitor.setInputMuted(isMuted)
 
         withActiveGroup { group in
             guard !group.members.isEmpty else { return }
@@ -2765,40 +2752,6 @@ final class IntercomViewModel {
         }
         broadcastControl(.peerMuteState(isMuted: isMuted))
         broadcastMetadataKeepalive()
-    }
-
-    private func scheduleMuteAutoStopIfNeeded() {
-        muteAutoStopTask?.cancel()
-        muteAutoStopTask = nil
-
-        guard isAudioReady, !isMicrophoneCaptureSuspendedByMute else { return }
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: muteAutoStopDelay)
-        muteAutoStopTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-
-            try? await clock.sleep(until: deadline, tolerance: .zero)
-            guard !Task.isCancelled else { return }
-
-            guard self.isMuted, self.isAudioReady, !self.isMicrophoneCaptureSuspendedByMute else { return }
-            self.audioInputMonitor.stop()
-            self.isMicrophoneCaptureSuspendedByMute = true
-        }
-    }
-
-    private func restoreMicrophoneCaptureIfNeeded() {
-        muteAutoStopTask?.cancel()
-        muteAutoStopTask = nil
-
-        guard isMicrophoneCaptureSuspendedByMute, isAudioReady else { return }
-
-        do {
-            try audioInputMonitor.start()
-            isMicrophoneCaptureSuspendedByMute = false
-            audioErrorMessage = nil
-        } catch {
-            audioErrorMessage = audioSetupMessage(for: error)
-        }
     }
 
     func setPreferredTransmitCodec(_ codec: AudioCodecIdentifier) {
