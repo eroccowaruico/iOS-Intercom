@@ -36,7 +36,11 @@ final class SystemAudioSessionAdapter: AudioSessionApplying {
 
     func setActive(_ active: Bool) throws {
         #if os(iOS)
-        try session.setActive(active)
+        if active {
+            try session.setActive(true)
+        } else {
+            try session.setActive(false, options: .notifyOthersOnDeactivation)
+        }
         #endif
     }
 

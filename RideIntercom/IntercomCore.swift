@@ -640,7 +640,7 @@ struct AudioSessionConfiguration: Equatable {
     static func audioCheck(
         prefersSpeakerOutput: Bool = false
     ) -> AudioSessionConfiguration {
-        var options: IntercomAudioOptions = [.allowBluetooth, .allowBluetoothA2DP]
+        var options: IntercomAudioOptions = [.mixWithOthers, .allowBluetooth, .allowBluetoothA2DP]
         if prefersSpeakerOutput {
             options.insert(.defaultToSpeaker)
         }
@@ -742,6 +742,11 @@ final class AudioSessionManager {
     }
 
     private func configure(_ kind: ConfigurationKind) throws {
+        if isConfigured, currentConfigurationKind == kind {
+            try session.setPreferredInputPort(selectedInputPort)
+            try session.setPreferredOutputPort(selectedOutputPort)
+            return
+        }
         currentConfigurationKind = kind
         try session.apply(makeConfiguration(for: kind))
         try session.setActive(true)
@@ -2673,13 +2678,15 @@ final class IntercomViewModel {
         }
     }
 
-    private func stopAudioPipeline() {
+    private func stopAudioPipeline(deactivateSession: Bool = false) {
         setOtherAudioDuckingActive(false)
         callSession.stopMedia()
         audioInputMonitor.stop()
         audioFramePlayer.stop()
         callTicker.stop()
-        try? audioSessionManager.deactivate()
+        if deactivateSession {
+            try? audioSessionManager.deactivate()
+        }
         isAudioReady = false
     }
 
