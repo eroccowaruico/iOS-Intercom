@@ -37,6 +37,7 @@
 		93F300EB2F93829D0046716D /* Exceptions for "RideIntercom" folder in "RideIntercom" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				AudioMixer,
 				Effectors/DynamicsProcessor,
 				Effectors/PeakLimiter,
 				Info.plist,
