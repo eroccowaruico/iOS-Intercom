@@ -8,6 +8,21 @@
 
 /* Begin PBXBuildFile section */
 		934630852F9C0001001548C3 /* RTC in Frameworks */ = {isa = PBXBuildFile; productRef = 934630842F9C0001001548C3 /* RTC */; };
+		9374C4B82FA364F000D259B2 /* InMemoryLogging in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4B72FA364F000D259B2 /* InMemoryLogging */; };
+		9374C4BA2FA364F000D259B2 /* Logging in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4B92FA364F000D259B2 /* Logging */; };
+		9374C4BD2FA3652B00D259B2 /* InMemoryLogging in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4BC2FA3652B00D259B2 /* InMemoryLogging */; };
+		9374C4BF2FA3657600D259B2 /* AudioMixer in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4BE2FA3657600D259B2 /* AudioMixer */; };
+		9374C4C12FA3657600D259B2 /* DynamicsProcessor in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4C02FA3657600D259B2 /* DynamicsProcessor */; };
+		9374C4C32FA3657600D259B2 /* PeakLimiter in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4C22FA3657600D259B2 /* PeakLimiter */; };
+		9374C4C52FA3657600D259B2 /* SoundIsolation in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4C42FA3657600D259B2 /* SoundIsolation */; };
+		9374C4C72FA3657600D259B2 /* VADGate in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4C62FA3657600D259B2 /* VADGate */; };
+		9374C4CA2FA3657700D259B2 /* AudioUnit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9374C4C82FA3657700D259B2 /* AudioUnit.framework */; };
+		9374C4CB2FA3657700D259B2 /* AudioToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9374C4C92FA3657700D259B2 /* AudioToolbox.framework */; };
+		9374C4CE2FA3664D00D259B2 /* DataChannel in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4CD2FA3664D00D259B2 /* DataChannel */; };
+		9374C4D02FA3664D00D259B2 /* ICELite in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4CF2FA3664D00D259B2 /* ICELite */; };
+		9374C4D22FA3664D00D259B2 /* SCTPCore in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4D12FA3664D00D259B2 /* SCTPCore */; };
+		9374C4D42FA3664D00D259B2 /* STUNCore in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4D32FA3664D00D259B2 /* STUNCore */; };
+		9374C4D62FA3664D00D259B2 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4D52FA3664D00D259B2 /* WebRTC */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -28,6 +43,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		9374C4C82FA3657700D259B2 /* AudioUnit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioUnit.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk/System/Library/Frameworks/AudioUnit.framework; sourceTree = DEVELOPER_DIR; };
+		9374C4C92FA3657700D259B2 /* AudioToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioToolbox.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk/System/Library/Frameworks/AudioToolbox.framework; sourceTree = DEVELOPER_DIR; };
 		93F300C82F93829C0046716D /* RideIntercom.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RideIntercom.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		93F300D92F93829D0046716D /* RideIntercomTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RideIntercomTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		93F300E32F93829D0046716D /* RideIntercomUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RideIntercomUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -83,22 +100,46 @@
 		93F300C52F93829C0046716D /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				9374C4D02FA3664D00D259B2 /* ICELite in Frameworks */,
+				9374C4CE2FA3664D00D259B2 /* DataChannel in Frameworks */,
+				9374C4CA2FA3657700D259B2 /* AudioUnit.framework in Frameworks */,
+				9374C4D62FA3664D00D259B2 /* WebRTC in Frameworks */,
+				9374C4CB2FA3657700D259B2 /* AudioToolbox.framework in Frameworks */,
+				9374C4BF2FA3657600D259B2 /* AudioMixer in Frameworks */,
+				9374C4C12FA3657600D259B2 /* DynamicsProcessor in Frameworks */,
+				9374C4BA2FA364F000D259B2 /* Logging in Frameworks */,
+				9374C4D22FA3664D00D259B2 /* SCTPCore in Frameworks */,
+				9374C4D42FA3664D00D259B2 /* STUNCore in Frameworks */,
+				9374C4C72FA3657600D259B2 /* VADGate in Frameworks */,
 				934630852F9C0001001548C3 /* RTC in Frameworks */,
+				9374C4C32FA3657600D259B2 /* PeakLimiter in Frameworks */,
+				9374C4C52FA3657600D259B2 /* SoundIsolation in Frameworks */,
 			);
 		};
 		93F300D62F93829D0046716D /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				9374C4B82FA364F000D259B2 /* InMemoryLogging in Frameworks */,
 			);
 		};
 		93F300E02F93829D0046716D /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				9374C4BD2FA3652B00D259B2 /* InMemoryLogging in Frameworks */,
 			);
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		9374C4BB2FA3652B00D259B2 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				9374C4C92FA3657700D259B2 /* AudioToolbox.framework */,
+				9374C4C82FA3657700D259B2 /* AudioUnit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		93F300BF2F93829C0046716D = {
 			isa = PBXGroup;
 			children = (
@@ -108,6 +149,7 @@
 				93F300E62F93829D0046716D /* RideIntercomUITests */,
 				93F300C92F93829C0046716D /* Products */,
 				938A8CA12F93890D009F40A4 /* docs */,
+				9374C4BB2FA3652B00D259B2 /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -140,6 +182,17 @@
 			name = RideIntercom;
 			packageProductDependencies = (
 				934630842F9C0001001548C3 /* RTC */,
+				9374C4B92FA364F000D259B2 /* Logging */,
+				9374C4BE2FA3657600D259B2 /* AudioMixer */,
+				9374C4C02FA3657600D259B2 /* DynamicsProcessor */,
+				9374C4C22FA3657600D259B2 /* PeakLimiter */,
+				9374C4C42FA3657600D259B2 /* SoundIsolation */,
+				9374C4C62FA3657600D259B2 /* VADGate */,
+				9374C4CD2FA3664D00D259B2 /* DataChannel */,
+				9374C4CF2FA3664D00D259B2 /* ICELite */,
+				9374C4D12FA3664D00D259B2 /* SCTPCore */,
+				9374C4D32FA3664D00D259B2 /* STUNCore */,
+				9374C4D52FA3664D00D259B2 /* WebRTC */,
 			);
 			productName = RideIntercom;
 			productReference = 93F300C82F93829C0046716D /* RideIntercom.app */;
@@ -162,6 +215,9 @@
 				93F300DC2F93829D0046716D /* RideIntercomTests */,
 			);
 			name = RideIntercomTests;
+			packageProductDependencies = (
+				9374C4B72FA364F000D259B2 /* InMemoryLogging */,
+			);
 			productName = RideIntercomTests;
 			productReference = 93F300D92F93829D0046716D /* RideIntercomTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -183,6 +239,9 @@
 				93F300E62F93829D0046716D /* RideIntercomUITests */,
 			);
 			name = RideIntercomUITests;
+			packageProductDependencies = (
+				9374C4BC2FA3652B00D259B2 /* InMemoryLogging */,
+			);
 			productName = RideIntercomUITests;
 			productReference = 93F300E32F93829D0046716D /* RideIntercomUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
@@ -221,6 +280,8 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				934630862F9C0001001548C3 /* XCLocalSwiftPackageReference "RTC" */,
+				9374C4B62FA364F000D259B2 /* XCRemoteSwiftPackageReference "swift-log" */,
+				9374C4CC2FA3664D00D259B2 /* XCRemoteSwiftPackageReference "swift-webrtc" */,
 			);
 			preferredProjectObjectVersion = 100;
 			productRefGroup = 93F300C92F93829C0046716D /* Products */;
@@ -670,11 +731,90 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		9374C4B62FA364F000D259B2 /* XCRemoteSwiftPackageReference "swift-log" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-log.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.12.0;
+			};
+		};
+		9374C4CC2FA3664D00D259B2 /* XCRemoteSwiftPackageReference "swift-webrtc" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/1amageek/swift-webrtc.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.1.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		934630842F9C0001001548C3 /* RTC */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 934630862F9C0001001548C3 /* XCLocalSwiftPackageReference "RTC" */;
 			productName = RTC;
+		};
+		9374C4B72FA364F000D259B2 /* InMemoryLogging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9374C4B62FA364F000D259B2 /* XCRemoteSwiftPackageReference "swift-log" */;
+			productName = InMemoryLogging;
+		};
+		9374C4B92FA364F000D259B2 /* Logging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9374C4B62FA364F000D259B2 /* XCRemoteSwiftPackageReference "swift-log" */;
+			productName = Logging;
+		};
+		9374C4BC2FA3652B00D259B2 /* InMemoryLogging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9374C4B62FA364F000D259B2 /* XCRemoteSwiftPackageReference "swift-log" */;
+			productName = InMemoryLogging;
+		};
+		9374C4BE2FA3657600D259B2 /* AudioMixer */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AudioMixer;
+		};
+		9374C4C02FA3657600D259B2 /* DynamicsProcessor */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = DynamicsProcessor;
+		};
+		9374C4C22FA3657600D259B2 /* PeakLimiter */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = PeakLimiter;
+		};
+		9374C4C42FA3657600D259B2 /* SoundIsolation */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SoundIsolation;
+		};
+		9374C4C62FA3657600D259B2 /* VADGate */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = VADGate;
+		};
+		9374C4CD2FA3664D00D259B2 /* DataChannel */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9374C4CC2FA3664D00D259B2 /* XCRemoteSwiftPackageReference "swift-webrtc" */;
+			productName = DataChannel;
+		};
+		9374C4CF2FA3664D00D259B2 /* ICELite */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9374C4CC2FA3664D00D259B2 /* XCRemoteSwiftPackageReference "swift-webrtc" */;
+			productName = ICELite;
+		};
+		9374C4D12FA3664D00D259B2 /* SCTPCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9374C4CC2FA3664D00D259B2 /* XCRemoteSwiftPackageReference "swift-webrtc" */;
+			productName = SCTPCore;
+		};
+		9374C4D32FA3664D00D259B2 /* STUNCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9374C4CC2FA3664D00D259B2 /* XCRemoteSwiftPackageReference "swift-webrtc" */;
+			productName = STUNCore;
+		};
+		9374C4D52FA3664D00D259B2 /* WebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9374C4CC2FA3664D00D259B2 /* XCRemoteSwiftPackageReference "swift-webrtc" */;
+			productName = WebRTC;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
