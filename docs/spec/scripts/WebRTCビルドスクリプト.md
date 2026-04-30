@@ -59,16 +59,6 @@ WEBRTC_BRANCH=branch-heads/7727 \
 scripts/update-webrtc-binary.sh
 ```
 
-Catalyst sliceも必要な場合だけ明示する。標準ではCatalystを含めない。
-
-```bash
-cd <RideIntercom repository>
-MAC_CATALYST=true \
-scripts/update-webrtc-binary.sh
-```
-
-Catalystが失敗し、iOS/macOS成果物が揃っている場合、`REQUIRE_CATALYST=true` を指定していなければ上位スクリプトは自動でCatalystなしの再組み立てへ進む。
-
 ## 失敗時の入口
 
 失敗時に手作業で原因を選ばない。まず診断スクリプトを実行する。
@@ -156,13 +146,12 @@ scripts/build-webrtc-xcframework.sh
 
 ## platform指定
 
-必要なplatformだけをビルドする場合は、`IOS`、`MACOS`、`MAC_CATALYST` を `true` / `false` で指定する。
+必要なplatformだけをビルドする場合は、`IOS`、`MACOS` を `true` / `false` で指定する。
 
 ```bash
 cd <RideIntercom repository>
 IOS=true \
 MACOS=false \
-MAC_CATALYST=false \
 scripts/build-current-webrtc-xcframework.sh
 ```
 
@@ -170,25 +159,21 @@ scripts/build-current-webrtc-xcframework.sh
 |---|---|---|
 | `IOS` | `true` | iOS deviceとiOS simulator |
 | `MACOS` | `true` | macOS universal binary |
-| `MAC_CATALYST` | `false` | macOS Catalyst universal binary。Xcode / SDK差分で失敗しやすいため明示指定時だけ有効にする |
 | `ASSEMBLE_ONLY` | `false` | `true` の場合は既存の `src/out/*/WebRTC.framework` からxcframeworkとzipだけを作る |
-| `REQUIRE_CATALYST` | `false` | `scripts/update-webrtc-binary.sh` 用。`true` の場合はCatalyst失敗時にCatalystなし成果物へ自動復旧しない |
 | `RUN_SWIFTPM_VALIDATION` | `true` | `scripts/update-webrtc-binary.sh` 用。`false` の場合は `RTCNativeWebRTC` build検証を省略する |
 | `RUN_TESTS` | `true` | `scripts/update-webrtc-binary.sh` 用。`false` の場合はRTC package testsを省略する |
-| `IOS_DEPLOYMENT_TARGET` | `17.0` | iOS sliceのdeployment target |
-| `MACOS_DEPLOYMENT_TARGET` | `14.0` | macOS sliceのdeployment target |
-| `MAC_CATALYST_DEPLOYMENT_TARGET` | `17.0` | Catalyst sliceのdeployment target |
+| `IOS_DEPLOYMENT_TARGET` | `26.4` | iOS sliceのdeployment target |
+| `MACOS_DEPLOYMENT_TARGET` | `26.4` | macOS sliceのdeployment target |
 
 ## 既存成果物からの再組み立て
 
-途中でCatalystなど一部platformだけが失敗し、iOS / macOSの `WebRTC.framework` が生成済みの場合は、再コンパイルせずにxcframeworkだけを組み立て直せる。
+途中で失敗し、iOS / macOSの `WebRTC.framework` が生成済みの場合は、再コンパイルせずにxcframeworkだけを組み立て直せる。
 
 ```bash
 cd <RideIntercom repository>
 ASSEMBLE_ONLY=true \
 IOS=true \
 MACOS=true \
-MAC_CATALYST=false \
 scripts/build-webrtc-xcframework.sh
 ```
 
@@ -201,11 +186,8 @@ scripts/build-webrtc-xcframework.sh
 | iOS device | `framework_objc` | `WebRTC.framework/Headers` | arm64 device sliceとしてxcframeworkへ追加する |
 | iOS simulator | `framework_objc` | `WebRTC.framework/Headers` | x86_64とarm64を `lipo` で統合する |
 | macOS | `mac_framework_objc` | `WebRTC.framework/Versions/A/Headers` | x86_64とarm64を `lipo` で統合する |
-| macOS Catalyst | `framework_objc` | `WebRTC.framework/Versions/A/Headers` | x86_64とarm64を `lipo` で統合する |
 
-macOS sliceでは、配布済みbinaryと同様にpublic headersが不足する場合がある。`scripts/build-webrtc-xcframework.sh` はmacOS / Catalystの `gen/sdk/WebRTC.framework/Headers` を優先してpublic headersを補完し、`gen/sdk` が存在しない場合のみiOS device sliceをfallbackとして使う。その後 `scripts/verify-webrtc-xcframework.sh` で必須headerと `WebRTC.h` がimportするheaderの存在を検証する。
-
-Catalyst sliceはXcode / SDK差分の影響を受けやすい。`arm64-apple-ios*-macabi` のlinkで `libsystem_*.tbd is incompatible with arm64 (macCatalyst...)` が出る場合は、標準成果物からCatalystを外し、iOS + macOSのxcframeworkを先に採用する。
+macOS sliceでは、配布済みbinaryと同様にpublic headersが不足する場合がある。`scripts/build-webrtc-xcframework.sh` はmacOSの `gen/sdk/WebRTC.framework/Headers` を優先してpublic headersを補完し、`gen/sdk` が存在しない場合のみiOS device sliceをfallbackとして使う。その後 `scripts/verify-webrtc-xcframework.sh` で必須headerと `WebRTC.h` がimportするheaderの存在を検証する。
 
 ## 成果物検証
 
@@ -279,7 +261,6 @@ DRY_RUN=false scripts/clean-webrtc-build-resources.sh
 | `failed to resolve current WebRTC branch` | Chromium Dashboardへ到達できない | `WEBRTC_BRANCH=branch-heads/<number>` を明示する |
 | `RTCAudioSource.h file not found` | macOS sliceのpublic headers不足 | build後に `verify-webrtc-xcframework.sh` を実行し、不足が残る場合は成果物を採用しない |
 | `gn gen` / `ninja` が失敗 | WebRTC branchとXcode/SDKの組み合わせ不整合 | branchを固定するか、対応するXcodeを `DEVELOPER_DIR` で指定する |
-| Catalyst arm64 linkが失敗 | Xcode SDKのmacabi system library差分 | `MAC_CATALYST=false` を指定し、必要なら `ASSEMBLE_ONLY=true` でiOS + macOSだけを再組み立てする |
 | ディスク容量不足 | WebRTC source treeまたはbuild outputが大きい | `clean-webrtc-build-resources.sh` で `build-output` または `source` を削除する |
 
 ## 採用条件

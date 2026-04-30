@@ -1,5 +1,7 @@
 import Foundation
 import RTC
+
+#if canImport(WebRTC)
 import WebRTC
 
 public final class WebRTCNativeEngine: NativeWebRTCEngine {
@@ -249,3 +251,12 @@ private extension RTCIceConnectionState {
         }
     }
 }
+#else
+public final class WebRTCNativeEngine: NativeWebRTCEngine {
+    public override var isAvailable: Bool { false }
+
+    public override init() {
+        super.init()
+    }
+}
+#endif

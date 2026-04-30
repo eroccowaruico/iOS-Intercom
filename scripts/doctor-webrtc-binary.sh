@@ -104,7 +104,7 @@ if [[ -d "${WEBRTC_BUILD_ROOT}/src/out/WebRTC.xcframework" ]]; then
     ok "Generated WebRTC.xcframework header verification passed"
   else
     fail "Generated WebRTC.xcframework header verification failed"
-    next_action "ASSEMBLE_ONLY=true IOS=true MACOS=true MAC_CATALYST=false scripts/build-webrtc-xcframework.sh"
+    next_action "ASSEMBLE_ONLY=true IOS=true MACOS=true scripts/build-webrtc-xcframework.sh"
   fi
 else
   warn "Generated WebRTC.xcframework does not exist"

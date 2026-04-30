@@ -15,6 +15,7 @@
 | WebRTC public API | `RTC` の public API に native WebRTC 型を露出しない |
 | WebRTC 実装配置 | 共通 `RTC` target から分離し、native WebRTC adapter target に閉じ込める |
 | WebRTC binary供給 | `webrtc.googlesource.com/src` から自前ビルドした `WebRTC.xcframework` をlocal binary targetとして取り込む |
+| サポートOS | RideIntercom本体と同じ最新OSのみを対象にし、iOSとmacOSの最低deployment targetを `26.4` に揃える。Mac CatalystとvisionOSは対象外にする |
 | ビルド caveat | native WebRTC binary framework は SwiftPM 単体テストで header 解決に失敗する場合がある。共通 `RTC` target はSDK非依存でテスト可能に保つ |
 
 ## パッケージ構成
@@ -193,7 +194,6 @@ sequenceDiagram
 | iOS device | `framework_objc` / `target_os="ios"` / `target_environment="device"` | `WebRTC.framework/Headers` | arm64のみをxcframework sliceに入れる |
 | iOS simulator | `framework_objc` / `target_os="ios"` / `target_environment="simulator"` | `WebRTC.framework/Headers` | x86_64とarm64をlipoで統合する |
 | macOS | `mac_framework_objc` / `target_os="mac"` | `WebRTC.framework/Versions/A/Headers` | x86_64とarm64をlipoで統合する。Headers欠落がある場合はiOS device sliceのpublic headersで補完してから検証する |
-| macOS Catalyst | `framework_objc` / `target_os="ios"` / `target_environment="catalyst"` | `WebRTC.framework/Versions/A/Headers` | x86_64とarm64をlipoで統合する。Headersは検証対象に含める |
 
 `CloudflareRealtimeSignalingClient` は production 実装ではなく placeholder とする。実運用では Cloudflare room作成、participant token、offer / answer / ICE candidate 送受信を実装した `WebRTCSignalingClient` を注入する。
 

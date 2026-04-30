@@ -30,13 +30,11 @@ DEVELOPER_DIR="${DEVELOPER_DIR:-$(default_developer_dir)}"
 WEBRTC_BRANCH="${WEBRTC_BRANCH:-}"
 IOS="${IOS:-true}"
 MACOS="${MACOS:-true}"
-MAC_CATALYST="${MAC_CATALYST:-false}"
-REQUIRE_CATALYST="${REQUIRE_CATALYST:-false}"
 ALLOW_ASSEMBLE_RECOVERY="${ALLOW_ASSEMBLE_RECOVERY:-true}"
 RUN_SWIFTPM_VALIDATION="${RUN_SWIFTPM_VALIDATION:-true}"
 RUN_TESTS="${RUN_TESTS:-true}"
 
-export WEBRTC_BUILD_ROOT DEPOT_TOOLS_DIR DEVELOPER_DIR IOS MACOS MAC_CATALYST
+export WEBRTC_BUILD_ROOT DEPOT_TOOLS_DIR DEVELOPER_DIR IOS MACOS
 
 usage() {
   cat <<USAGE
@@ -52,8 +50,6 @@ Common overrides:
   WEBRTC_BRANCH=branch-heads/7727   Build a fixed WebRTC branch.
   IOS=true|false                    Include iOS device/simulator slices. Default: ${IOS}
   MACOS=true|false                  Include macOS universal slice. Default: ${MACOS}
-  MAC_CATALYST=true|false           Try Catalyst slice. Default: ${MAC_CATALYST}
-  REQUIRE_CATALYST=true             Fail instead of falling back when Catalyst fails.
   RUN_TESTS=false                   Skip RTC package tests after import.
   RUN_SWIFTPM_VALIDATION=false      Skip RTCNativeWebRTC build validation.
 USAGE
@@ -118,12 +114,12 @@ set -e
 
 if [[ "${build_status}" -ne 0 ]]; then
   echo "Initial WebRTC build failed with exit code ${build_status}." >&2
-  if [[ "${ALLOW_ASSEMBLE_RECOVERY}" == "true" && "${REQUIRE_CATALYST}" != "true" && has_base_framework_outputs ]]; then
-    log_step "Recovering by assembling existing iOS + macOS outputs without Catalyst"
-    IOS=true MACOS=true MAC_CATALYST=false ASSEMBLE_ONLY=true "${SCRIPT_DIR}/build-webrtc-xcframework.sh"
+  if [[ "${ALLOW_ASSEMBLE_RECOVERY}" == "true" && has_base_framework_outputs ]]; then
+    log_step "Recovering by assembling existing iOS + macOS outputs"
+    IOS=true MACOS=true ASSEMBLE_ONLY=true "${SCRIPT_DIR}/build-webrtc-xcframework.sh"
   else
     echo "Automatic recovery is not available." >&2
-    echo "Expected iOS/macOS framework outputs were not complete, or Catalyst is required." >&2
+    echo "Expected iOS/macOS framework outputs were not complete." >&2
     false
   fi
 fi

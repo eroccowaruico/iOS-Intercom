@@ -5,8 +5,8 @@ import PackageDescription
 let package = Package(
     name: "SoundIsolation",
     platforms: [
-        .iOS(.v17),
-        .macOS(.v14),
+        .iOS("26.4"),
+        .macOS("26.4"),
     ],
     products: [
         .library(

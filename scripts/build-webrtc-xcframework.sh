@@ -13,11 +13,9 @@ WEBRTC_BRANCH="${WEBRTC_BRANCH:-}"
 DEBUG="${DEBUG:-false}"
 IOS="${IOS:-true}"
 MACOS="${MACOS:-true}"
-MAC_CATALYST="${MAC_CATALYST:-false}"
 ASSEMBLE_ONLY="${ASSEMBLE_ONLY:-false}"
-IOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET:-17.0}"
-MACOS_DEPLOYMENT_TARGET="${MACOS_DEPLOYMENT_TARGET:-14.0}"
-MAC_CATALYST_DEPLOYMENT_TARGET="${MAC_CATALYST_DEPLOYMENT_TARGET:-17.0}"
+IOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET:-26.4}"
+MACOS_DEPLOYMENT_TARGET="${MACOS_DEPLOYMENT_TARGET:-26.4}"
 
 if [[ -z "${WEBRTC_BRANCH}" ]]; then
   WEBRTC_BRANCH="$(${SCRIPT_DIR}/resolve-webrtc-branch.sh)"
@@ -36,7 +34,7 @@ esac
 
 echo "Building WebRTC from ${WEBRTC_BRANCH}"
 echo "Build root: ${WEBRTC_BUILD_ROOT}"
-echo "Platforms: IOS=${IOS}, MACOS=${MACOS}, MAC_CATALYST=${MAC_CATALYST}"
+echo "Platforms: IOS=${IOS}, MACOS=${MACOS}"
 echo "Assemble only: ${ASSEMBLE_ONLY}"
 
 mkdir -p "${WEBRTC_BUILD_ROOT}"
@@ -86,15 +84,6 @@ build_macos() {
   gn gen "${gen_dir}" --args="${gen_args}"
   gn args --list "${gen_dir}" > "${gen_dir}/gn-args.txt"
   ninja -C "${gen_dir}" mac_framework_objc
-}
-
-build_catalyst() {
-  local arch="$1"
-  local gen_dir="${OUTPUT_DIR}/catalyst-${arch}"
-  local gen_args="${COMMON_GN_ARGS} target_cpu=\"${arch}\" target_environment=\"catalyst\" target_os=\"ios\" ios_deployment_target=\"${MAC_CATALYST_DEPLOYMENT_TARGET}\" ios_enable_code_signing=false"
-  gn gen "${gen_dir}" --args="${gen_args}"
-  gn args --list "${gen_dir}" > "${gen_dir}/gn-args.txt"
-  ninja -C "${gen_dir}" framework_objc
 }
 
 plist_add_library() {
@@ -159,11 +148,6 @@ if [[ "${MACOS}" == "true" && "${ASSEMBLE_ONLY}" != "true" ]]; then
   build_macos arm64
 fi
 
-if [[ "${MAC_CATALYST}" == "true" && "${ASSEMBLE_ONLY}" != "true" ]]; then
-  build_catalyst x64
-  build_catalyst arm64
-fi
-
 INFO_PLIST="${XCFRAMEWORK_DIR}/Info.plist"
 rm -rf "${XCFRAMEWORK_DIR}"
 mkdir -p "${XCFRAMEWORK_DIR}"
@@ -205,21 +189,6 @@ if [[ "${MACOS}" == "true" ]]; then
     copy_missing_public_headers "${OUTPUT_DIR}/ios-arm64-device/WebRTC.framework" "${XCFRAMEWORK_DIR}/${macos_identifier}/WebRTC.framework"
   fi
   lipo -create -output "${XCFRAMEWORK_DIR}/${macos_identifier}/WebRTC.framework/Versions/A/WebRTC" "${OUTPUT_DIR}/macos-x64/WebRTC.framework/WebRTC" "${OUTPUT_DIR}/macos-arm64/WebRTC.framework/WebRTC"
-fi
-
-if [[ "${MAC_CATALYST}" == "true" ]]; then
-  catalyst_identifier="ios-x86_64_arm64-maccatalyst"
-  mkdir "${XCFRAMEWORK_DIR}/${catalyst_identifier}"
-  plist_add_library "${library_count}" "${catalyst_identifier}" ios maccatalyst
-  plist_add_architecture "${library_count}" x86_64
-  plist_add_architecture "${library_count}" arm64
-  cp -RP "${OUTPUT_DIR}/catalyst-x64/WebRTC.framework" "${XCFRAMEWORK_DIR}/${catalyst_identifier}"
-  if [[ -d "${OUTPUT_DIR}/catalyst-x64/gen/sdk/WebRTC.framework/Headers" ]]; then
-    copy_missing_public_headers "${OUTPUT_DIR}/catalyst-x64/gen/sdk/WebRTC.framework" "${XCFRAMEWORK_DIR}/${catalyst_identifier}/WebRTC.framework"
-  elif [[ -d "${OUTPUT_DIR}/ios-arm64-device/WebRTC.framework/Headers" ]]; then
-    copy_missing_public_headers "${OUTPUT_DIR}/ios-arm64-device/WebRTC.framework" "${XCFRAMEWORK_DIR}/${catalyst_identifier}/WebRTC.framework"
-  fi
-  lipo -create -output "${XCFRAMEWORK_DIR}/${catalyst_identifier}/WebRTC.framework/Versions/A/WebRTC" "${OUTPUT_DIR}/catalyst-x64/WebRTC.framework/WebRTC" "${OUTPUT_DIR}/catalyst-arm64/WebRTC.framework/WebRTC"
 fi
 
 "${REPOSITORY_ROOT}/scripts/verify-webrtc-xcframework.sh" "${XCFRAMEWORK_DIR}"
