@@ -12,17 +12,30 @@ let package = Package(
         .visionOS(.v1),
     ],
     products: [
-        // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
             name: "RTC",
             targets: ["RTC"]
         ),
+        .library(
+            name: "RTCNativeWebRTC",
+            targets: ["RTCNativeWebRTC"]
+        ),
     ],
+    dependencies: [],
     targets: [
-        // Targets are the basic building blocks of a package, defining a module or a test suite.
-        // Targets can depend on other targets in this package and products from dependencies.
         .target(
             name: "RTC"
+        ),
+        .target(
+            name: "RTCNativeWebRTC",
+            dependencies: [
+                "RTC",
+                "WebRTC",
+            ]
+        ),
+        .binaryTarget(
+            name: "WebRTC",
+            path: "BinaryArtifacts/WebRTC/WebRTC.xcframework.zip"
         ),
         .testTarget(
             name: "RTCTests",

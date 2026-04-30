@@ -1,33 +1,6 @@
 {
-  "originHash" : "7fe0ae2dc9f264ddab719c56c21bca3eb183434ab3d6319cabc7c055e6665204",
+  "originHash" : "d524e34e31261403f7f336dada2c85af196a9053a3f7e5b111c03bb428c2f122",
   "pins" : [
-    {
-      "identity" : "swift-asn1",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-asn1.git",
-      "state" : {
-        "revision" : "eb50cbd14606a9161cbc5d452f18797c90ef0bab",
-        "version" : "1.7.0"
-      }
-    },
-    {
-      "identity" : "swift-certificates",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-certificates.git",
-      "state" : {
-        "revision" : "5aa1c0d1bc204908df47c2075bdbb39573d05e8d",
-        "version" : "1.19.0"
-      }
-    },
-    {
-      "identity" : "swift-crypto",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-crypto.git",
-      "state" : {
-        "revision" : "1b6b2e274e85105bfa155183145a1dcfd63331f1",
-        "version" : "4.5.0"
-      }
-    },
     {
       "identity" : "swift-log",
       "kind" : "remoteSourceControl",
@@ -35,24 +8,6 @@
       "state" : {
         "revision" : "5073617dac96330a486245e4c0179cb0a6fd2256",
         "version" : "1.12.0"
-      }
-    },
-    {
-      "identity" : "swift-tls",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/1amageek/swift-tls.git",
-      "state" : {
-        "revision" : "965260affad740e1e10bcb7af94dce799219d20d",
-        "version" : "1.1.0"
-      }
-    },
-    {
-      "identity" : "swift-webrtc",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/1amageek/swift-webrtc.git",
-      "state" : {
-        "revision" : "68e4d41e98a707e98321d07eb69259dc42389e4b",
-        "version" : "1.1.1"
       }
     }
   ],

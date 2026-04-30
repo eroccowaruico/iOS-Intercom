@@ -18,12 +18,13 @@
 		9374C4C72FA3657600D259B2 /* VADGate in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4C62FA3657600D259B2 /* VADGate */; };
 		9374C4CA2FA3657700D259B2 /* AudioUnit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9374C4C82FA3657700D259B2 /* AudioUnit.framework */; };
 		9374C4CB2FA3657700D259B2 /* AudioToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9374C4C92FA3657700D259B2 /* AudioToolbox.framework */; };
-		9374C4CE2FA3664D00D259B2 /* DataChannel in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4CD2FA3664D00D259B2 /* DataChannel */; };
-		9374C4D02FA3664D00D259B2 /* ICELite in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4CF2FA3664D00D259B2 /* ICELite */; };
-		9374C4D22FA3664D00D259B2 /* SCTPCore in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4D12FA3664D00D259B2 /* SCTPCore */; };
-		9374C4D42FA3664D00D259B2 /* STUNCore in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4D32FA3664D00D259B2 /* STUNCore */; };
-		9374C4D62FA3664D00D259B2 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4D52FA3664D00D259B2 /* WebRTC */; };
 		9374C4D82FA3670400D259B2 /* MultipeerConnectivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9374C4D72FA3670400D259B2 /* MultipeerConnectivity.framework */; };
+		93C60CE62FA3B46A00841E64 /* SafetyKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 93C60CE52FA3B46A00841E64 /* SafetyKit.framework */; platformFilters = (ios, macos, ); };
+		93C60CE92FA3B53300841E64 /* AudioMixer in Frameworks */ = {isa = PBXBuildFile; productRef = 93C60CE82FA3B53300841E64 /* AudioMixer */; };
+		93C60CEC2FA3B54D00841E64 /* DynamicsProcessor in Frameworks */ = {isa = PBXBuildFile; productRef = 93C60CEB2FA3B54D00841E64 /* DynamicsProcessor */; };
+		93C60CF02FA3B57100841E64 /* SoundIsolation in Frameworks */ = {isa = PBXBuildFile; productRef = 93C60CEF2FA3B57100841E64 /* SoundIsolation */; };
+		93C60CF32FA3B58400841E64 /* VADGate in Frameworks */ = {isa = PBXBuildFile; productRef = 93C60CF22FA3B58400841E64 /* VADGate */; };
+		93DCB0832FA3864000B921FA /* CryptoKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 93DCB0822FA3864000B921FA /* CryptoKit.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -47,6 +48,9 @@
 		9374C4C82FA3657700D259B2 /* AudioUnit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioUnit.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk/System/Library/Frameworks/AudioUnit.framework; sourceTree = DEVELOPER_DIR; };
 		9374C4C92FA3657700D259B2 /* AudioToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioToolbox.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk/System/Library/Frameworks/AudioToolbox.framework; sourceTree = DEVELOPER_DIR; };
 		9374C4D72FA3670400D259B2 /* MultipeerConnectivity.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MultipeerConnectivity.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk/System/Library/Frameworks/MultipeerConnectivity.framework; sourceTree = DEVELOPER_DIR; };
+		93C60CE32FA3B45100841E64 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk/System/Library/Frameworks/Security.framework; sourceTree = DEVELOPER_DIR; };
+		93C60CE52FA3B46A00841E64 /* SafetyKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SafetyKit.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk/System/Library/Frameworks/SafetyKit.framework; sourceTree = DEVELOPER_DIR; };
+		93DCB0822FA3864000B921FA /* CryptoKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CryptoKit.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk/System/Library/Frameworks/CryptoKit.framework; sourceTree = DEVELOPER_DIR; };
 		93F300C82F93829C0046716D /* RideIntercom.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RideIntercom.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		93F300D92F93829D0046716D /* RideIntercomTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RideIntercomTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		93F300E32F93829D0046716D /* RideIntercomUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RideIntercomUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -83,14 +87,6 @@
 			exceptions = (
 				93F300EB2F93829D0046716D /* Exceptions for "RideIntercom" folder in "RideIntercom" target */,
 			);
-			explicitFolders = (
-				packages/Audio/AudioMixer,
-				packages/Audio/Effectors/DynamicsProcessor,
-				packages/Audio/Effectors/PeakLimiter,
-				packages/Audio/Effectors/SoundIsolation,
-				packages/Audio/Effectors/VADGate,
-				packages/RTC,
-			);
 			path = RideIntercom;
 			sourceTree = "<group>";
 		};
@@ -110,19 +106,20 @@
 		93F300C52F93829C0046716D /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				93C60CE62FA3B46A00841E64 /* SafetyKit.framework in Frameworks */,
+				93DCB0832FA3864000B921FA /* CryptoKit.framework in Frameworks */,
 				9374C4D82FA3670400D259B2 /* MultipeerConnectivity.framework in Frameworks */,
-				9374C4D02FA3664D00D259B2 /* ICELite in Frameworks */,
-				9374C4CE2FA3664D00D259B2 /* DataChannel in Frameworks */,
+				93C60CF32FA3B58400841E64 /* VADGate in Frameworks */,
 				9374C4CA2FA3657700D259B2 /* AudioUnit.framework in Frameworks */,
-				9374C4D62FA3664D00D259B2 /* WebRTC in Frameworks */,
 				9374C4CB2FA3657700D259B2 /* AudioToolbox.framework in Frameworks */,
 				9374C4BF2FA3657600D259B2 /* AudioMixer in Frameworks */,
 				9374C4C12FA3657600D259B2 /* DynamicsProcessor in Frameworks */,
 				9374C4BA2FA364F000D259B2 /* Logging in Frameworks */,
-				9374C4D22FA3664D00D259B2 /* SCTPCore in Frameworks */,
-				9374C4D42FA3664D00D259B2 /* STUNCore in Frameworks */,
 				9374C4C72FA3657600D259B2 /* VADGate in Frameworks */,
+				93C60CEC2FA3B54D00841E64 /* DynamicsProcessor in Frameworks */,
 				934630852F9C0001001548C3 /* RTC in Frameworks */,
+				93C60CF02FA3B57100841E64 /* SoundIsolation in Frameworks */,
+				93C60CE92FA3B53300841E64 /* AudioMixer in Frameworks */,
 				9374C4C32FA3657600D259B2 /* PeakLimiter in Frameworks */,
 				9374C4C52FA3657600D259B2 /* SoundIsolation in Frameworks */,
 			);
@@ -145,6 +142,9 @@
 		9374C4BB2FA3652B00D259B2 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				93C60CE52FA3B46A00841E64 /* SafetyKit.framework */,
+				93C60CE32FA3B45100841E64 /* Security.framework */,
+				93DCB0822FA3864000B921FA /* CryptoKit.framework */,
 				9374C4D72FA3670400D259B2 /* MultipeerConnectivity.framework */,
 				9374C4C92FA3657700D259B2 /* AudioToolbox.framework */,
 				9374C4C82FA3657700D259B2 /* AudioUnit.framework */,
@@ -200,11 +200,10 @@
 				9374C4C22FA3657600D259B2 /* PeakLimiter */,
 				9374C4C42FA3657600D259B2 /* SoundIsolation */,
 				9374C4C62FA3657600D259B2 /* VADGate */,
-				9374C4CD2FA3664D00D259B2 /* DataChannel */,
-				9374C4CF2FA3664D00D259B2 /* ICELite */,
-				9374C4D12FA3664D00D259B2 /* SCTPCore */,
-				9374C4D32FA3664D00D259B2 /* STUNCore */,
-				9374C4D52FA3664D00D259B2 /* WebRTC */,
+				93C60CE82FA3B53300841E64 /* AudioMixer */,
+				93C60CEB2FA3B54D00841E64 /* DynamicsProcessor */,
+				93C60CEF2FA3B57100841E64 /* SoundIsolation */,
+				93C60CF22FA3B58400841E64 /* VADGate */,
 			);
 			productName = RideIntercom;
 			productReference = 93F300C82F93829C0046716D /* RideIntercom.app */;
@@ -293,7 +292,6 @@
 			packageReferences = (
 				934630862F9C0001001548C3 /* XCLocalSwiftPackageReference "RTC" */,
 				9374C4B62FA364F000D259B2 /* XCRemoteSwiftPackageReference "swift-log" */,
-				9374C4CC2FA3664D00D259B2 /* XCRemoteSwiftPackageReference "swift-webrtc" */,
 			);
 			preferredProjectObjectVersion = 100;
 			productRefGroup = 93F300C92F93829C0046716D /* Products */;
@@ -752,14 +750,6 @@
 				minimumVersion = 1.12.0;
 			};
 		};
-		9374C4CC2FA3664D00D259B2 /* XCRemoteSwiftPackageReference "swift-webrtc" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/1amageek/swift-webrtc.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.1.1;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -803,30 +793,21 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = VADGate;
 		};
-		9374C4CD2FA3664D00D259B2 /* DataChannel */ = {
+		93C60CE82FA3B53300841E64 /* AudioMixer */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 9374C4CC2FA3664D00D259B2 /* XCRemoteSwiftPackageReference "swift-webrtc" */;
-			productName = DataChannel;
+			productName = AudioMixer;
 		};
-		9374C4CF2FA3664D00D259B2 /* ICELite */ = {
+		93C60CEB2FA3B54D00841E64 /* DynamicsProcessor */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 9374C4CC2FA3664D00D259B2 /* XCRemoteSwiftPackageReference "swift-webrtc" */;
-			productName = ICELite;
+			productName = DynamicsProcessor;
 		};
-		9374C4D12FA3664D00D259B2 /* SCTPCore */ = {
+		93C60CEF2FA3B57100841E64 /* SoundIsolation */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 9374C4CC2FA3664D00D259B2 /* XCRemoteSwiftPackageReference "swift-webrtc" */;
-			productName = SCTPCore;
+			productName = SoundIsolation;
 		};
-		9374C4D32FA3664D00D259B2 /* STUNCore */ = {
+		93C60CF22FA3B58400841E64 /* VADGate */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 9374C4CC2FA3664D00D259B2 /* XCRemoteSwiftPackageReference "swift-webrtc" */;
-			productName = STUNCore;
-		};
-		9374C4D52FA3664D00D259B2 /* WebRTC */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 9374C4CC2FA3664D00D259B2 /* XCRemoteSwiftPackageReference "swift-webrtc" */;
-			productName = WebRTC;
+			productName = VADGate;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

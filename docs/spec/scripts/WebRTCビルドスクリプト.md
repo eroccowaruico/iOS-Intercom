@@ -1,0 +1,302 @@
+# WebRTCビルドスクリプト
+
+## 目的
+
+RideIntercomで使用するnative WebRTC SDKの `WebRTC.xcframework` を、`webrtc.googlesource.com/src` から自前ビルドするためのスクリプト群を定義する。
+
+WebRTC本体とChromium依存ソースは巨大なため、RideIntercom repositoryには含めない。checkout、build output、SwiftPM artifactは明確に分離し、検証済みの `WebRTC.xcframework` またはzipだけをbinary targetの入力として扱う。
+
+## スクリプト一覧
+
+| スクリプト | 用途 | 通常実行 |
+|---|---|---|
+| `scripts/update-webrtc-binary.sh` | branch解決、fetch/sync/build、検証、RTC packageへの取り込み、SwiftPM検証、テストまで一括実行する | 通常はこれだけを使う |
+| `scripts/doctor-webrtc-binary.sh` | 現在のWebRTC build/import状態を診断し、次に実行する具体コマンドを表示する | 失敗時に最初に使う |
+| `scripts/resolve-webrtc-branch.sh` | Chromium Dashboardからstable milestoneのWebRTC branch-headを取得する | 直接実行またはbuild scriptから自動実行する |
+| `scripts/build-current-webrtc-xcframework.sh` | 現在stableのWebRTC branchを自動取得して `WebRTC.xcframework` をビルドする | 上位スクリプトが内部で使う。buildだけを確認したい場合に使う |
+| `scripts/build-webrtc-xcframework.sh` | 指定されたbranch、platform、deployment targetでビルドする | 上位スクリプトが内部で使う。branchやplatformを固定したい場合に使う |
+| `scripts/verify-webrtc-xcframework.sh` | 各sliceに必要なpublic headersが存在するか検証する | 上位スクリプトが内部で使う。成果物だけを検証したい場合に使う |
+| `scripts/import-webrtc-xcframework.sh` | 検証済みzipをRTC package配下のbinary target入力へ取り込む | 上位スクリプトが内部で使う。既存zipだけを取り込み直す場合に使う |
+| `scripts/clean-webrtc-build-resources.sh` | WebRTC build output、SwiftPM artifact、source checkoutを削除する | build後の容量整理に使う |
+
+## 前提
+
+| 項目 | 標準値 | 説明 |
+|---|---|---|
+| depot_tools | `../depot_tools` | repository親ディレクトリから見た既定位置。`fetch`、`gclient`、`gn`、`ninja` を提供する |
+| WebRTC build root | `../webrtc-build` | repository親ディレクトリから見た既定位置。WebRTC source checkoutとbuild outputを置く |
+| RideIntercom repository | current directory | スクリプトと仕様ドキュメントだけを置く |
+| Xcode | `xcode-select -p` | 必要な場合だけ `DEVELOPER_DIR` で上書きする |
+
+## 通常運用
+
+WebRTC binaryを更新する通常手順は次の1コマンドだけとする。
+
+```bash
+cd <RideIntercom repository>
+scripts/update-webrtc-binary.sh
+```
+
+このスクリプトは次の処理を順番に実行する。
+
+| 順序 | 処理 | 失敗時の扱い |
+|---|---|---|
+| branch解決 | `WEBRTC_BRANCH` 未指定時にstable branch-headを取得する | 取得不能なら `WEBRTC_BRANCH=branch-heads/<number>` の指定を案内する |
+| source取得 | `WEBRTC_BUILD_ROOT/src` がなければ `fetch --nohooks webrtc_ios` から開始する | `depot_tools` 不備なら設定値を案内する |
+| sync/build | `gclient sync`、`gn gen`、`ninja` でiOS/macOS sliceをビルドする | iOS/macOS成果物が揃っている場合は自動で再組み立てへ進む |
+| 再組み立て | 既存の `src/out/*/WebRTC.framework` から `WebRTC.xcframework` とzipを作る | 必須slice不足なら診断コマンドを案内する |
+| header検証 | `WebRTC.h` がimportするheaderまで検証する | 欠落があれば採用しない |
+| 取り込み | `RideIntercom/packages/RTC/BinaryArtifacts/WebRTC/WebRTC.xcframework.zip` へコピーする | zip構造不正なら採用しない |
+| cache掃除 | SwiftPMの古いWebRTC展開物を削除する | 次回ビルドで再展開させる |
+| SwiftPM検証 | `RTCNativeWebRTC` をビルドする | binary targetまたはadapterの問題として止める |
+| テスト | `RTC` package testsを実行する | テスト失敗として止める |
+
+固定branchで再現する場合も、上位スクリプトに `WEBRTC_BRANCH` を渡す。
+
+```bash
+cd <RideIntercom repository>
+WEBRTC_BRANCH=branch-heads/7727 \
+scripts/update-webrtc-binary.sh
+```
+
+Catalyst sliceも必要な場合だけ明示する。標準ではCatalystを含めない。
+
+```bash
+cd <RideIntercom repository>
+MAC_CATALYST=true \
+scripts/update-webrtc-binary.sh
+```
+
+Catalystが失敗し、iOS/macOS成果物が揃っている場合、`REQUIRE_CATALYST=true` を指定していなければ上位スクリプトは自動でCatalystなしの再組み立てへ進む。
+
+## 失敗時の入口
+
+失敗時に手作業で原因を選ばない。まず診断スクリプトを実行する。
+
+```bash
+cd <RideIntercom repository>
+scripts/doctor-webrtc-binary.sh
+```
+
+診断スクリプトは次を確認し、不足があれば `NEXT:` として次の具体コマンドを表示する。
+
+| 確認 | 判断 |
+|---|---|
+| Xcode Developer directory | `DEVELOPER_DIR` がXcode本体を向いているか |
+| depot_tools | `gclient` と `fetch` が存在するか |
+| branch解決 | Chromium Dashboardからstable branchを取れるか |
+| source checkout | `../webrtc-build/src` があるか |
+| build output | iOS device、iOS simulator、macOS x64、macOS arm64のframeworkがあるか |
+| xcframework | header検証に通る `WebRTC.xcframework` があるか |
+| zip | `WebRTC-<branch>.xcframework.zip` があるか |
+| imported artifact | RTC package配下のbinary target zipとmetadataがあるか |
+| SwiftPM build | `RTCNativeWebRTC` がimport済みbinaryでビルドできるか |
+
+SwiftPM検証を省略して状態だけ見たい場合は次のようにする。
+
+```bash
+cd <RideIntercom repository>
+RUN_SWIFTPM_CHECK=false scripts/doctor-webrtc-binary.sh
+```
+
+## 通常ビルド
+
+`scripts/build-current-webrtc-xcframework.sh` は下位スクリプトである。通常は `scripts/update-webrtc-binary.sh` を使う。buildだけをやり直したい場合に限り、現在stableのWebRTC branch-headを自動取得して、iOS device、iOS simulator、macOSのsliceをビルドする。
+
+```bash
+cd <RideIntercom repository>
+scripts/build-current-webrtc-xcframework.sh
+```
+
+出力先は次の通りとする。
+
+| 出力 | パス |
+|---|---|
+| xcframework | `../webrtc-build/src/out/WebRTC.xcframework` |
+| zip | `../webrtc-build/src/out/WebRTC-<branch>.xcframework.zip` |
+| checksum | build scriptの最後に表示される `shasum -a 256` の値 |
+
+## プロジェクトへの取り込み
+
+`scripts/import-webrtc-xcframework.sh` は下位スクリプトである。通常は `scripts/update-webrtc-binary.sh` から自動実行される。検証済みzipだけをRTC package配下へ取り込む。WebRTC source checkoutとbuild outputはrepositoryへ入れない。
+
+```bash
+cd <RideIntercom repository>
+scripts/import-webrtc-xcframework.sh
+```
+
+取り込み先は次の通りとする。
+
+| 出力 | パス |
+|---|---|
+| binary target zip | `RideIntercom/packages/RTC/BinaryArtifacts/WebRTC/WebRTC.xcframework.zip` |
+| metadata | `RideIntercom/packages/RTC/BinaryArtifacts/WebRTC/WebRTC.xcframework.metadata` |
+
+特定のzipを取り込む場合は `WEBRTC_XCFRAMEWORK_ZIP` を指定する。
+
+```bash
+cd <RideIntercom repository>
+WEBRTC_XCFRAMEWORK_ZIP=../webrtc-build/src/out/WebRTC-branch-heads-7727.xcframework.zip \
+scripts/import-webrtc-xcframework.sh
+```
+
+この方式の採用により、`RideIntercom/packages/RTC/Package.swift` は外部配布packageではなく、package内のlocal binary target `WebRTC` を参照する。
+
+## branch固定ビルド
+
+`scripts/build-webrtc-xcframework.sh` は下位スクリプトである。特定のWebRTC branch-headでbuildだけを再現する場合は `WEBRTC_BRANCH` を明示する。
+
+```bash
+cd <RideIntercom repository>
+WEBRTC_BRANCH=branch-heads/7727 \
+scripts/build-webrtc-xcframework.sh
+```
+
+`WEBRTC_BRANCH` を指定しない場合、`scripts/build-webrtc-xcframework.sh` は `scripts/resolve-webrtc-branch.sh` を呼び出してstable branch-headを取得する。
+
+## platform指定
+
+必要なplatformだけをビルドする場合は、`IOS`、`MACOS`、`MAC_CATALYST` を `true` / `false` で指定する。
+
+```bash
+cd <RideIntercom repository>
+IOS=true \
+MACOS=false \
+MAC_CATALYST=false \
+scripts/build-current-webrtc-xcframework.sh
+```
+
+| 変数 | 標準値 | 対象 |
+|---|---|---|
+| `IOS` | `true` | iOS deviceとiOS simulator |
+| `MACOS` | `true` | macOS universal binary |
+| `MAC_CATALYST` | `false` | macOS Catalyst universal binary。Xcode / SDK差分で失敗しやすいため明示指定時だけ有効にする |
+| `ASSEMBLE_ONLY` | `false` | `true` の場合は既存の `src/out/*/WebRTC.framework` からxcframeworkとzipだけを作る |
+| `REQUIRE_CATALYST` | `false` | `scripts/update-webrtc-binary.sh` 用。`true` の場合はCatalyst失敗時にCatalystなし成果物へ自動復旧しない |
+| `RUN_SWIFTPM_VALIDATION` | `true` | `scripts/update-webrtc-binary.sh` 用。`false` の場合は `RTCNativeWebRTC` build検証を省略する |
+| `RUN_TESTS` | `true` | `scripts/update-webrtc-binary.sh` 用。`false` の場合はRTC package testsを省略する |
+| `IOS_DEPLOYMENT_TARGET` | `17.0` | iOS sliceのdeployment target |
+| `MACOS_DEPLOYMENT_TARGET` | `14.0` | macOS sliceのdeployment target |
+| `MAC_CATALYST_DEPLOYMENT_TARGET` | `17.0` | Catalyst sliceのdeployment target |
+
+## 既存成果物からの再組み立て
+
+途中でCatalystなど一部platformだけが失敗し、iOS / macOSの `WebRTC.framework` が生成済みの場合は、再コンパイルせずにxcframeworkだけを組み立て直せる。
+
+```bash
+cd <RideIntercom repository>
+ASSEMBLE_ONLY=true \
+IOS=true \
+MACOS=true \
+MAC_CATALYST=false \
+scripts/build-webrtc-xcframework.sh
+```
+
+この指定では `fetch`、`gclient sync`、`gn gen`、`ninja` を実行しない。既存の `../webrtc-build/src/out/*/WebRTC.framework` だけを入力にする。
+
+## iOSとmacOSの差分
+
+| platform | WebRTC build target | framework構造 | スクリプトでの扱い |
+|---|---|---|---|
+| iOS device | `framework_objc` | `WebRTC.framework/Headers` | arm64 device sliceとしてxcframeworkへ追加する |
+| iOS simulator | `framework_objc` | `WebRTC.framework/Headers` | x86_64とarm64を `lipo` で統合する |
+| macOS | `mac_framework_objc` | `WebRTC.framework/Versions/A/Headers` | x86_64とarm64を `lipo` で統合する |
+| macOS Catalyst | `framework_objc` | `WebRTC.framework/Versions/A/Headers` | x86_64とarm64を `lipo` で統合する |
+
+macOS sliceでは、配布済みbinaryと同様にpublic headersが不足する場合がある。`scripts/build-webrtc-xcframework.sh` はmacOS / Catalystの `gen/sdk/WebRTC.framework/Headers` を優先してpublic headersを補完し、`gen/sdk` が存在しない場合のみiOS device sliceをfallbackとして使う。その後 `scripts/verify-webrtc-xcframework.sh` で必須headerと `WebRTC.h` がimportするheaderの存在を検証する。
+
+Catalyst sliceはXcode / SDK差分の影響を受けやすい。`arm64-apple-ios*-macabi` のlinkで `libsystem_*.tbd is incompatible with arm64 (macCatalyst...)` が出る場合は、標準成果物からCatalystを外し、iOS + macOSのxcframeworkを先に採用する。
+
+## 成果物検証
+
+build後、binary targetへ差し替える前に必ず検証する。
+
+```bash
+cd <RideIntercom repository>
+scripts/verify-webrtc-xcframework.sh \
+  ../webrtc-build/src/out/WebRTC.xcframework
+```
+
+検証対象headerは次の通りとする。
+
+| header |
+|---|
+| `WebRTC.h` |
+| `RTCAudioSource.h` |
+| `RTCAudioTrack.h` |
+| `RTCConfiguration.h` |
+| `RTCDataChannel.h` |
+| `RTCDataChannelConfiguration.h` |
+| `RTCIceCandidate.h` |
+| `RTCIceServer.h` |
+| `RTCMediaConstraints.h` |
+| `RTCPeerConnection.h` |
+| `RTCPeerConnectionFactory.h` |
+| `RTCSessionDescription.h` |
+
+## 後片付け
+
+標準ではdry-runで削除対象だけを表示する。
+
+```bash
+cd <RideIntercom repository>
+scripts/clean-webrtc-build-resources.sh
+```
+
+実際に削除する場合は `DRY_RUN=false` を明示する。
+
+```bash
+cd <RideIntercom repository>
+DRY_RUN=false scripts/clean-webrtc-build-resources.sh
+```
+
+| `CLEAN_MODE` | 削除対象 | 用途 |
+|---|---|---|
+| `build-output` | `../webrtc-build/src/out` | build outputだけを消し、source checkoutは残す |
+| `swiftpm` | `RideIntercom/packages/RTC/.build/workspace-state.json`、`RideIntercom/packages/RTC/.build/artifacts/rtc/WebRTC`、`RideIntercom/packages/RTC/.build/artifacts/extract/rtc`、debug用 `WebRTC.framework`、WebRTC adapter build output、WebRTC関連の旧 `checkouts`、WebRTC関連の旧 `repositories` | SwiftPMが展開したWebRTC binary artifact、古い解決状態、旧remote package cacheを消す |
+| `source` | `../webrtc-build` | WebRTC source checkout全体を消す |
+| `all` | 上記すべて | ディスク容量を大きく空ける |
+
+通常は `build-output` の削除に留める。source checkoutを残すと、次回は `gclient sync` と差分buildで済む可能性が高い。
+
+## よくある確認
+
+| 確認 | コマンド | 期待 |
+|---|---|---|
+| depot_tools確認 | `../depot_tools/gclient --version` | `gclient.py` のusageが表示される |
+| branch自動解決 | `scripts/resolve-webrtc-branch.sh` | `branch-heads/<number>` が表示される |
+| shell構文確認 | `bash -n scripts/build-webrtc-xcframework.sh` | 出力なしで終了する |
+| 既存artifact検証 | `scripts/verify-webrtc-xcframework.sh <WebRTC.xcframework>` | header欠落があれば失敗する |
+| zipの作り直し | `scripts/build-webrtc-xcframework.sh` | 既存zipを削除してから作成し、削除済みheaderがarchiveに残らない |
+
+## 失敗時の判断
+
+手作業でこの表から選ぶ前に、必ず `scripts/doctor-webrtc-binary.sh` を実行する。表は診断結果の背景説明として使う。
+
+| 症状 | 原因候補 | 対応 |
+|---|---|---|
+| `depot_tools was not found` | `DEPOT_TOOLS_DIR` が違う | `DEPOT_TOOLS_DIR=/path/to/depot_tools` を指定する |
+| `failed to resolve current WebRTC branch` | Chromium Dashboardへ到達できない | `WEBRTC_BRANCH=branch-heads/<number>` を明示する |
+| `RTCAudioSource.h file not found` | macOS sliceのpublic headers不足 | build後に `verify-webrtc-xcframework.sh` を実行し、不足が残る場合は成果物を採用しない |
+| `gn gen` / `ninja` が失敗 | WebRTC branchとXcode/SDKの組み合わせ不整合 | branchを固定するか、対応するXcodeを `DEVELOPER_DIR` で指定する |
+| Catalyst arm64 linkが失敗 | Xcode SDKのmacabi system library差分 | `MAC_CATALYST=false` を指定し、必要なら `ASSEMBLE_ONLY=true` でiOS + macOSだけを再組み立てする |
+| ディスク容量不足 | WebRTC source treeまたはbuild outputが大きい | `clean-webrtc-build-resources.sh` で `build-output` または `source` を削除する |
+
+## 採用条件
+
+| 条件 | 完了基準 |
+|---|---|
+| build成功 | `WebRTC.xcframework` とzipが生成される |
+| header検証成功 | `verify-webrtc-xcframework.sh` が成功する |
+| checksum記録 | zipのSHA-256をbinary target更新時に記録する |
+| repository保護 | WebRTC source treeと巨大なbuild outputをcommitしない |
+
+## 取り込み方式の判断
+
+| 方式 | 利点 | 注意点 |
+|---|---|---|
+| zipをrepositoryに含める | checkout後すぐにSwiftPMで解決できる。外部配布URLが不要 | Git repositoryが約30MB増える。更新のたびにbinary diffではなくzip全体が履歴に残る |
+| zipをrelease等へ置く | repository本体を軽く保てる。SwiftPM checksumで固定できる | private配布、URL管理、checksum更新の運用が必要 |
+| xcframework directoryをrepositoryに含める | 中身を直接確認しやすい | ファイル数が多く、symlinkやframework構造の差分管理が重い |
+
+現時点ではzipが約30MBでGitHubの単一ファイル上限を下回るため、初期採用はrepository同梱で成立する。更新頻度が上がる、またはartifactが大きくなる場合はrelease配布へ移す。
