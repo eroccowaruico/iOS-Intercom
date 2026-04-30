@@ -23,6 +23,7 @@
 		9374C4D22FA3664D00D259B2 /* SCTPCore in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4D12FA3664D00D259B2 /* SCTPCore */; };
 		9374C4D42FA3664D00D259B2 /* STUNCore in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4D32FA3664D00D259B2 /* STUNCore */; };
 		9374C4D62FA3664D00D259B2 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4D52FA3664D00D259B2 /* WebRTC */; };
+		9374C4D82FA3670400D259B2 /* MultipeerConnectivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9374C4D72FA3670400D259B2 /* MultipeerConnectivity.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -45,6 +46,7 @@
 /* Begin PBXFileReference section */
 		9374C4C82FA3657700D259B2 /* AudioUnit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioUnit.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk/System/Library/Frameworks/AudioUnit.framework; sourceTree = DEVELOPER_DIR; };
 		9374C4C92FA3657700D259B2 /* AudioToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioToolbox.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk/System/Library/Frameworks/AudioToolbox.framework; sourceTree = DEVELOPER_DIR; };
+		9374C4D72FA3670400D259B2 /* MultipeerConnectivity.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MultipeerConnectivity.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk/System/Library/Frameworks/MultipeerConnectivity.framework; sourceTree = DEVELOPER_DIR; };
 		93F300C82F93829C0046716D /* RideIntercom.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RideIntercom.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		93F300D92F93829D0046716D /* RideIntercomTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RideIntercomTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		93F300E32F93829D0046716D /* RideIntercomUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RideIntercomUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -54,12 +56,12 @@
 		93F300EB2F93829D0046716D /* Exceptions for "RideIntercom" folder in "RideIntercom" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				AudioMixer,
-				Effectors/DynamicsProcessor,
-				Effectors/PeakLimiter,
-				Effectors/VADGate,
 				Info.plist,
-				RTC,
+				packages/Audio/AudioMixer,
+				packages/Audio/Effectors/DynamicsProcessor,
+				packages/Audio/Effectors/PeakLimiter,
+				packages/Audio/Effectors/VADGate,
+				packages/RTC,
 			);
 			target = 93F300C72F93829C0046716D /* RideIntercom */;
 		};
@@ -81,6 +83,14 @@
 			exceptions = (
 				93F300EB2F93829D0046716D /* Exceptions for "RideIntercom" folder in "RideIntercom" target */,
 			);
+			explicitFolders = (
+				packages/Audio/AudioMixer,
+				packages/Audio/Effectors/DynamicsProcessor,
+				packages/Audio/Effectors/PeakLimiter,
+				packages/Audio/Effectors/SoundIsolation,
+				packages/Audio/Effectors/VADGate,
+				packages/RTC,
+			);
 			path = RideIntercom;
 			sourceTree = "<group>";
 		};
@@ -100,6 +110,7 @@
 		93F300C52F93829C0046716D /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				9374C4D82FA3670400D259B2 /* MultipeerConnectivity.framework in Frameworks */,
 				9374C4D02FA3664D00D259B2 /* ICELite in Frameworks */,
 				9374C4CE2FA3664D00D259B2 /* DataChannel in Frameworks */,
 				9374C4CA2FA3657700D259B2 /* AudioUnit.framework in Frameworks */,
@@ -134,6 +145,7 @@
 		9374C4BB2FA3652B00D259B2 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				9374C4D72FA3670400D259B2 /* MultipeerConnectivity.framework */,
 				9374C4C92FA3657700D259B2 /* AudioToolbox.framework */,
 				9374C4C82FA3657700D259B2 /* AudioUnit.framework */,
 			);
