@@ -1,0 +1,133 @@
+# VADGate 仕様
+
+VADGate は RMS、ノイズフロア推定、ヒステリシス、hangover を使ってリアルタイム音声区間を判定し、必要に応じてサンプルへ gate gain を適用する Swift Package である。
+
+このライブラリは機械学習を使わない軽量な VAD と gate 処理だけを扱う。マイク取得、Audio Session 管理、AVAudioEngine の接続、通信、コーデック、音声デバイス制御は責務に含めない。
+
+## 目的
+
+| 観点 | 仕様 |
+|---|---|
+| 主目的 | 入力音声の短時間 RMS から speech/silence を判定し、UI 反応、送信制御、簡易 gate に使える状態と gain を返す |
+| 体験上の目的 | 文節間や語尾で即 silence にならないよう hangover を持たせ、通話音声のブツ切れを避ける |
+| 利用箇所 | マイク入力 tap、送信前の PCM 処理、AudioMixer へ入れる前のサンプル処理、診断UIの発話状態表示 |
+| 非目的 | ML VAD、ノイズ除去、Apple Audio Unit 生成、AVAudioNode としての直接接続、通信経路への組み込み |
+| 設計姿勢 | App から直接呼びやすい純 Swift DSP として、RMS 入力または `[Float]` サンプル入力を受ける |
+
+## パッケージ構成
+
+| 項目 | 内容 |
+|---|---|
+| パス | `RideIntercom/Effectors/VADGate` |
+| Package 名 | `VADGate` |
+| Product | `VADGate` library |
+| 対応プラットフォーム | iOS 17 以降、macOS 14 以降 |
+| 使用フレームワーク | `Foundation` |
+| テスト | Swift Testing による SwiftPM テスト |
+
+## 公開API
+
+| API | 種別 | 役割 |
+|---|---|---|
+| `VADGate` | final class | RMS 計算、状態遷移、ノイズフロア更新、gate gain 更新、サンプルへの gain 適用を行う |
+| `VADGateConfiguration` | struct | attack/release、しきい値offset、ノイズフロア、gain ramp などを保持する |
+| `VADGateAnalysis` | struct | 1回の処理結果として状態、RMS、ノイズフロア、しきい値、gain を返す |
+| `VADGateState` | enum | `silence` と `speech` の状態を表す |
+
+## 判定仕様
+
+| 状態 | 条件 | 遷移 |
+|---|---|---|
+| `silence` | `rmsDBFS > noiseFloorDBFS + speechThresholdOffsetDB` が `attackDuration` 以上続く | `speech` へ遷移する |
+| `silence` | speech 条件を満たさない | attack 累積をリセットし、ノイズフロアを更新する |
+| `speech` | `rmsDBFS < noiseFloorDBFS + silenceThresholdOffsetDB` が `releaseDuration` 以上続く | `silence` へ遷移する |
+| `speech` | silence 条件を満たさない | release 累積をリセットする |
+
+`speechThresholdOffsetDB` と `silenceThresholdOffsetDB` を分けることでヒステリシスを作る。`releaseDuration` は hangover として働き、発話中の短い無音で gate が閉じることを避ける。
+
+## 設定仕様
+
+| 設定 | 型 | 入力範囲 | 既定値 | 備考 |
+|---|---|---|---|---|
+| `attackDuration` | `Double` | `0.01...1.0` sec | `0.08` | speech へ入るまでに必要な継続時間 |
+| `releaseDuration` | `Double` | `0.05...2.0` sec | `0.5` | silence へ戻るまでの hangover 時間 |
+| `updateInterval` | `Double` | `0.005...0.1` sec | `0.02` | `duration` 未指定時の1フレーム時間 |
+| `speechThresholdOffsetDB` | `Float` | `1...40` dB | `12` | ノイズフロアから speech 判定しきい値までの差分 |
+| `silenceThresholdOffsetDB` | `Float` | `0...speechThresholdOffsetDB` dB | `8` | ノイズフロアから silence 判定しきい値までの差分。ヒステリシスが逆転しないよう speech 側以下へ丸める |
+| `initialNoiseFloorDBFS` | `Float` | `minimumNoiseFloorDBFS...maximumNoiseFloorDBFS` | `-60` | 初期ノイズフロア |
+| `minimumNoiseFloorDBFS` | `Float` | 任意 | `-90` | ノイズフロア下限 |
+| `maximumNoiseFloorDBFS` | `Float` | 任意 | `-20` | ノイズフロア上限 |
+| `noiseFloorAdaptation` | `Float` | `0...1` | `0.05` | silence 中のノイズフロア追従係数 |
+| `speechGain` | `Float` | `0...1` | `1` | speech 中の目標 gain |
+| `silenceGain` | `Float` | `0...1` | `0` | silence 中の目標 gain |
+| `gainAttackDuration` | `Double` | `0.001...1.0` sec | `0.03` | speech gain へ近づく速さ |
+| `gainReleaseDuration` | `Double` | `0.001...2.0` sec | `0.12` | silence gain へ近づく速さ |
+
+範囲外入力は `VADGateConfiguration` の初期化時に上表の範囲へ丸める。
+
+## 処理仕様
+
+| 処理 | 仕様 |
+|---|---|
+| `process(rmsDBFS:duration:)` | dBFS 値を直接受け取り、状態遷移、ノイズフロア更新、gain 更新を行って `VADGateAnalysis` を返す |
+| `process(samples:duration:)` | `[Float]` PCM サンプルから RMS dBFS を計算し、`process(rmsDBFS:duration:)` と同じ処理を行う |
+| `applyGate(to:duration:)` | `[Float]` PCM サンプルを解析し、更新後の gain をサンプルへ乗算して `VADGateAnalysis` を返す |
+| `reset(noiseFloorDBFS:)` | 状態、attack/release 累積、gain、ノイズフロアを初期化する |
+| `rms(samples:)` | サンプル列の短時間 RMS を返す |
+| `rmsDBFS(samples:)` | サンプル列の短時間 RMS を dBFS で返す |
+
+入力サンプルは `Float` PCM を想定する。チャンネル分離、AudioBufferList、`AVAudioPCMBuffer` からの取り出しは呼び出し側で行う。
+
+## 接続例
+
+| ユースケース | 呼び出し方 |
+|---|---|
+| UI の発話インジケータ | `process(samples:)` の `state` と `rmsDBFS` を表示に使う |
+| 送信前 gate | `applyGate(to:)` で PCM サンプルへ gain を適用してからエンコードへ渡す |
+| VAD だけ利用 | `process(rmsDBFS:)` を使い、gate gain は使わない |
+| ノイズ環境変化への追従 | silence 中の `noiseFloorDBFS` 更新結果を診断値として確認する |
+
+```swift
+import VADGate
+
+let gate = VADGate()
+
+var frame: [Float] = capturedPCMFrame
+let analysis = gate.applyGate(to: &frame, duration: 0.02)
+
+if analysis.state == .speech {
+    // frame を送信処理へ渡す
+}
+```
+
+## AudioMixer との関係
+
+| 観点 | 仕様 |
+|---|---|
+| AVAudioNode | VADGate は `AVAudioNode` を公開しない |
+| AudioMixer へ渡す位置 | AudioMixer へ Source node を入れる前の PCM 処理、または入力 tap の中で使う |
+| Effectors との違い | SoundIsolation、DynamicsProcessor、PeakLimiter は Audio Unit node を返す。VADGate はサンプル処理と解析結果を返す |
+| 将来拡張 | AVAudioNode 化が必要になった場合は、別途 node wrapper を追加する |
+
+## 制約と注意点
+
+| 観点 | 内容 |
+|---|---|
+| ML 非使用 | 機械学習VADではないため、騒音環境では誤検出が起きる可能性がある |
+| hangover | `releaseDuration` を短くしすぎると語尾や文節間で gate が閉じやすい |
+| ノイズフロア | ノイズフロアは silence 中のみ追従するため、長時間 speech 状態が続く環境では更新が遅れる |
+| gate gain | 完全 mute が不自然な場合は `silenceGain` を `0.1` などに上げる |
+| リアルタイム処理 | 高頻度コールを想定し、Audio Session や engine 操作は行わない |
+
+## テスト仕様
+
+| テスト観点 | 確認内容 |
+|---|---|
+| 既定値 | Realtime VAD / gate 用の初期設定になっている |
+| 値の正規化 | 各設定値が定義範囲に丸められる |
+| RMS | `[Float]` サンプルから RMS と dBFS を計算できる |
+| attack | speech しきい値超過が attack duration 続くまで `silence` を維持する |
+| release/hangover | silence しきい値未満が release duration 続くまで `speech` を維持する |
+| gate | `applyGate(to:)` が更新後 gain をサンプルへ適用する |
+
+実マイクや実スピーカーに依存する音声品質評価は、このライブラリを呼び出す統合経路側で扱う。
