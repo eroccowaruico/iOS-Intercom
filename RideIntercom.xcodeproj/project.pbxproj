@@ -65,6 +65,7 @@
 				packages/Audio/Effectors/DynamicsProcessor,
 				packages/Audio/Effectors/PeakLimiter,
 				packages/Audio/Effectors/VADGate,
+				packages/Audio/SessionManager,
 				packages/RTC,
 			);
 			target = 93F300C72F93829C0046716D /* RideIntercom */;
