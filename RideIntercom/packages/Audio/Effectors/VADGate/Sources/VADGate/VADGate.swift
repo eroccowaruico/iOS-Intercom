@@ -1,4 +1,10 @@
 import Foundation
+import AudioToolbox
+@preconcurrency import AVFAudio
+
+public enum VADGateError: Error, Equatable, Sendable {
+	case instantiationFailed(String)
+}
 
 public enum VADGateState: Equatable, Sendable {
 	case silence
@@ -88,6 +94,10 @@ public final class VADGate {
 		self.gain = configuration.silenceGain
 	}
 
+	public func apply(configuration: VADGateConfiguration) {
+		self.configuration = configuration
+	}
+
 	public func reset(noiseFloorDBFS: Float? = nil) {
 		state = .silence
 		attackElapsed = 0
@@ -147,19 +157,13 @@ public final class VADGate {
 	}
 
 	public static func rms(samples: [Float]) -> Float {
-		guard !samples.isEmpty else {
-			return 0
-		}
-
-		let sumOfSquares = samples.reduce(Float(0)) { partial, sample in
-			partial + sample * sample
-		}
+		guard !samples.isEmpty else { return 0 }
+		let sumOfSquares = samples.reduce(Float(0)) { $0 + $1 * $1 }
 		return (sumOfSquares / Float(samples.count)).squareRoot()
 	}
 
 	public static func rmsDBFS(samples: [Float]) -> Float {
-		let value = max(rms(samples: samples), 0.000_001)
-		return 20 * log10(value)
+		20 * log10(max(rms(samples: samples), 0.000_001))
 	}
 
 	private func adaptNoiseFloor(toward rmsDBFS: Float) {
@@ -185,5 +189,103 @@ public final class VADGate {
 			silenceThresholdDBFS: noiseFloorDBFS + configuration.silenceThresholdOffsetDB,
 			gain: gain
 		)
+	}
+}
+
+extension VADGate: @unchecked Sendable {}
+
+// MARK: - VADGateEffect
+
+public final class VADGateEffect {
+	private let auNode: AVAudioUnit
+
+	public private(set) var configuration: VADGateConfiguration
+
+	public var node: AVAudioNode { auNode }
+	public var avAudioUnit: AVAudioUnit { auNode }
+	public var vadGate: VADGate { (auNode.auAudioUnit as! AudioUnit).vadGate }
+
+	private static let componentDescription = AudioComponentDescription(
+		componentType: kAudioUnitType_Effect,
+		componentSubType: 0x76_61_64_67, // 'vadg'
+		componentManufacturer: 0x52_64_49_63, // 'RdIc'
+		componentFlags: 0,
+		componentFlagsMask: 0
+	)
+
+	private static let registration: Void = {
+		AUAudioUnit.registerSubclass(AudioUnit.self, as: componentDescription, name: "VADGate", version: 1)
+	}()
+
+	public static func make(configuration: VADGateConfiguration = VADGateConfiguration()) async throws -> VADGateEffect {
+		_ = registration
+		return VADGateEffect(
+			auNode: try await withCheckedThrowingContinuation { continuation in
+				AVAudioUnit.instantiate(with: componentDescription) { avAudioUnit, error in
+					if let avAudioUnit {
+						continuation.resume(returning: avAudioUnit)
+					} else {
+						continuation.resume(throwing: VADGateError.instantiationFailed(error?.localizedDescription ?? ""))
+					}
+				}
+			},
+			configuration: configuration
+		)
+	}
+
+	init(auNode: AVAudioUnit, configuration: VADGateConfiguration) {
+		self.auNode = auNode
+		self.configuration = configuration
+		apply(configuration)
+	}
+
+	public func apply(_ configuration: VADGateConfiguration) {
+		vadGate.apply(configuration: configuration)
+		self.configuration = configuration
+	}
+
+	private final class AudioUnit: AUAudioUnit {
+		let vadGate = VADGate()
+		private var _inputBusses: AUAudioUnitBusArray!
+		private var _outputBusses: AUAudioUnitBusArray!
+
+		override init(componentDescription: AudioComponentDescription, options: AudioComponentInstantiationOptions = []) throws {
+			try super.init(componentDescription: componentDescription, options: options)
+			let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000, channels: 2, interleaved: false)!
+			_inputBusses = AUAudioUnitBusArray(audioUnit: self, busType: .input, busses: [try AUAudioUnitBus(format: format)])
+			_outputBusses = AUAudioUnitBusArray(audioUnit: self, busType: .output, busses: [try AUAudioUnitBus(format: format)])
+		}
+
+		override var inputBusses: AUAudioUnitBusArray { _inputBusses }
+		override var outputBusses: AUAudioUnitBusArray { _outputBusses }
+		override var canProcessInPlace: Bool { true }
+
+		override var internalRenderBlock: AUInternalRenderBlock {
+			let vad = vadGate
+			return { _, timestamp, frameCount, _, outputData, _, pullInputBlock in
+				guard let pullInputBlock else { return kAudioUnitErr_NoConnection }
+				var flags: AudioUnitRenderActionFlags = []
+				let status = pullInputBlock(&flags, timestamp, frameCount, 0, outputData)
+				guard status == noErr else { return status }
+
+				let buffers = UnsafeMutableAudioBufferListPointer(outputData)
+				let n = Int(frameCount)
+				var ss: Float = 0, count = 0
+				for b in buffers {
+					guard let d = b.mData else { continue }
+					let p = UnsafeBufferPointer<Float>(start: d.assumingMemoryBound(to: Float.self), count: min(n, Int(b.mDataByteSize) / MemoryLayout<Float>.size))
+					for s in p { ss += s * s }
+					count += p.count
+				}
+				let rms = count > 0 ? (ss / Float(count)).squareRoot() : 0
+				let gain = vad.process(rmsDBFS: 20 * log10(max(rms, 0.000_001)), duration: Double(frameCount) / 48_000.0).gain
+				for b in buffers {
+					guard let d = b.mData else { continue }
+					let p = UnsafeMutableBufferPointer<Float>(start: d.assumingMemoryBound(to: Float.self), count: min(n, Int(b.mDataByteSize) / MemoryLayout<Float>.size))
+					for i in p.indices { p[i] *= gain }
+				}
+				return noErr
+			}
+		}
 	}
 }

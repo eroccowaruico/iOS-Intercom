@@ -7,6 +7,7 @@ public enum AudioMixerError: Error, Equatable, Sendable {
 	case busAlreadyRouted(String)
 	case cycleDetected(source: String, destination: String)
 	case invalidEffectIndex(Int)
+	case incompatibleEffectNode
 }
 
 public final class AudioMixer {
@@ -162,7 +163,26 @@ public final class MixerBus {
 			throw AudioMixerError.invalidRoute(id)
 		}
 
+		// Nodes with no output bus cannot pass audio downstream
+		guard node.numberOfOutputs > 0 else {
+			throw AudioMixerError.incompatibleEffectNode
+		}
+
 		engine.attach(node)
+
+		// For AVAudioUnit nodes with pre-configured bus formats (e.g. custom AUAudioUnit
+		// subclasses), validate that their format matches the mixer before connecting.
+		// AVAudioUnitEffect nodes are excluded because they negotiate format at connect time.
+		if let auNode = node as? AVAudioUnit, !(node is AVAudioUnitEffect),
+		   auNode.auAudioUnit.outputBusses.count > 0 {
+			let nodeFmt = auNode.auAudioUnit.outputBusses[0].format
+			if nodeFmt.sampleRate > 0,
+			   nodeFmt.sampleRate != format.sampleRate || nodeFmt.channelCount != format.channelCount {
+				engine.detach(node)
+				throw AudioMixerError.incompatibleEffectNode
+			}
+		}
+
 		effects.append(node)
 		effectNodeIDs.insert(nodeID)
 		rebuildChain()

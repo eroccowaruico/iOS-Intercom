@@ -68,6 +68,19 @@ import AVFAudio
     }
 }
 
+@Test func addEffectRejectsSinkNode() throws {
+    let mixer = AudioMixer()
+    let bus = try mixer.createBus("voice")
+
+    do {
+        // engine.outputNode has numberOfOutputs == 0, so it is a sink-only node
+        try bus.addEffect(mixer.engine.outputNode)
+        Issue.record("sink node should throw incompatibleEffectNode")
+    } catch {
+        #expect(error as? AudioMixerError == .incompatibleEffectNode)
+    }
+}
+
 @Test func routeRejectsCycles() throws {
     let mixer = AudioMixer()
     let local = try mixer.createBus("local")

@@ -1,5 +1,6 @@
 import Testing
 @testable import VADGate
+import AVFAudio
 
 @Test func defaultConfigurationUsesRealtimeVoiceGatePreset() {
     let configuration = VADGateConfiguration()
@@ -64,6 +65,20 @@ import Testing
     #expect(gate.process(rmsDBFS: -58).state == .speech)
     #expect(gate.process(rmsDBFS: -58).state == .speech)
     #expect(gate.process(rmsDBFS: -58).state == .silence)
+}
+
+@Test func vadGateEffectExposesValidAVAudioNode() async throws {
+    let effect = try await VADGateEffect.make()
+
+    #expect(effect.node.numberOfInputs == 1)
+    #expect(effect.node.numberOfOutputs == 1)
+}
+
+@Test func vadGateEffectAppliesConfigurationToVADGate() async throws {
+    let config = VADGateConfiguration(attackDuration: 0.5)
+    let effect = try await VADGateEffect.make(configuration: config)
+
+    #expect(effect.vadGate.configuration.attackDuration == 0.5)
 }
 
 @Test func applyGateScalesSamplesByCurrentGain() {
