@@ -11,7 +11,10 @@ public enum PCMAudioCodec {
         data.reserveCapacity(samples.count * MemoryLayout<Int16>.size)
         for sample in samples {
             let clamped = min(1, max(-1, sample))
-            let encoded = Int16((clamped * Float(Int16.max)).rounded()).littleEndian
+            let scale: Float = clamped < 0 ? 32_768 : 32_767
+            let rounded = Int((clamped * scale).rounded(.toNearestOrAwayFromZero))
+            let bounded = min(Int(Int16.max), max(Int(Int16.min), rounded))
+            let encoded = Int16(bounded).littleEndian
             data.append(UInt8(truncatingIfNeeded: encoded))
             data.append(UInt8(truncatingIfNeeded: encoded >> 8))
         }
@@ -25,9 +28,46 @@ public enum PCMAudioCodec {
         return stride(from: 0, to: data.count, by: MemoryLayout<Int16>.size).map { offset in
             let low = UInt16(data[offset])
             let high = UInt16(data[offset + 1]) << 8
-            let value = Int16(bitPattern: low | high)
-            return Float(Int16(littleEndian: value)) / Float(Int16.max)
+            let value = Int16(littleEndian: Int16(bitPattern: low | high))
+            if value == Int16.min { return -1 }
+            if value < 0 { return Float(value) / 32_768 }
+            return Float(value) / Float(Int16.max)
         }
+    }
+}
+
+public struct PCM16AudioCodec: AudioFrameCodec {
+    public let identifier: AudioCodecIdentifier = .pcm16
+
+    public init() {}
+
+    public func encode(_ frame: AudioFrame) throws -> EncodedAudioFrame {
+        EncodedAudioFrame(
+            sequenceNumber: frame.sequenceNumber,
+            codec: identifier,
+            format: frame.format,
+            capturedAt: frame.capturedAt,
+            sampleCount: frame.samples.count,
+            payload: PCMAudioCodec.encode(frame.samples)
+        )
+    }
+
+    public func decode(_ frame: EncodedAudioFrame) throws -> AudioFrame {
+        guard frame.codec == identifier else {
+            throw AudioCodecError.unsupportedCodec(frame.codec)
+        }
+        return AudioFrame(
+            sequenceNumber: frame.sequenceNumber,
+            format: frame.format,
+            capturedAt: frame.capturedAt,
+            samples: try PCMAudioCodec.decode(frame.payload)
+        )
+    }
+}
+
+public extension AudioCodecRegistry {
+    static var packetAudioDefault: AudioCodecRegistry {
+        AudioCodecRegistry(codecs: [PCM16AudioCodec()])
     }
 }
 
@@ -42,35 +82,41 @@ struct PacketAudioSequencer: Sendable {
     private let sessionID: String
     private let senderID: PeerID
     private let streamID: UUID
+    private let codecID: AudioCodecIdentifier
+    private let codecRegistry: AudioCodecRegistry
 
-    init(sessionID: String, senderID: PeerID, streamID: UUID = UUID()) {
+    init(
+        sessionID: String,
+        senderID: PeerID,
+        codecID: AudioCodecIdentifier,
+        codecRegistry: AudioCodecRegistry,
+        streamID: UUID = UUID()
+    ) {
         self.sessionID = sessionID
         self.senderID = senderID
+        self.codecID = codecID
+        self.codecRegistry = codecRegistry
         self.streamID = streamID
     }
 
-    func makeEnvelope(from frame: AudioFrame) -> PacketAudioEnvelope {
+    func makeEnvelope(from frame: AudioFrame) throws -> PacketAudioEnvelope {
         PacketAudioEnvelope(
             sessionID: sessionID,
             senderID: senderID,
             streamID: streamID,
-            frame: EncodedAudioFrame(
-                sequenceNumber: frame.sequenceNumber,
-                codec: .pcm16,
-                format: frame.format,
-                capturedAt: frame.capturedAt,
-                payload: PCMAudioCodec.encode(frame.samples)
-            )
+            frame: try codecRegistry.encode(frame, using: codecID)
         )
     }
 }
 
 struct PacketAudioReceiveFilter: Sendable {
     private let sessionID: String
+    private let codecRegistry: AudioCodecRegistry
     private var seenPackets: Set<PacketID> = []
 
-    init(sessionID: String) {
+    init(sessionID: String, codecRegistry: AudioCodecRegistry) {
         self.sessionID = sessionID
+        self.codecRegistry = codecRegistry
     }
 
     mutating func accept(_ envelope: PacketAudioEnvelope, from peerID: PeerID) throws -> ReceivedAudioFrame? {
@@ -80,12 +126,7 @@ struct PacketAudioReceiveFilter: Sendable {
         seenPackets.insert(packetID)
         return ReceivedAudioFrame(
             peerID: peerID,
-            frame: AudioFrame(
-                sequenceNumber: envelope.frame.sequenceNumber,
-                format: envelope.frame.format,
-                capturedAt: envelope.frame.capturedAt,
-                samples: try PCMAudioCodec.decode(envelope.frame.payload)
-            )
+            frame: try codecRegistry.decode(envelope.frame)
         )
     }
 

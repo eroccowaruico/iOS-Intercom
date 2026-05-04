@@ -10,6 +10,7 @@ public final class WebRTCInternetRoute: RTCCallRoute {
         supportsReliableApplicationData: true,
         supportsUnreliableApplicationData: true,
         requiresSignaling: true,
+        supportedAudioCodecs: [.routeManaged],
         backendName: "Cloudflare Realtime SFU/TURN"
     )
     public let mediaOwnership: AudioMediaOwnership = .routeManagedMediaStream

@@ -17,6 +17,8 @@
 | WebRTC public API | `RTC` の public API に native WebRTC 型を露出しない |
 | WebRTC 実装配置 | 共通 `RTC` target から分離し、native WebRTC adapter target に閉じ込める |
 | WebRTC binary供給 | `webrtc.googlesource.com/src` から自前ビルドした `WebRTC.xcframework` をlocal binary targetとして取り込む |
+| 音声codec | `AudioFrameCodec` と `AudioCodecRegistry` で複数codecを扱う。`RTC` はPCM16だけをbuilt-inで持ち、`mpeg4AACELDv2` と `opus` はアプリが `RideIntercom/packages/Audio/Codec` を使ってregistryへ注入する |
+| Audio package連携 | `RTC` は `RideIntercom/packages/Audio` に依存しない。アプリが `RTC` と `Audio/Codec` の両方をimportし、`AnyAudioFrameCodec` または `AudioFrameCodec` 実装で橋渡しする |
 | サポートOS | RideIntercom本体と同じ最新OSのみを対象にし、iOSとmacOSの最低deployment targetを `26.4` に揃える。Mac CatalystとvisionOSは対象外にする |
 | ビルド caveat | native WebRTC binary framework は SwiftPM 単体テストで header 解決に失敗する場合がある。共通 `RTC` target はSDK非依存でテスト可能に保つ |
 
@@ -24,9 +26,9 @@
 
 | パス | 役割 | 代表型 |
 |---|---|---|
-| `Sources/RTC/Core` | アプリ向けの共通 contract | `CallSession`, `CallStartRequest`, `PeerDescriptor`, `RTCCredential`, `ApplicationDataMessage`, `AudioFrame` |
+| `Sources/RTC/Core` | アプリ向けの共通 contract | `CallSession`, `CallStartRequest`, `PeerDescriptor`, `RTCCredential`, `ApplicationDataMessage`, `AudioFrame`, `AudioFrameCodec`, `AudioCodecRegistry` |
 | `Sources/RTC/Routing` | 経路 plugin 境界と自動切替 | `RTCCallRoute`, `RouteManager`, `AnyRouteFactory`, `UnavailableCallSession` |
-| `Sources/RTC/PacketAudio` | Multipeer 用 packet audio と wire payload | `PCMAudioCodec`, `PacketAudioEnvelope`, `PacketCrypto`, `MultipeerWireMessage` |
+| `Sources/RTC/PacketAudio` | Multipeer 用 packet audio と wire payload | `PCM16AudioCodec`, `PCMAudioCodec`, `PacketAudioEnvelope`, `PacketCrypto`, `MultipeerWireMessage` |
 | `Sources/RTC/Multipeer` | 近距離 route 実装 | `MultipeerLocalRoute`, `MultipeerConnectionTransport`, `MultipeerPacketMediaSession` |
 | `Sources/RTC/WebRTC` | WebRTC 共通 contract と Cloudflare signaling 境界 | `WebRTCInternetRoute`, `NativeWebRTCEngine`, `CloudflareRealtimeConfiguration`, `WebRTCSignalingClient` |
 | `Sources/RTC/Support` | 小さな共通補助 | `EventSource` |
@@ -66,7 +68,8 @@ flowchart TB
 | UI | 表示、操作、アクセシビリティ、診断画面 | UIを持たない |
 | グループ | group ID、secret、表示名、招待導線を管理 | `RTCCredential` と `PeerDescriptor` だけを受け取る |
 | 音声デバイス | 入出力デバイス選択、OS permission、アプリ側音声処理 | routeごとの media lifecycle を制御する |
-| Multipeer 音声 | `AudioFrame` を生成して `sendAudioFrame` に渡す | packet化、暗号化、送信、受信filterを担当する |
+| 音声codec実装 | `RideIntercom/packages/Audio/Codec` を使い、RTC向け `AudioFrameCodec` としてregistryへ注入する | codec contract、codec選択、wire envelope、未対応codecエラーを担当する |
+| Multipeer 音声 | `AudioFrame` を生成して `sendAudioFrame` に渡す | 選択codecでencode/decode、packet化、暗号化、送信、受信filterを担当する |
 | WebRTC 音声 | WebRTC経路ではサンプル送信をしない | `RTCAudioTrack` の有効化と peer connection を担当する |
 | アプリデータ | namespace と payload schema を定義する | binary payload と配送信頼性だけを扱う |
 | 接続設定 | ユーザー設定から有効routeを決める | `CallRouteConfiguration` に従って選択とhandoverを行う |
@@ -79,6 +82,11 @@ flowchart TB
 | `CallStartRequest` | local peer、期待peer、credential、audio format、route設定を渡す |
 | `CallRouteConfiguration` | 有効route、優先route、fallback、自動復帰、standby/warm設定を定義する |
 | `CallSessionEvent` | 接続状態、route状態、member、metrics、application data、errorを通知する |
+| `AudioCodecIdentifier` | codecを識別する拡張可能な値型。built-inは `pcm16`、`mpeg4AACELDv2`、`opus`、`route-managed` を定義する |
+| `AudioCodecConfiguration` | `CallStartRequest` に含めるcodec優先順。空配列は `pcm16` に正規化する |
+| `AudioFrameCodec` | `AudioFrame` と `EncodedAudioFrame` の相互変換を行うcodec実装境界 |
+| `AnyAudioFrameCodec` | アプリがclosureで `Audio/Codec` との橋渡しを作るための軽量wrapper |
+| `AudioCodecRegistry` | codec実装を登録し、優先順とroute対応codecから使用codecを選択する |
 | `RTCCallRoute` | `RouteManager` が扱う経路plugin境界。アプリは直接保持しない |
 | `NativeWebRTCEngine` | `WebRTCInternetRoute` が使うWebRTC engine抽象。native SDK型を隠す |
 
@@ -103,15 +111,45 @@ flowchart TB
 | route内部control | `MultipeerWireMessage.control` | signaling または DataChannel |
 | アプリデータ | `MultipeerWireMessage.applicationData` | `RTCDataChannel`、失敗時は signaling fallback |
 | 音声media | `MultipeerWireMessage.packetAudio` | RTP/SRTP media stream |
-| 音声codec | アプリ管理のPCM packetから開始し、将来差し替え可能 | WebRTC native codec selection |
+| 音声codec | `AudioCodecRegistry` で選択したpacket audio codec | WebRTC native codec selection |
 
 `ApplicationDataMessage` は namespace、payload、配送信頼性だけを持つ。RTC内部の handshake、keepalive、fallback diagnostics はアプリデータに混ぜない。
+
+## Audio codec
+
+| 項目 | 仕様 |
+|---|---|
+| codec識別子 | `AudioCodecIdentifier` は文字列値型とする。固定enumにせず、Audio packageや将来codecが独自identifierを追加できるようにする |
+| Audio/Codecとの対応 | `pcm16`、`mpeg4AACELDv2`、`opus` は `Audio/Codec.CodecIdentifier.rawValue` と同じ文字列にする |
+| codec設定 | `CallStartRequest.audioCodecConfiguration.preferredCodecs` に優先順を渡す。既定は `pcm16` とする |
+| codec実装 | `AudioFrameCodec` が `AudioFrame` から `EncodedAudioFrame` へのencodeと、逆方向のdecodeを提供する |
+| app bridge | アプリは `Audio/Codec.AudioCodec` のencode/decodeを `AnyAudioFrameCodec` または独自 `AudioFrameCodec` に包み、`AudioCodecRegistry` として `MultipeerLocalRoute` に渡す |
+| codec登録 | `AudioCodecRegistry` に複数の `AudioFrameCodec` を登録する。登録済みcodecだけがpacket audio routeで選択可能になる |
+| built-in codec | `PCM16AudioCodec` を標準提供する。既存の `PCMAudioCodec.encode/decode` はAudio/CodecのPCM16と同じsigned little-endian変換に揃える |
+| 未対応codec | 優先codecとroute対応codecが一致しない場合は `unsupportedAudioCodec` を通知し、routeをavailableにしない |
+| wire envelope | `EncodedAudioFrame.codec`、`AudioFormatDescriptor`、sequence、capturedAt、sampleCount、payloadを保持する。受信側はcodec identifierでdecode実装を選ぶ |
+| WebRTC route | `route-managed` として扱う。アプリから `sendAudioFrame` されたPCM/encoded packetをWebRTCへ流さず、native WebRTC側のcodec negotiationに任せる |
+
+| codec | 提供元 | RTC依存 | Audio package連携 | 主用途 |
+|---|---|---|---|---|
+| `pcm16` | `RTC` built-in | なし | Audio package不要 | Multipeer packet audioの標準経路とテスト基準 |
+| `mpeg4AACELDv2` | `Audio/Codec` | `RTC` はidentifierだけを定義 | アプリが `AudioFrameCodec` としてregistryへ注入 | AVFoundation系低遅延codec候補 |
+| `opus` | `Audio/Codec` | `RTC` はidentifierだけを定義 | アプリが `AudioFrameCodec` としてregistryへ注入 | 低bitrate packet audio候補 |
+| `route-managed` | route実装 | `WebRTCInternetRoute` のcapabilityで表現 | Audio packageとは接続しない | WebRTC native media stream |
+
+| アプリでの接続手順 | 依存方向 | 実装内容 | 完了条件 |
+|---|---|---|---|
+| package import | App -> RTC / App -> Audio/Codec | アプリtargetが `RTC` と `Codec` をimportする | `RTC` package manifestにAudio package dependencyを追加しない |
+| format変換 | App内 | `AudioFormatDescriptor` と `CodecAudioFormat` を同じsampleRate/channelCountで相互変換する | アプリがOSやroute別にformat差分を持ち込まない |
+| codec変換 | App内 | `EncodedAudioFrame` と `EncodedCodecFrame` を同じsequence/capturedAt/sampleCount/payloadで相互変換する | packet audio envelopeがAudio/Codecのdecodeに必要なmetadataを失わない |
+| registry注入 | App -> RTC | `AudioCodecRegistry(codecs:)` を作り `MultipeerLocalRoute(displayName:codecRegistry:)` に渡す | `CallStartRequest.audioCodecConfiguration.preferredCodecs` の優先順でcodecが選ばれる |
+| built-in fallback | RTCのみ | `PCM16AudioCodec` を使用する | Audio/Codecをまだ接続しなくてもRTC単体テストとMultipeer packet audioが動作する |
 
 ## 音声責務
 
 | 経路 | `AudioMediaOwnership` | アプリから `sendAudioFrame` | RTC側責務 |
 |---|---|---|---|
-| Multipeer | `appManagedPacketAudio` | 使用する | encode、encrypt、sequence、receive filter、send/receive |
+| Multipeer | `appManagedPacketAudio` | 使用する | codec選択、encode、encrypt、sequence、receive filter、decode、send/receive |
 | WebRTC | `routeManagedMediaStream` | 使用しない | `RTCAudioTrack`、peer connection、DataChannel、stats取得境界 |
 
 `RouteManager` は active route が `appManagedPacketAudio` を持つ場合だけ `sendAudioFrame` を転送する。WebRTC active時にアプリが `sendAudioFrame` を呼んでも、音声サンプルは route に渡さない。
@@ -162,6 +200,8 @@ sequenceDiagram
 | payload | `MultipeerWireMessage` で control / application data / packet audio を分離する |
 | 暗号化 | packet audio payload は `RTCCredential.sharedSecret` から AES-GCM で保護する |
 | media開始前 | control と handshake は可能。packet audioは送受信しない |
+| codec選択 | `CallStartRequest.audioCodecConfiguration.preferredCodecs` と `MultipeerLocalRoute` の `AudioCodecRegistry.supportedCodecs` から最初に一致したcodecを使う |
+| codec注入 | `MultipeerLocalRoute(displayName:codecRegistry:)` で外部codecを注入できる。未指定時は `PCM16AudioCodec` だけを使う |
 
 ## WebRTC route
 
@@ -214,6 +254,8 @@ sequenceDiagram
 | テスト対象 | 検証内容 |
 |---|---|
 | wire payload | application data と packet audio が別 payload として扱われる |
+| codec selection | 優先codecがregistryに存在する場合、そのcodec identifierがpacket audio envelopeに保持される |
+| codec rejection | 優先codecがregistryに存在しない場合、packet audio routeが未対応codecとして失敗する |
 | route filtering | `enabledRoutes` でopt-outされたrouteを準備しない |
 | fallback | Multipeer失敗時にWebRTCへ自動切替する |
 | audio ownership | `routeManagedMediaStream` active時に `sendAudioFrame` を転送しない |
@@ -225,7 +267,8 @@ sequenceDiagram
 |---|---|
 | native型の漏れ | app-facing API と `RTC` target public API に `RTCPeerConnection` などを出さない |
 | route追加 | 新routeは `RTCCallRoute` と `RouteCapabilities` から追加する |
+| codec追加 | 新codecはアプリ側で `AudioFrameCodec` 実装または `AnyAudioFrameCodec` として登録する。`RTC` targetからAudio packageへ直接依存しない |
 | app data schema | RTC packageにはschemaを置かず、namespaceごとの解釈はアプリ側に置く |
-| audio format | Multipeer packet audioでは `AudioFormatDescriptor` をwire envelopeに含める |
+| audio format | Multipeer packet audioではcodec identifier、`AudioFormatDescriptor`、sampleCountをwire envelopeに含める |
 | 診断 | TX/RX/JIT、route metrics、backend detail はCall画面ではなくDiagnosticsへ集約する |
 | サーバー | Cloudflare以外の独自サーバー機能は追加しない |

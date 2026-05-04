@@ -5,35 +5,55 @@ import OSLog
 
 public final class MultipeerLocalRoute: RTCCallRoute {
     public let kind: RouteKind = .multipeer
-    public let capabilities = RouteCapabilities(
-        supportsLocalDiscovery: true,
-        supportsOfflineOperation: true,
-        supportsRouteManagedMedia: false,
-        supportsAppManagedPacketAudio: true,
-        supportsReliableApplicationData: true,
-        supportsUnreliableApplicationData: true,
-        requiresSignaling: false,
-        backendName: "MultipeerConnectivity"
-    )
+    public var capabilities: RouteCapabilities {
+        RouteCapabilities(
+            supportsLocalDiscovery: true,
+            supportsOfflineOperation: true,
+            supportsRouteManagedMedia: false,
+            supportsAppManagedPacketAudio: true,
+            supportsReliableApplicationData: true,
+            supportsUnreliableApplicationData: true,
+            requiresSignaling: false,
+            supportedAudioCodecs: codecRegistry.supportedCodecs,
+            backendName: "MultipeerConnectivity"
+        )
+    }
     public let mediaOwnership: AudioMediaOwnership = .appManagedPacketAudio
     public var events: AsyncStream<RouteEvent> { eventSource.stream }
 
     private let eventSource = EventSource<RouteEvent>()
     private let localDisplayName: String
+    private let codecRegistry: AudioCodecRegistry
     private var transport: MultipeerConnectionTransport?
     private var mediaSession: MultipeerPacketMediaSession?
 
-    public init(displayName: String) {
+    public init(displayName: String, codecRegistry: AudioCodecRegistry = .packetAudioDefault) {
         self.localDisplayName = displayName
+        self.codecRegistry = codecRegistry
     }
 
     public func prepare(_ request: CallStartRequest) async {
+        let mediaSession: MultipeerPacketMediaSession
+        do {
+            mediaSession = try MultipeerPacketMediaSession(request: request, codecRegistry: codecRegistry)
+        } catch AudioCodecError.noMutuallySupportedCodec(let preferred, let supported) {
+            eventSource.yield(.availabilityChanged(RouteAvailability(route: kind, isAvailable: false, reason: "No supported packet audio codec")))
+            eventSource.yield(.error(kind, .unsupportedAudioCodec(kind, requested: preferred, supported: supported)))
+            eventSource.yield(.stateChanged(kind, .failed))
+            return
+        } catch {
+            eventSource.yield(.availabilityChanged(RouteAvailability(route: kind, isAvailable: false, reason: "Packet audio codec setup failed")))
+            eventSource.yield(.error(kind, .connectionFailed(kind, "Packet audio codec setup failed: \(error.localizedDescription)")))
+            eventSource.yield(.stateChanged(kind, .failed))
+            return
+        }
+
         let transport = MultipeerConnectionTransport(request: request, displayName: localDisplayName)
         transport.onEvent = { [weak self] event in
             self?.handleTransportEvent(event)
         }
         self.transport = transport
-        self.mediaSession = MultipeerPacketMediaSession(request: request)
+        self.mediaSession = mediaSession
         eventSource.yield(.availabilityChanged(RouteAvailability(route: kind, isAvailable: true)))
         eventSource.yield(.stateChanged(kind, .standby))
     }
@@ -301,15 +321,21 @@ final class MultipeerPacketMediaSession {
     private let sequencer: PacketAudioSequencer
     private var filter: PacketAudioReceiveFilter
 
-    init(request: CallStartRequest) {
+    init(request: CallStartRequest, codecRegistry: AudioCodecRegistry = .packetAudioDefault) throws {
+        let codecID = try codecRegistry.selectCodec(preferred: request.audioCodecConfiguration.preferredCodecs)
         self.credential = request.credential
-        self.sequencer = PacketAudioSequencer(sessionID: request.sessionID, senderID: request.localPeer.id)
-        self.filter = PacketAudioReceiveFilter(sessionID: request.sessionID)
+        self.sequencer = PacketAudioSequencer(
+            sessionID: request.sessionID,
+            senderID: request.localPeer.id,
+            codecID: codecID,
+            codecRegistry: codecRegistry
+        )
+        self.filter = PacketAudioReceiveFilter(sessionID: request.sessionID, codecRegistry: codecRegistry)
     }
 
     func makePayload(from frame: AudioFrame) throws -> TransportPayload? {
         guard isActive else { return nil }
-        return try MultipeerPayloadBuilder.makePacketAudioPayload(sequencer.makeEnvelope(from: frame), credential: credential)
+        return try MultipeerPayloadBuilder.makePacketAudioPayload(try sequencer.makeEnvelope(from: frame), credential: credential)
     }
 
     func accept(_ envelope: PacketAudioEnvelope, from peerID: PeerID) throws -> ReceivedAudioFrame? {

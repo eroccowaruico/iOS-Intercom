@@ -7,6 +7,7 @@ public struct CallStartRequest: Equatable, Sendable {
     public var credential: RTCCredential?
     public var configuration: CallRouteConfiguration
     public var audioFormat: AudioFormatDescriptor
+    public var audioCodecConfiguration: AudioCodecConfiguration
 
     public init(
         sessionID: String,
@@ -14,7 +15,8 @@ public struct CallStartRequest: Equatable, Sendable {
         expectedPeers: [PeerDescriptor] = [],
         credential: RTCCredential? = nil,
         configuration: CallRouteConfiguration = CallRouteConfiguration(),
-        audioFormat: AudioFormatDescriptor = AudioFormatDescriptor()
+        audioFormat: AudioFormatDescriptor = AudioFormatDescriptor(),
+        audioCodecConfiguration: AudioCodecConfiguration = AudioCodecConfiguration()
     ) {
         self.sessionID = sessionID
         self.localPeer = localPeer
@@ -22,6 +24,7 @@ public struct CallStartRequest: Equatable, Sendable {
         self.credential = credential
         self.configuration = configuration.normalized()
         self.audioFormat = audioFormat
+        self.audioCodecConfiguration = audioCodecConfiguration
     }
 }
 

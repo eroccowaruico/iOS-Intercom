@@ -42,6 +42,7 @@ public enum CallSessionError: Error, Equatable, Sendable {
     case signalingUnavailable(RouteKind)
     case connectionFailed(RouteKind, String)
     case unsupportedApplicationDataDelivery(RouteKind, ApplicationDataDelivery)
+    case unsupportedAudioCodec(RouteKind, requested: [AudioCodecIdentifier], supported: [AudioCodecIdentifier])
 }
 
 public struct RouteAvailability: Equatable, Sendable {

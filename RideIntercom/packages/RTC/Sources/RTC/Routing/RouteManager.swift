@@ -51,7 +51,8 @@ public final class RouteManager: CallSession {
             expectedPeers: request.expectedPeers,
             credential: request.credential,
             configuration: request.configuration.normalized(),
-            audioFormat: request.audioFormat
+            audioFormat: request.audioFormat,
+            audioCodecConfiguration: request.audioCodecConfiguration
         )
 
         self.request = normalizedRequest
