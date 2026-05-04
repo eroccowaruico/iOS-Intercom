@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		9306F0282FA8DFBA0030B045 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9306F0272FA8DFBA0030B045 /* AVFoundation.framework */; };
+		9306F02A2FA8DFD30030B045 /* AVFAudio.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9306F0292FA8DFD30030B045 /* AVFAudio.framework */; };
+		9306F0932FA8E0D40030B045 /* Codec in Frameworks */ = {isa = PBXBuildFile; productRef = 9306F0922FA8E0D40030B045 /* Codec */; };
 		934630852F9C0001001548C3 /* RTC in Frameworks */ = {isa = PBXBuildFile; productRef = 934630842F9C0001001548C3 /* RTC */; };
 		9374C4B82FA364F000D259B2 /* InMemoryLogging in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4B72FA364F000D259B2 /* InMemoryLogging */; };
 		9374C4BA2FA364F000D259B2 /* Logging in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4B92FA364F000D259B2 /* Logging */; };
@@ -45,6 +48,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		9306F0272FA8DFBA0030B045 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk/System/Library/Frameworks/AVFoundation.framework; sourceTree = DEVELOPER_DIR; };
+		9306F0292FA8DFD30030B045 /* AVFAudio.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFAudio.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk/System/Library/Frameworks/AVFAudio.framework; sourceTree = DEVELOPER_DIR; };
 		9374C4C82FA3657700D259B2 /* AudioUnit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioUnit.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk/System/Library/Frameworks/AudioUnit.framework; sourceTree = DEVELOPER_DIR; };
 		9374C4C92FA3657700D259B2 /* AudioToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioToolbox.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk/System/Library/Frameworks/AudioToolbox.framework; sourceTree = DEVELOPER_DIR; };
 		9374C4D72FA3670400D259B2 /* MultipeerConnectivity.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MultipeerConnectivity.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk/System/Library/Frameworks/MultipeerConnectivity.framework; sourceTree = DEVELOPER_DIR; };
@@ -108,9 +113,12 @@
 		93F300C52F93829C0046716D /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				9306F02A2FA8DFD30030B045 /* AVFAudio.framework in Frameworks */,
+				9306F0282FA8DFBA0030B045 /* AVFoundation.framework in Frameworks */,
 				93C60CE62FA3B46A00841E64 /* SafetyKit.framework in Frameworks */,
 				93DCB0832FA3864000B921FA /* CryptoKit.framework in Frameworks */,
 				9374C4D82FA3670400D259B2 /* MultipeerConnectivity.framework in Frameworks */,
+				9306F0932FA8E0D40030B045 /* Codec in Frameworks */,
 				93C60CF32FA3B58400841E64 /* VADGate in Frameworks */,
 				9374C4CA2FA3657700D259B2 /* AudioUnit.framework in Frameworks */,
 				9374C4CB2FA3657700D259B2 /* AudioToolbox.framework in Frameworks */,
@@ -144,6 +152,8 @@
 		9374C4BB2FA3652B00D259B2 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				9306F0292FA8DFD30030B045 /* AVFAudio.framework */,
+				9306F0272FA8DFBA0030B045 /* AVFoundation.framework */,
 				93C60CE52FA3B46A00841E64 /* SafetyKit.framework */,
 				93C60CE32FA3B45100841E64 /* Security.framework */,
 				93DCB0822FA3864000B921FA /* CryptoKit.framework */,
@@ -206,6 +216,7 @@
 				93C60CEB2FA3B54D00841E64 /* DynamicsProcessor */,
 				93C60CEF2FA3B57100841E64 /* SoundIsolation */,
 				93C60CF22FA3B58400841E64 /* VADGate */,
+				9306F0922FA8E0D40030B045 /* Codec */,
 			);
 			productName = RideIntercom;
 			productReference = 93F300C82F93829C0046716D /* RideIntercom.app */;
@@ -755,6 +766,10 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		9306F0922FA8E0D40030B045 /* Codec */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = Codec;
+		};
 		934630842F9C0001001548C3 /* RTC */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 934630862F9C0001001548C3 /* XCLocalSwiftPackageReference "RTC" */;
