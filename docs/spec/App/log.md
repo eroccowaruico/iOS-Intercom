@@ -1,100 +1,138 @@
-# RideIntercom ログ・保守・運用仕様
+# RideIntercom ログ仕様
 
 ## 目的
 
-本書は現行実装で観測できる診断情報、OS ログ出力、運用時の見方を定義する。  
-背景、方針、表示意味、異常系の扱いを明示し、Diagnostics 画面と Unified Logging を往復して状態を追跡できるようにする。
+RideIntercom のログは [apple/swift-log](https://github.com/apple/swift-log) を使って記録する。
 
-## 背景と基本方針
+本書は、アプリを作り直す前提で、ログレベル、記録する内容、記録してはいけない内容だけを定義する。
+
+## 基本方針
 
 | 項目 | 方針 |
 |---|---|
-| 背景 | 通話不良は「接続できない」だけでなく、codec 不整合、受信途絶、再生未達など複数段階で起こる |
-| 通話継続 | codec フォールバックや受信 drop では通話全体を止めない |
-| 観測性 | UI の Diagnostics と Unified Logging の両方で同じ事象を追えるようにする |
-| 収集性 | リリース後も `log show` / `log stream` で取得できる形式を維持する |
-| 安定性 | ログ記録失敗を理由に例外送出やクラッシュを起こさない |
+| API | `Logging.Logger` を使う |
+| 初期化 | アプリ起動時に `LoggingSystem.bootstrap` を一度だけ実行する |
+| 出力先 | `LogHandler` で差し替える。アプリコードは出力先へ直接依存しない |
+| 構造化 | 検索や調査に使う値は本文ではなく `metadata` に入れる |
+| 安定性 | ログ記録の失敗で通話、音声処理、画面遷移を止めない |
+| 高頻度処理 | 音声 frame、packet、tick ごとの通常ログは出さない |
+| 機密保護 | secret、invite token、鍵材料、音声 payload はログへ出さない |
 
-## 監視対象
+## Logger
 
-| 項目 | 保持値 | 用途 | 意味 |
-|---|---|---|---|
-| 送信フォールバック累積 | `transmitFallbackCount` | アプリ要求 codec と実際の media codec が一致しない、または fallback 理由が付与された回数 | 送信安全性の累積指標 |
-| 最新送信フォールバック | `lastTransmitFallbackSummary` | 最新事象の要約表示 | 直近事象の意味説明 |
-| 受信サマリ | `lastReceivedAudioAt`, `droppedAudioPacketCount`, `jitterQueuedFrameCount` | 受信途絶や jitter 蓄積の観測 | 受信系の健全性 |
-| 出力サマリ | `lastScheduledOutputRMS`, `scheduledOutputBatchCount`, `scheduledOutputFrameCount` | 再生段まで到達したかの観測 | 出力系の健全性 |
+`Logger(label:)` はコンポーネント単位で分ける。
 
-## Diagnostics 画面の表示要件
-
-| セクション | 行 | 表示内容 | 意味・意図 |
-|---|---|---|---|
-| Live Status | Codec Safety Summary | `TX FB #n / requested->media / reason` | アプリ要求 codec と実際の media codec の差分を追う |
-| Live Status | Reception Summary | `LAST RX {sec} / DROP {count} / JIT {count}` | 受信停止、欠落、queue 蓄積を追う |
-| Live Status | Playback Summary | `OUT RMS {value} / SCH {count} / FRM {count}` | 実際に再生へ回ったかを追う |
-| Live Status | Connection Summary | `PEERS {count}` | peer 数の変化を追う |
-| Live Status | Authentication Summary | `AUTH {count}` | 認証成立相手数を追う |
-| Identity & Route | Invite Summary | `JOINED ...` / `INVITE READY` / `INVITE NONE` | 招待状態を追う |
-
-## Diagnostics 文言の意味
-
-| 行 | 読み方 |
+| 領域 | ラベル例 |
 |---|---|
-| Codec Safety Summary | 異常件数だけでなく、最新要約も合わせて「何が起きたか」を読む |
-| Reception Summary | 受信が来ていないのか、drop が多いのか、jitter に滞留しているのかを分けて読む |
-| Playback Summary | RX が増えていても OUT / SCH / FRM が増えなければ再生段に問題があると読む |
-| Connection Summary | 接続 peer 数と認証済み peer 数は別概念として読む |
-| Invite Summary | 参加済み、共有可能、招待情報なしを区別して読む |
+| App | `com.yowamushi-inc.RideIntercom.app` |
+| RTC | `com.yowamushi-inc.RideIntercom.rtc` |
+| Audio | `com.yowamushi-inc.RideIntercom.audio` |
+| Security | `com.yowamushi-inc.RideIntercom.security` |
+| Settings | `com.yowamushi-inc.RideIntercom.settings` |
 
-## Unified Logging
+細かい分類が必要な場合だけ、末尾に `.route`、`.codec`、`.input` などを追加する。
 
-| 項目 | 値 | 意味 |
+## ログレベル
+
+swift-log の `Logger.Level` に合わせ、次のレベルだけを使う。
+
+| SwiftLog level | 定義 | 使用例 |
 |---|---|---|
-| subsystem | `com.yowamushi-inc.RideIntercom` | アプリ識別子 |
-| category | `codec-diagnostics` | codec 系診断ログ分類 |
-| logger | `IntercomViewModel.diagnosticsLogger` | 出力責務の中心 |
-| level | `error` 相当を中心に利用 | 異常事象を運用取得しやすくする |
+| `.trace` | 実行の流れを追跡するための最も詳細なログ | route 判定の細部、一時的な packet 処理追跡 |
+| `.debug` | 問題診断に役立つ詳細情報 | codec 選択理由、設定値の解決結果、接続準備の内部状態 |
+| `.info` | アプリの通常動作を示す一般情報 | アプリ起動、接続開始、media 開始、正常な切断 |
+| `.notice` | 通常動作の範囲内だが、運用上注目すべき節目 | route handover、fallback 後の復旧、権限状態の変化 |
+| `.warning` | アプリ全体の動作は継続できるが、想定外または劣化を示す事象 | packet loss 増加、jitter 悪化、再試行可能な通信失敗 |
+| `.error` | 特定の操作を完了できなかった重要な問題 | 音声 session 開始失敗、handshake 拒否、接続確立失敗 |
+| `.critical` | 直ちに注意が必要な重大問題 | セキュリティ不変条件の破壊、復旧不能な初期化失敗、データ整合性を保てない状態 |
 
-### ログイベント
+## 既定レベル
 
-| イベント種別 | 発火条件 | 継続動作 |
-|---|---|---|
-| TX codec fallback | requested codec と media payload codec が一致しない、または fallback 理由が付与される | 送信は継続する |
-| encoder empty payload | 符号化結果が空 payload として扱われる | keepalive 相当として継続する |
-| encoding failed | 符号化例外が発生する | keepalive 化または失敗記録後に継続可能性を残す |
-
-### ログ必須フィールド
-
-| ログイベント | 必須フィールド |
+| 環境 | 既定の最小レベル |
 |---|---|
-| tx fallback | route, streamID, sequenceNumber, requestedCodec, mediaCodec, fallbackReason |
+| Debug | `.debug` |
+| Test | `.debug` |
+| Internal / Ad Hoc | `.info` |
+| Release | `.info` |
 
-## 取得手順
+`.trace` は一時的な調査用とし、常時有効にしない。
 
-| 目的 | コマンド例 |
+## ログ形式
+
+ログ本文は短いイベント名にし、詳細は `metadata` に入れる。
+
+```swift
+import Logging
+
+private let logger = Logger(label: "com.yowamushi-inc.RideIntercom.rtc")
+
+logger.info(
+    "rtc.connection.started",
+    metadata: [
+        "event": "rtc.connection.started",
+        "operationID": "\(operationID)",
+        "route": "\(route)"
+    ]
+)
+```
+
+| 項目 | ルール |
 |---|---|
-| 直近 1 時間の codec 診断を確認 | `log show --last 1h --predicate 'subsystem == "com.yowamushi-inc.RideIntercom" AND category == "codec-diagnostics"'` |
-| リアルタイム監視 | `log stream --predicate 'subsystem == "com.yowamushi-inc.RideIntercom" AND category == "codec-diagnostics"'` |
+| event | `領域.対象.結果` の形式にする。例: `rtc.connection.started` |
+| message | 可変値を埋め込まず、安定したイベント名にする |
+| metadata | 調査に必要な値だけを入れる |
+| operationID | 接続開始、media 開始、招待受理など、複数ログにまたがる処理で使う |
 
-## 異常時の考え方
+## 共通 metadata
 
-| 事象 | 方針 |
+| Key | 内容 |
 |---|---|
-| codec フォールバック | 診断対象としつつ通話継続を優先する |
-| 受信途絶 | `LAST RX`、drop、jitter、playback を横断して原因を切り分ける |
-| ログ未取得 | UI 側 Diagnostics でも同等の事象を追えるようにする |
+| `event` | 安定したイベント名 |
+| `operationID` | 1 回の操作を追跡する ID |
+| `route` | `local`, `internet`, `webrtc` など |
+| `peerIDHash` | peer ID のハッシュまたは短縮識別子 |
+| `groupIDHash` | group ID のハッシュまたは短縮識別子 |
+| `codec` | codec identifier |
+| `durationMs` | 処理時間 |
+| `errorType` | Error の型名 |
+| `errorCode` | 定義済みエラーコード |
+| `isRecoverable` | 復旧可能か |
 
-## 保守観点
+すべてのログに全項目を入れる必要はない。調査に必要なものだけを使う。
 
-| 項目 | 現行仕様 | 意味・意図 |
-|---|---|---|
-| Diagnostics 文言 | `DiagnosticsSnapshot` で集約生成 | UI 側の読み方を一元化する |
-| UI とログの対応 | codec 関連の異常は `codec-diagnostics` と Diagnostics 行の双方で追跡する | 現場確認と詳細追跡を往復可能にする |
-| 後方互換性 | Diagnostics 行名とログ category は運用手順と対応するため、変更時はドキュメント同時更新を前提とする | 運用断絶を防ぐ |
-| 試験観点 | TX fallback、受信途絶、再生未達の各観測が UI とログの両方で確認できることを重視する | 観測不能化を防ぐ |
+## 記録禁止
 
-## 実装トレーサビリティ
-
-| 領域 | 実装 |
+| 情報 | 方針 |
 |---|---|
-| ログ出力 | `RideIntercom/RideIntercom/IntercomCore.swift` |
-| Diagnostics 表示文言 | `RideIntercom/RideIntercom/DiagnosticsSnapshot.swift` |
+| group secret | 記録禁止 |
+| invite token | 記録禁止 |
+| 認証 MAC / 鍵材料 | 記録禁止 |
+| 音声 sample / encoded payload | 記録禁止 |
+| 復号済み application data payload | 原則禁止 |
+| peer / group の生 ID | 原則禁止。ハッシュまたは短縮値を使う |
+
+## 代表イベント
+
+| Event | Level |
+|---|---|
+| `app.lifecycle.started` | `.info` |
+| `app.permission.microphone.denied` | `.warning` |
+| `rtc.connection.started` | `.info` |
+| `rtc.connection.failed` | `.error` |
+| `rtc.route.handover.started` | `.notice` |
+| `rtc.route.degraded` | `.warning` |
+| `rtc.handshake.rejected` | `.error` |
+| `audio.media.started` | `.info` |
+| `audio.session.failed` | `.error` |
+| `audio.codec.fallback` | `.notice` |
+| `audio.codec.decode_failed` | `.error` |
+| `security.invariant_broken` | `.critical` |
+
+## 保守ルール
+
+| 項目 | ルール |
+|---|---|
+| イベント名変更 | 実装、テスト、仕様を同時に更新する |
+| レベル変更 | 収集量と調査手順への影響を確認する |
+| metadata 追加 | 機密情報を含まないことを確認する |
+| 一時ログ | 調査後に削除するか、明示的に無効化できる形にする |
