@@ -1,100 +1,89 @@
-# RideIntercom ログ・保守・運用仕様
+# RideIntercom App 状況確認仕様
 
 ## 目的
 
-本書は現行実装で観測できる診断情報、OS ログ出力、運用時の見方を定義する。  
-背景、方針、表示意味、異常系の扱いを明示し、Diagnostics 画面と Unified Logging を往復して状態を追跡できるようにする。
+本書は、RideIntercom App の画面上でユーザーが確認できる状態と、その読み方だけを定義する。
 
-## 背景と基本方針
+本書では画面に表示される状態のみを扱う。
 
-| 項目 | 方針 |
+## 対象画面
+
+| 画面 | 確認すること |
 |---|---|
-| 背景 | 通話不良は「接続できない」だけでなく、codec 不整合、受信途絶、再生未達など複数段階で起こる |
-| 通話継続 | codec フォールバックや受信 drop では通話全体を止めない |
-| 観測性 | UI の Diagnostics と Unified Logging の両方で同じ事象を追えるようにする |
-| 収集性 | リリース後も `log show` / `log stream` で取得できる形式を維持する |
-| 安定性 | ログ記録失敗を理由に例外送出やクラッシュを起こさない |
+| Call | 通話先、接続状態、音声入出力、参加者状態、招待可否 |
+| Diagnostics | 通話、送受信、再生、認証、経路の要約状態 |
+| Settings | 入出力デバイス、音声設定、Audio Check の状態 |
 
-## 監視対象
+画面項目の詳細な配置、ラベル、表示条件は `docs/spec/App/UI/画面項目定義.md` を正とする。
 
-| 項目 | 保持値 | 用途 | 意味 |
-|---|---|---|---|
-| 送信フォールバック累積 | `transmitFallbackCount` | アプリ要求 codec と実際の media codec が一致しない、または fallback 理由が付与された回数 | 送信安全性の累積指標 |
-| 最新送信フォールバック | `lastTransmitFallbackSummary` | 最新事象の要約表示 | 直近事象の意味説明 |
-| 受信サマリ | `lastReceivedAudioAt`, `droppedAudioPacketCount`, `jitterQueuedFrameCount` | 受信途絶や jitter 蓄積の観測 | 受信系の健全性 |
-| 出力サマリ | `lastScheduledOutputRMS`, `scheduledOutputBatchCount`, `scheduledOutputFrameCount` | 再生段まで到達したかの観測 | 出力系の健全性 |
+## Call 画面で確認する状態
 
-## Diagnostics 画面の表示要件
-
-| セクション | 行 | 表示内容 | 意味・意図 |
-|---|---|---|---|
-| Live Status | Codec Safety Summary | `TX FB #n / requested->media / reason` | アプリ要求 codec と実際の media codec の差分を追う |
-| Live Status | Reception Summary | `LAST RX {sec} / DROP {count} / JIT {count}` | 受信停止、欠落、queue 蓄積を追う |
-| Live Status | Playback Summary | `OUT RMS {value} / SCH {count} / FRM {count}` | 実際に再生へ回ったかを追う |
-| Live Status | Connection Summary | `PEERS {count}` | peer 数の変化を追う |
-| Live Status | Authentication Summary | `AUTH {count}` | 認証成立相手数を追う |
-| Identity & Route | Invite Summary | `JOINED ...` / `INVITE READY` / `INVITE NONE` | 招待状態を追う |
-
-## Diagnostics 文言の意味
-
-| 行 | 読み方 |
+| 表示 | 読み方 |
 |---|---|
-| Codec Safety Summary | 異常件数だけでなく、最新要約も合わせて「何が起きたか」を読む |
-| Reception Summary | 受信が来ていないのか、drop が多いのか、jitter に滞留しているのかを分けて読む |
-| Playback Summary | RX が増えていても OUT / SCH / FRM が増えなければ再生段に問題があると読む |
-| Connection Summary | 接続 peer 数と認証済み peer 数は別概念として読む |
-| Invite Summary | 参加済み、共有可能、招待情報なしを区別して読む |
+| グループ名 | 現在表示している通話対象グループ |
+| 接続状態 | 未接続、接続準備中、接続済み、通話可能、再接続中、失敗を確認する |
+| 経路表示 | Local / Internet / Offline など、現在使っている、または試行している経路 |
+| Connect / Disconnect | 接続開始できる状態か、既に接続中で切断操作になる状態かを確認する |
+| Invite | 招待 URL を共有できる状態かを確認する |
+| 入力状態 | 自分のマイクが Live か Muted かを確認する |
+| 入力メーター | 自分の声がアプリへ入っているかを確認する |
+| 出力状態 | 受信音声のマスター音量と出力ミュートを確認する |
+| 他音声ダック状態 | 設定 ON と実際の発動中を区別して確認する |
+| 参加者カード | 相手ごとの接続、認証、入力レベル、出力音量を確認する |
+| エラー表示 | マイク権限、音声起動、入出力デバイス変更などの失敗理由を確認する |
 
-## Unified Logging
+## Diagnostics 画面で確認する状態
 
-| 項目 | 値 | 意味 |
-|---|---|---|
-| subsystem | `com.yowamushi-inc.RideIntercom` | アプリ識別子 |
-| category | `codec-diagnostics` | codec 系診断ログ分類 |
-| logger | `IntercomViewModel.diagnosticsLogger` | 出力責務の中心 |
-| level | `error` 相当を中心に利用 | 異常事象を運用取得しやすくする |
+Diagnostics は、通常画面だけでは分かりにくい状態を要約して確認するための画面とする。
 
-### ログイベント
-
-| イベント種別 | 発火条件 | 継続動作 |
-|---|---|---|
-| TX codec fallback | requested codec と media payload codec が一致しない、または fallback 理由が付与される | 送信は継続する |
-| encoder empty payload | 符号化結果が空 payload として扱われる | keepalive 相当として継続する |
-| encoding failed | 符号化例外が発生する | keepalive 化または失敗記録後に継続可能性を残す |
-
-### ログ必須フィールド
-
-| ログイベント | 必須フィールド |
+| 表示 | 読み方 |
 |---|---|
-| tx fallback | route, streamID, sequenceNumber, requestedCodec, mediaCodec, fallbackReason |
+| Call Summary | 接続状態と音声準備状態をまとめて確認する |
+| Reception Summary | 最終受信、drop、jitter queue の状態を確認する |
+| Audio Summary | TX、RX、PLAY の進み方を比較する |
+| Playback Summary | 受信音声が最終出力へ渡っているかを確認する |
+| Codec Safety Summary | codec fallback の有無と直近内容を確認する |
+| Connection Summary | 通信上の peer 数を確認する |
+| Authentication Summary | 音声受理可能な認証済み peer 数を確認する |
+| Local Network Summary | Local 経路の待受、接続、拒否などの状態を確認する |
+| Invite Summary | 招待済み、招待可能、招待情報なしを確認する |
 
-## 取得手順
+Diagnostics の値は画面上の状態確認用として扱う。
 
-| 目的 | コマンド例 |
+## Settings 画面で確認する状態
+
+| 表示 | 読み方 |
 |---|---|
-| 直近 1 時間の codec 診断を確認 | `log show --last 1h --predicate 'subsystem == "com.yowamushi-inc.RideIntercom" AND category == "codec-diagnostics"'` |
-| リアルタイム監視 | `log stream --predicate 'subsystem == "com.yowamushi-inc.RideIntercom" AND category == "codec-diagnostics"'` |
+| 入力デバイス | どの入力を使う設定になっているかを確認する |
+| 出力デバイス | どの出力を使う設定になっているかを確認する |
+| Sound Isolation | 入力処理の有効/無効を確認する |
+| Duck Other Audio | 他アプリ音声を下げる設定の有効/無効を確認する |
+| VAD 感度 | 発話判定の感度設定を確認する |
+| Audio Check | マイク録音とスピーカー再生の確認状態を確認する |
+| Reset | App の画面設定を初期値へ戻す操作を確認する |
 
-## 異常時の考え方
+設定値の正本は `docs/spec/App/setting parameters/App/設定値一覧.md` とする。
 
-| 事象 | 方針 |
+## Audio Check で確認する状態
+
+| 状態 | 読み方 |
 |---|---|
-| codec フォールバック | 診断対象としつつ通話継続を優先する |
-| 受信途絶 | `LAST RX`、drop、jitter、playback を横断して原因を切り分ける |
-| ログ未取得 | UI 側 Diagnostics でも同等の事象を追えるようにする |
+| recording | マイク入力を取得している |
+| playing | 録音した音声を再生している |
+| completed | 入力と出力の確認が完了した |
+| failed | 権限、入力なし、再生失敗などにより確認できなかった |
 
-## 保守観点
+Audio Check は通話中の品質評価ではなく、端末の入力と出力が使えるかを画面上で確認する機能とする。
 
-| 項目 | 現行仕様 | 意味・意図 |
-|---|---|---|
-| Diagnostics 文言 | `DiagnosticsSnapshot` で集約生成 | UI 側の読み方を一元化する |
-| UI とログの対応 | codec 関連の異常は `codec-diagnostics` と Diagnostics 行の双方で追跡する | 現場確認と詳細追跡を往復可能にする |
-| 後方互換性 | Diagnostics 行名とログ category は運用手順と対応するため、変更時はドキュメント同時更新を前提とする | 運用断絶を防ぐ |
-| 試験観点 | TX fallback、受信途絶、再生未達の各観測が UI とログの両方で確認できることを重視する | 観測不能化を防ぐ |
+## 状態確認時の考え方
 
-## 実装トレーサビリティ
-
-| 領域 | 実装 |
+| 状況 | 確認する画面 |
 |---|---|
-| ログ出力 | `RideIntercom/RideIntercom/IntercomCore.swift` |
-| Diagnostics 表示文言 | `RideIntercom/RideIntercom/DiagnosticsSnapshot.swift` |
+| 相手につながらない | Call の接続状態、Diagnostics の Connection / Authentication |
+| 自分の声が届かない | Call の入力状態と入力メーター、Settings の入力デバイス |
+| 相手の声が聞こえない | Call の参加者入力、出力状態、Diagnostics の Reception / Playback |
+| 音が小さい | Call のマスター出力音量、参加者別出力音量 |
+| マイクが使えない | Call のエラー表示、Settings の入力デバイス、Audio Check |
+| 招待できない | Call の Invite 表示、Diagnostics の Invite Summary |
+
+本書では、画面で何を確認するかだけを扱う。
