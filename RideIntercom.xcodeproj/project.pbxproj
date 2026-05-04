@@ -62,6 +62,7 @@
 			membershipExceptions = (
 				Info.plist,
 				packages/Audio/AudioMixer,
+				packages/Audio/Codec,
 				packages/Audio/Effectors/DynamicsProcessor,
 				packages/Audio/Effectors/PeakLimiter,
 				packages/Audio/Effectors/VADGate,
