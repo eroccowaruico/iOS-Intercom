@@ -4,12 +4,12 @@ import Foundation
 @preconcurrency import AVFAudio
 #endif
 
-public enum AudioStreamDirection: Equatable, Sendable {
+public enum AudioStreamDirection: Codable, Equatable, Sendable {
     case input
     case output
 }
 
-public struct AudioStreamFormat: Equatable, Sendable {
+public struct AudioStreamFormat: Codable, Equatable, Sendable {
     public var sampleRate: Double
     public var channelCount: Int
 
@@ -19,7 +19,7 @@ public struct AudioStreamFormat: Equatable, Sendable {
     }
 }
 
-public struct AudioStreamLevel: Equatable, Sendable {
+public struct AudioStreamLevel: Codable, Equatable, Sendable {
     public var rms: Float
     public var peak: Float
 
@@ -46,7 +46,7 @@ public struct AudioStreamLevel: Equatable, Sendable {
     }
 }
 
-public struct AudioStreamFrame: Equatable, Sendable {
+public struct AudioStreamFrame: Codable, Equatable, Sendable {
     public var sequenceNumber: UInt64
     public var format: AudioStreamFormat
     public var capturedAt: TimeInterval
@@ -67,7 +67,7 @@ public struct AudioStreamFrame: Equatable, Sendable {
     }
 }
 
-public struct AudioInputStreamConfiguration: Equatable, Sendable {
+public struct AudioInputStreamConfiguration: Codable, Equatable, Sendable {
     public var format: AudioStreamFormat
     public var bufferFrameCount: UInt32
     public var voiceProcessing: AudioInputVoiceProcessingConfiguration
@@ -83,7 +83,7 @@ public struct AudioInputStreamConfiguration: Equatable, Sendable {
     }
 }
 
-public struct AudioOutputStreamConfiguration: Equatable, Sendable {
+public struct AudioOutputStreamConfiguration: Codable, Equatable, Sendable {
     public var format: AudioStreamFormat
 
     public init(format: AudioStreamFormat = AudioStreamFormat()) {
@@ -91,7 +91,7 @@ public struct AudioOutputStreamConfiguration: Equatable, Sendable {
     }
 }
 
-public struct AudioStreamSnapshot: Equatable, Sendable {
+public struct AudioStreamSnapshot: Codable, Equatable, Sendable {
     public var direction: AudioStreamDirection
     public var isRunning: Bool
     public var format: AudioStreamFormat
@@ -113,7 +113,7 @@ public struct AudioStreamSnapshot: Equatable, Sendable {
     }
 }
 
-public enum AudioStreamOperation: Equatable, Sendable {
+public enum AudioStreamOperation: Codable, Equatable, Sendable {
     case startInputCapture
     case stopInputCapture
     case updateInputVoiceProcessing(AudioInputVoiceProcessingConfiguration)
@@ -122,25 +122,25 @@ public enum AudioStreamOperation: Equatable, Sendable {
     case scheduleOutputFrame
 }
 
-public enum AudioStreamIgnoredReason: Equatable, Sendable {
+public enum AudioStreamIgnoredReason: Codable, Equatable, Sendable {
     case alreadyRunning
     case alreadyStopped
     case unsupportedOnCurrentPlatform
 }
 
-public enum AudioStreamOperationFailure: Equatable, Sendable {
+public enum AudioStreamOperationFailure: Codable, Equatable, Sendable {
     case invalidFrame(String)
     case engineOperationFailed(String)
     case unexpected(String)
 }
 
-public enum AudioStreamOperationResult: Equatable, Sendable {
+public enum AudioStreamOperationResult: Codable, Equatable, Sendable {
     case applied
     case ignored(AudioStreamIgnoredReason)
     case failed(AudioStreamOperationFailure)
 }
 
-public struct AudioStreamOperationReport: Equatable, Sendable {
+public struct AudioStreamOperationReport: Codable, Equatable, Sendable {
     public var operation: AudioStreamOperation
     public var result: AudioStreamOperationResult
     public var snapshot: AudioStreamSnapshot
@@ -156,7 +156,7 @@ public struct AudioStreamOperationReport: Equatable, Sendable {
     }
 }
 
-public enum AudioStreamRuntimeEvent: Equatable, Sendable {
+public enum AudioStreamRuntimeEvent: Codable, Equatable, Sendable {
     case operation(AudioStreamOperationReport)
     case inputFrame(AudioStreamFrame)
     case outputFrameScheduled(AudioStreamFrame)

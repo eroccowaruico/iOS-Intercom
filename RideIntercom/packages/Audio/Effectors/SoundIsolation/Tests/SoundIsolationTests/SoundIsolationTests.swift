@@ -1,6 +1,7 @@
 import Testing
 @testable import SoundIsolation
 import AudioToolbox
+import Foundation
 
 @Test func componentDescriptionTargetsAppleSoundIsolationEffect() {
     let description = VoiceIsolationSupport.componentDescription
@@ -37,4 +38,15 @@ import AudioToolbox
         #expect(!VoiceIsolationSoundType.highQualityVoice.isSupportedOnCurrentOS)
         #expect(VoiceIsolationSoundType.highQualityVoice.parameterValue == nil)
     }
+}
+
+@Test func runtimeSnapshotIsCodableAndIndependentFromMixer() throws {
+    let configuration = VoiceIsolationConfiguration(soundType: .voice, mix: 0.75)
+    let support = VoiceIsolationSupportSnapshot(isAvailable: true, supportedSoundTypes: [.voice], unsupportedSoundTypes: [.highQualityVoice])
+    let snapshot = VoiceIsolationRuntimeSnapshot(configuration: configuration, support: support, state: .active)
+
+    let data = try JSONEncoder().encode(snapshot)
+    let decoded = try JSONDecoder().decode(VoiceIsolationRuntimeSnapshot.self, from: data)
+
+    #expect(decoded == snapshot)
 }

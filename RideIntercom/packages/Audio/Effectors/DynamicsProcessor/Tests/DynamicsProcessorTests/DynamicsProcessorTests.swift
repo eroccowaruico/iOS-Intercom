@@ -1,6 +1,7 @@
 import Testing
 @testable import DynamicsProcessor
 import AudioToolbox
+import Foundation
 
 @Test func componentDescriptionTargetsAppleDynamicsProcessorEffect() {
     let description = DynamicsProcessorSupport.componentDescription
@@ -58,4 +59,17 @@ import AudioToolbox
     #expect(high.attackTime == 0.2)
     #expect(high.releaseTime == 3)
     #expect(high.overallGain == 40)
+}
+
+@Test func runtimeSnapshotIsCodableAndIndependentFromMixer() throws {
+    let snapshot = DynamicsProcessorRuntimeSnapshot(
+        configuration: DynamicsProcessorConfiguration(threshold: -20, headRoom: 8, overallGain: 2),
+        support: DynamicsProcessorSupportSnapshot(isAvailable: true),
+        state: .active
+    )
+
+    let data = try JSONEncoder().encode(snapshot)
+    let decoded = try JSONDecoder().decode(DynamicsProcessorRuntimeSnapshot.self, from: data)
+
+    #expect(decoded == snapshot)
 }

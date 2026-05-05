@@ -30,7 +30,10 @@ DynamicsProcessor は Apple 標準の `AUDynamicsProcessor` Audio Unit を、Rid
 | API | 種別 | 役割 |
 |---|---|---|
 | `DynamicsProcessorSupport` | enum | `AUDynamicsProcessor` の `AudioComponentDescription` と利用可否を提供する |
+| `DynamicsProcessorSupportSnapshot` | struct | Audio Unit availability を Codable で返す |
 | `DynamicsProcessorConfiguration` | struct | ダイナミクス処理の設定値を保持する |
+| `DynamicsProcessorRuntimeSnapshot` | struct | 現在の設定、support 情報、runtime state を Codable で返す |
+| `DynamicsProcessorRuntimeState` | enum | `active` または `unavailable` の実行状態を表す |
 | `DynamicsProcessorEffect` | final class | `AVAudioUnitEffect` を生成し、設定を Audio Unit parameter に適用する |
 | `DynamicsProcessorError` | enum | 生成不可、パラメータ欠落などの失敗理由を表す |
 
@@ -60,6 +63,16 @@ DynamicsProcessor は Apple 標準の `AUDynamicsProcessor` Audio Unit を、Rid
 
 範囲外入力は `DynamicsProcessorConfiguration` の初期化時に上表の範囲へ丸める。
 
+## Runtime snapshot 仕様
+
+| 項目 | 型 | 意味 |
+|---|---|---|
+| `configuration` | `DynamicsProcessorConfiguration` | 現在適用されている dynamics 設定 |
+| `support.isAvailable` | `Bool` | 現在の実行環境で `AUDynamicsProcessor` Audio Unit が見つかるか |
+| `state` | `DynamicsProcessorRuntimeState` | support から見た実行状態 |
+
+`DynamicsProcessorSupport.snapshot` は effect を生成できない環境でも support 情報を返す。`DynamicsProcessorEffect.runtimeSnapshot` は生成済み effect の設定と現在環境の support を返す。DynamicsProcessor package は AudioMixer や RTC の型へ依存しない。
+
 ## 生成と適用
 
 | 処理 | 仕様 |
@@ -68,6 +81,7 @@ DynamicsProcessor は Apple 標準の `AUDynamicsProcessor` Audio Unit を、Rid
 | ノード取得 | `DynamicsProcessorEffect.node` で `AVAudioNode` として取得する |
 | 詳細アクセス | `DynamicsProcessorEffect.avAudioUnitEffect` で `AVAudioUnitEffect` として取得する |
 | 設定適用 | `DynamicsProcessorEffect.apply(_:)` が Audio Unit parameter tree に各設定値を設定する |
+| runtime snapshot | `DynamicsProcessorEffect.runtimeSnapshot` が設定、support、state を返す |
 | 設定保持 | 適用成功時のみ `configuration` を更新する |
 | 失敗時 | Audio Unit がない、生成に失敗した、必要な parameter がない場合に throw する |
 
@@ -120,5 +134,6 @@ engine.connect(dynamics.node, to: engine.mainMixerNode, format: format)
 | Audio Unit descriptor | Apple の `AUDynamicsProcessor` effect を指す定数になっている |
 | 既定値 | RideIntercom の声用途初期設定になっている |
 | 値の正規化 | 各設定値が定義範囲に丸められる |
+| runtime snapshot | 設定、support、state を Codable として roundtrip できる |
 
 実 Audio Unit の存在や音質は実行環境に依存するため、単体テストでは設定値と descriptor の正しさを検証する。実機やOS差を含む音声品質評価は、このライブラリを呼び出す統合経路側で扱う。

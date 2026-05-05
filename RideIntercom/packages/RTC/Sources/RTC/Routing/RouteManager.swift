@@ -12,28 +12,48 @@ public final class RouteManager: CallSession {
     private var mediaRoute: RouteKind?
     private var availableRoutes: Set<RouteKind> = []
     private var isMediaStarted = false
+    private var connectionState: CallConnectionState = .idle
+    private var routeStates: [RouteKind: RouteConnectionState] = [:]
+    private var routeAvailabilities: [RouteKind: RouteAvailability] = [:]
+    private var localMute = false
+    private var outputMute = false
+    private var remoteOutputVolumes: [PeerID: Float] = [:]
+    private var runtimePackageReports: [RTCRuntimePackageReport] = []
     private var fallbackTask: Task<Void, Never>?
     private var restoreTask: Task<Void, Never>?
     private var handoverTask: Task<Void, Never>?
+    private var runtimeStatusTask: Task<Void, Never>?
+    private let runtimeStatusPolicy: RTCRuntimeStatusPolicy
 
-    public init(routes: [RTCCallRoute], configuration: CallRouteConfiguration = CallRouteConfiguration()) {
+    public init(
+        routes: [RTCCallRoute],
+        configuration: CallRouteConfiguration = CallRouteConfiguration(),
+        runtimeStatusPolicy: RTCRuntimeStatusPolicy = RTCRuntimeStatusPolicy()
+    ) {
         let normalizedConfiguration = configuration.normalized()
         self.configuration = normalizedConfiguration
+        self.runtimeStatusPolicy = runtimeStatusPolicy
         self.routes = Dictionary(
             uniqueKeysWithValues: routes
                 .filter { normalizedConfiguration.enabledRoutes.contains($0.kind) }
                 .map { ($0.kind, $0) }
         )
+        self.routeStates = Dictionary(uniqueKeysWithValues: self.routes.keys.map { ($0, .idle) })
         bindRouteEvents()
     }
 
-    public convenience init(routeFactories: [AnyRouteFactory], configuration: CallRouteConfiguration = CallRouteConfiguration()) {
+    public convenience init(
+        routeFactories: [AnyRouteFactory],
+        configuration: CallRouteConfiguration = CallRouteConfiguration(),
+        runtimeStatusPolicy: RTCRuntimeStatusPolicy = RTCRuntimeStatusPolicy()
+    ) {
         let normalizedConfiguration = configuration.normalized()
         self.init(
             routes: routeFactories
                 .filter { normalizedConfiguration.enabledRoutes.contains($0.kind) }
                 .map { $0.make() },
-            configuration: normalizedConfiguration
+            configuration: normalizedConfiguration,
+            runtimeStatusPolicy: runtimeStatusPolicy
         )
     }
 
@@ -42,6 +62,7 @@ public final class RouteManager: CallSession {
         fallbackTask?.cancel()
         restoreTask?.cancel()
         handoverTask?.cancel()
+        runtimeStatusTask?.cancel()
     }
 
     public func prepare(_ request: CallStartRequest) async {
@@ -58,11 +79,15 @@ public final class RouteManager: CallSession {
         self.request = normalizedRequest
         self.configuration = normalizedRequest.configuration
         self.routes = routes.filter { configuration.enabledRoutes.contains($0.key) }
-        emit(.stateChanged(.preparing))
+        self.routeStates = Dictionary(uniqueKeysWithValues: self.routes.keys.map { ($0, .idle) })
+        self.routeAvailabilities.removeAll()
+        self.availableRoutes.removeAll()
+        bindRouteEvents()
+        emitState(.preparing)
 
         guard !routes.isEmpty else {
             emit(.error(.noEnabledRoute))
-            emit(.stateChanged(.failed))
+            emitState(.failed)
             return
         }
 
@@ -79,7 +104,7 @@ public final class RouteManager: CallSession {
             return
         }
 
-        emit(.stateChanged(.connecting))
+        emitState(.connecting)
 
         if configuration.keepsPreferredRouteInStandby {
             for standbyKind in configuration.enabledRoutes where standbyKind != configuration.preferredRoute {
@@ -98,9 +123,12 @@ public final class RouteManager: CallSession {
         emitRouteSnapshot()
         await preferredRoute.startConnection()
         scheduleFallbackIfNeeded(for: request)
+        await sendRuntimeStatus(reason: .connectionStarted)
+        startPeriodicRuntimeStatusBroadcast()
     }
 
     public func stopConnection() async {
+        await sendRuntimeStatus(reason: .connectionStopping)
         cancelTimers()
         for route in routes.values {
             await route.stopMedia()
@@ -111,7 +139,7 @@ public final class RouteManager: CallSession {
         availableRoutes.removeAll()
         isMediaStarted = false
         emitRouteSnapshot()
-        emit(.stateChanged(.disconnected))
+        emitState(.disconnected)
     }
 
     public func startMedia() async {
@@ -121,6 +149,7 @@ public final class RouteManager: CallSession {
             mediaRoute = route.kind
             await route.startMedia()
             emitRouteSnapshot()
+            await sendRuntimeStatus(reason: .mediaStarted)
         }
     }
 
@@ -132,6 +161,7 @@ public final class RouteManager: CallSession {
         }
         mediaRoute = activeRoute
         emitRouteSnapshot()
+        await sendRuntimeStatus(reason: .mediaStopped)
     }
 
     public func sendAudioFrame(_ frame: AudioFrame) async {
@@ -148,22 +178,38 @@ public final class RouteManager: CallSession {
         await route.sendApplicationData(message)
     }
 
+    public func updateRuntimePackageReports(_ reports: [RTCRuntimePackageReport]) async {
+        runtimePackageReports = reports.sorted {
+            if $0.package != $1.package {
+                return $0.package < $1.package
+            }
+            return $0.kind < $1.kind
+        }
+        await sendRuntimeStatus(reason: .packageReportsChanged)
+    }
+
     public func setLocalMute(_ muted: Bool) async {
+        localMute = muted
         for route in routes.values {
             await route.setLocalMute(muted)
         }
+        await sendRuntimeStatus(reason: .localControlsChanged)
     }
 
     public func setOutputMute(_ muted: Bool) async {
+        outputMute = muted
         for route in routes.values {
             await route.setOutputMute(muted)
         }
+        await sendRuntimeStatus(reason: .localControlsChanged)
     }
 
     public func setRemoteOutputVolume(peerID: PeerID, volume: Float) async {
+        remoteOutputVolumes[peerID] = volume
         for route in routes.values {
             await route.setRemoteOutputVolume(peerID: peerID, volume: volume)
         }
+        await sendRuntimeStatus(reason: .localControlsChanged)
     }
 
     private func bindRouteEvents() {
@@ -183,6 +229,7 @@ public final class RouteManager: CallSession {
         case .stateChanged(let kind, let state):
             await handleRouteState(kind: kind, state: state)
         case .availabilityChanged(let availability):
+            routeAvailabilities[availability.route] = availability
             if availability.isAvailable {
                 availableRoutes.insert(availability.route)
             } else {
@@ -190,8 +237,10 @@ public final class RouteManager: CallSession {
             }
             emit(.routeAvailabilityChanged([availability]))
             emitRouteSnapshot()
+            await sendRuntimeStatus(reason: .routeChanged)
         case .membersChanged(_, let members):
             emit(.membersChanged(members))
+            await sendRuntimeStatus(reason: .routeChanged)
         case .receivedApplicationData(_, let data):
             emit(.receivedApplicationData(data))
         case .receivedAudioFrame(_, let frame):
@@ -200,17 +249,19 @@ public final class RouteManager: CallSession {
             emit(.metricsChanged(metrics))
         case .error(_, let error):
             emit(.error(error))
+            await sendRuntimeStatus(reason: .routeChanged)
         }
     }
 
     private func handleRouteState(kind: RouteKind, state: RouteConnectionState) async {
+        routeStates[kind] = state
         switch state {
         case .connected, .authenticated, .mediaReady:
             availableRoutes.insert(kind)
             if activeRoute == kind {
                 fallbackTask?.cancel()
                 fallbackTask = nil
-                emit(.stateChanged(state == .mediaReady ? .mediaReady : .connected))
+                emitState(state == .mediaReady ? .mediaReady : .connected)
             } else if shouldRestorePreferredRoute(from: kind) {
                 scheduleRestoreToPreferredRoute()
             }
@@ -223,6 +274,7 @@ public final class RouteManager: CallSession {
             break
         }
         emitRouteSnapshot()
+        await sendRuntimeStatus(reason: .routeChanged)
     }
 
     private func shouldRestorePreferredRoute(from kind: RouteKind) -> Bool {
@@ -264,7 +316,7 @@ public final class RouteManager: CallSession {
 
     private func activateFirstAvailableRoute(excluding excludedRoute: RouteKind?) async {
         guard let nextRoute = routes.values.first(where: { $0.kind != excludedRoute }) else {
-            emit(.stateChanged(.failed))
+            emitState(.failed)
             emit(.error(.noEnabledRoute))
             return
         }
@@ -273,7 +325,7 @@ public final class RouteManager: CallSession {
 
     private func failover(from routeKind: RouteKind) async {
         guard configuration.selectionMode != .singleRoute else {
-            emit(.stateChanged(.failed))
+            emitState(.failed)
             return
         }
         await activateFirstAvailableRoute(excluding: routeKind)
@@ -286,6 +338,7 @@ public final class RouteManager: CallSession {
 
         activeRoute = nextKind
         emitRouteSnapshot(isHandoverInProgress: true)
+        await sendRuntimeStatus(reason: .routeChanged)
         await nextRoute.startConnection()
 
         if isMediaStarted {
@@ -301,24 +354,119 @@ public final class RouteManager: CallSession {
         }
 
         emitRouteSnapshot(isHandoverInProgress: false)
+        await sendRuntimeStatus(reason: .routeChanged)
     }
 
     private func cancelTimers() {
         fallbackTask?.cancel()
         restoreTask?.cancel()
         handoverTask?.cancel()
+        runtimeStatusTask?.cancel()
         fallbackTask = nil
         restoreTask = nil
         handoverTask = nil
+        runtimeStatusTask = nil
     }
 
     private func emitRouteSnapshot(isHandoverInProgress: Bool = false) {
-        emit(.routeChanged(ActiveRouteSnapshot(
+        emit(.routeChanged(routeSnapshot(isHandoverInProgress: isHandoverInProgress)))
+    }
+
+    private func routeSnapshot(isHandoverInProgress: Bool = false) -> ActiveRouteSnapshot {
+        ActiveRouteSnapshot(
             activeRoute: activeRoute,
             mediaRoute: mediaRoute,
             availableRoutes: availableRoutes,
             isHandoverInProgress: isHandoverInProgress
-        )))
+        )
+    }
+
+    private func startPeriodicRuntimeStatusBroadcast() {
+        runtimeStatusTask?.cancel()
+        guard runtimeStatusPolicy.isAutomaticBroadcastEnabled,
+              let interval = runtimeStatusPolicy.periodicInterval,
+              interval > 0 else { return }
+
+        runtimeStatusTask = Task { [weak self] in
+            let delay = UInt64(interval * 1_000_000_000)
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: delay)
+                guard !Task.isCancelled else { return }
+                await self?.sendRuntimeStatus(reason: .periodic)
+            }
+        }
+    }
+
+    private func sendRuntimeStatus(reason: RTCRuntimeStatusReason) async {
+        guard runtimeStatusPolicy.isAutomaticBroadcastEnabled,
+              let route = activeRoute.flatMap({ routes[$0] }) else { return }
+
+        let delivery: ApplicationDataDelivery = route.supports(.unreliable) ? .unreliable : .reliable
+        guard route.supports(delivery),
+              let message = try? RTCRuntimeStatusTransport.makeMessage(
+                makeRuntimeStatus(reason: reason),
+                delivery: delivery
+              ) else { return }
+
+        await route.sendApplicationData(message)
+    }
+
+    private func makeRuntimeStatus(reason: RTCRuntimeStatusReason) -> RTCRuntimeStatus {
+        let request = request ?? CallStartRequest(
+            sessionID: "",
+            localPeer: PeerDescriptor(id: PeerID(rawValue: ""), displayName: ""),
+            configuration: configuration
+        )
+        return RTCRuntimeStatus(
+            reason: reason,
+            generatedAt: Date().timeIntervalSince1970,
+            sessionID: request.sessionID,
+            localPeer: request.localPeer,
+            expectedPeers: request.expectedPeers,
+            connectionState: connectionState,
+            isMediaStarted: isMediaStarted,
+            localMute: localMute,
+            outputMute: outputMute,
+            remoteOutputVolumes: remoteOutputVolumes
+                .map { RTCPeerOutputVolume(peerID: $0.key, volume: $0.value) }
+                .sorted { $0.peerID.rawValue < $1.peerID.rawValue },
+            routeSnapshot: routeSnapshot(),
+            routes: routes.values
+                .sorted { $0.kind.rawValue < $1.kind.rawValue }
+                .map { route in
+                    RTCRouteRuntimeStatus(
+                        route: route.kind,
+                        state: routeStates[route.kind] ?? .idle,
+                        isAvailable: availableRoutes.contains(route.kind),
+                        availabilityReason: routeAvailabilities[route.kind]?.reason,
+                        capabilities: route.capabilities,
+                        mediaOwnership: route.mediaOwnership,
+                        isActiveRoute: activeRoute == route.kind,
+                        isMediaRoute: mediaRoute == route.kind,
+                        selectedAudioCodec: selectedAudioCodec(for: route, request: request)
+                    )
+                },
+            packageReports: runtimePackageReports,
+            configuration: configuration,
+            audioFormat: request.audioFormat,
+            audioCodecConfiguration: request.audioCodecConfiguration
+        )
+    }
+
+    private func selectedAudioCodec(
+        for route: RTCCallRoute,
+        request: CallStartRequest
+    ) -> AudioCodecIdentifier? {
+        let supported = route.capabilities.supportedAudioCodecs
+        if route.mediaOwnership == .routeManagedMediaStream {
+            return supported.first ?? .routeManaged
+        }
+        return request.audioCodecConfiguration.preferredCodecs.first { supported.contains($0) } ?? supported.first
+    }
+
+    private func emitState(_ state: CallConnectionState) {
+        connectionState = state
+        emit(.stateChanged(state))
     }
 
     private func emit(_ event: CallSessionEvent) {

@@ -51,7 +51,7 @@ public struct CallRouteConfiguration: Codable, Equatable, Sendable {
     }
 }
 
-public struct RouteCapabilities: Equatable, Sendable {
+public struct RouteCapabilities: Codable, Equatable, Sendable {
     public var supportsLocalDiscovery: Bool
     public var supportsOfflineOperation: Bool
     public var supportsRouteManagedMedia: Bool
@@ -85,7 +85,7 @@ public struct RouteCapabilities: Equatable, Sendable {
     }
 }
 
-public struct ActiveRouteSnapshot: Equatable, Sendable {
+public struct ActiveRouteSnapshot: Codable, Equatable, Sendable {
     public var activeRoute: RouteKind?
     public var mediaRoute: RouteKind?
     public var availableRoutes: Set<RouteKind>

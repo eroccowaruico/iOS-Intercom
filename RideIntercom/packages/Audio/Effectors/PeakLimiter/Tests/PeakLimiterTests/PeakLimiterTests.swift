@@ -1,6 +1,7 @@
 import Testing
 @testable import PeakLimiter
 import AudioToolbox
+import Foundation
 
 @Test func componentDescriptionTargetsApplePeakLimiterEffect() {
     let description = PeakLimiterSupport.componentDescription
@@ -30,4 +31,17 @@ import AudioToolbox
     #expect(high.attackTime == 0.03)
     #expect(high.decayTime == 0.06)
     #expect(high.preGain == 40)
+}
+
+@Test func runtimeSnapshotIsCodableAndIndependentFromMixer() throws {
+    let snapshot = PeakLimiterRuntimeSnapshot(
+        configuration: PeakLimiterConfiguration(attackTime: 0.01, decayTime: 0.02, preGain: 3),
+        support: PeakLimiterSupportSnapshot(isAvailable: true),
+        state: .active
+    )
+
+    let data = try JSONEncoder().encode(snapshot)
+    let decoded = try JSONDecoder().decode(PeakLimiterRuntimeSnapshot.self, from: data)
+
+    #expect(decoded == snapshot)
 }

@@ -13,7 +13,7 @@ public enum VoiceIsolationParameter: Sendable {
 	case soundToIsolate
 }
 
-public enum VoiceIsolationSoundType: Sendable {
+public enum VoiceIsolationSoundType: String, Codable, Equatable, Sendable {
 	case voice
 	case highQualityVoice
 
@@ -44,7 +44,7 @@ public enum VoiceIsolationSoundType: Sendable {
 	}
 }
 
-public struct VoiceIsolationConfiguration: Equatable, Sendable {
+public struct VoiceIsolationConfiguration: Codable, Equatable, Sendable {
 	public var soundType: VoiceIsolationSoundType
 	public var mix: Float
 
@@ -71,6 +71,48 @@ public enum VoiceIsolationSupport {
 		var description = componentDescription
 		return AudioComponentFindNext(nil, &description) != nil
 	}
+
+	public static var snapshot: VoiceIsolationSupportSnapshot {
+		let allSoundTypes: [VoiceIsolationSoundType] = [.voice, .highQualityVoice]
+		return VoiceIsolationSupportSnapshot(
+			isAvailable: isAvailable,
+			supportedSoundTypes: allSoundTypes.filter(\.isSupportedOnCurrentOS),
+			unsupportedSoundTypes: allSoundTypes.filter { !$0.isSupportedOnCurrentOS }
+		)
+	}
+}
+
+public struct VoiceIsolationSupportSnapshot: Codable, Equatable, Sendable {
+	public var isAvailable: Bool
+	public var supportedSoundTypes: [VoiceIsolationSoundType]
+	public var unsupportedSoundTypes: [VoiceIsolationSoundType]
+
+	public init(isAvailable: Bool, supportedSoundTypes: [VoiceIsolationSoundType], unsupportedSoundTypes: [VoiceIsolationSoundType]) {
+		self.isAvailable = isAvailable
+		self.supportedSoundTypes = supportedSoundTypes
+		self.unsupportedSoundTypes = unsupportedSoundTypes
+	}
+}
+
+public enum VoiceIsolationRuntimeState: String, Codable, Equatable, Sendable {
+	case active
+	case unavailable
+}
+
+public struct VoiceIsolationRuntimeSnapshot: Codable, Equatable, Sendable {
+	public var configuration: VoiceIsolationConfiguration
+	public var support: VoiceIsolationSupportSnapshot
+	public var state: VoiceIsolationRuntimeState
+
+	public init(
+		configuration: VoiceIsolationConfiguration,
+		support: VoiceIsolationSupportSnapshot = VoiceIsolationSupport.snapshot,
+		state: VoiceIsolationRuntimeState? = nil
+	) {
+		self.configuration = configuration
+		self.support = support
+		self.state = state ?? (support.isAvailable && configuration.soundType.isSupportedOnCurrentOS ? .active : .unavailable)
+	}
 }
 
 public final class VoiceIsolationEffect {
@@ -84,6 +126,10 @@ public final class VoiceIsolationEffect {
 
 	public var avAudioUnitEffect: AVAudioUnitEffect {
 		effect
+	}
+
+	public var runtimeSnapshot: VoiceIsolationRuntimeSnapshot {
+		VoiceIsolationRuntimeSnapshot(configuration: configuration)
 	}
 
 	public static func make(configuration: VoiceIsolationConfiguration = VoiceIsolationConfiguration()) async throws -> VoiceIsolationEffect {

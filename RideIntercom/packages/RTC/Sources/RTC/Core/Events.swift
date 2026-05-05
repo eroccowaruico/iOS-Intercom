@@ -45,7 +45,7 @@ public enum CallSessionError: Error, Equatable, Sendable {
     case unsupportedAudioCodec(RouteKind, requested: [AudioCodecIdentifier], supported: [AudioCodecIdentifier])
 }
 
-public struct RouteAvailability: Equatable, Sendable {
+public struct RouteAvailability: Codable, Equatable, Sendable {
     public var route: RouteKind
     public var isAvailable: Bool
     public var reason: String?
@@ -57,7 +57,7 @@ public struct RouteAvailability: Equatable, Sendable {
     }
 }
 
-public struct RouteMetrics: Equatable, Sendable {
+public struct RouteMetrics: Codable, Equatable, Sendable {
     public var route: RouteKind
     public var rtt: TimeInterval?
     public var jitter: TimeInterval?

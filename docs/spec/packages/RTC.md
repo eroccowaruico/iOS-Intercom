@@ -89,6 +89,10 @@ flowchart TB
 | `AudioCodecRegistry` | codec実装を登録し、優先順とroute対応codecから使用codecを選択する |
 | `PacketAudioReceiveConfiguration` | Multipeer packet audio の playout delay と packet lifetime を route へ渡す設定 |
 | `RouteMetrics` | route共通のRTT、jitter、packet loss、peer数、audio playout delay、音声受信/drop/queue数を通知する |
+| `RTCRuntimeStatus` | package が生成する接続、route、media、codec設定、local control状態のruntime snapshot |
+| `RTCRuntimeStatusTransport` | package-owned namespace の `ApplicationDataMessage` として runtime snapshot をencode/decodeする |
+| `RTCRuntimePackageReport` | SessionManager / Codec / AudioMixer など他 package が生成した Codable runtime report をRTC statusへ同梱する汎用payload |
+| `RTCRuntimeStatusPolicy` | 接続時、変更時、定期送信の有効化と周期を指定する |
 | `RTCCallRoute` | `RouteManager` が扱う経路plugin境界。アプリは直接保持しない |
 | `NativeWebRTCEngine` | `WebRTCInternetRoute` が使うWebRTC engine抽象。native SDK型を隠す |
 
@@ -115,7 +119,22 @@ flowchart TB
 | 音声media | `MultipeerWireMessage.packetAudio` | RTP/SRTP media stream |
 | 音声codec | `AudioCodecRegistry` で選択したpacket audio codec | WebRTC native codec selection |
 
-`ApplicationDataMessage` は namespace、payload、配送信頼性だけを持つ。RTC内部の handshake、keepalive、fallback diagnostics はアプリデータに混ぜない。
+`ApplicationDataMessage` は namespace、payload、配送信頼性だけを持つ。RTC内部の handshake、keepalive、fallback diagnostics はアプリ定義 namespace に混ぜない。package が送る runtime status は package-owned namespace を使い、同じ配送面だけを共有する。
+
+## Runtime status
+
+`RTC` は route ごとの接続方式差異を App に露出させず、`RTCRuntimeStatus` として現在値を送信する。App は `ApplicationDataMessage` の任意 namespace を解釈する必要がある場合だけ `RTCRuntimeStatusTransport.decode(_:)` を呼び、表示文字列や route 固有の状態推測を App 側へ固定しない。
+
+| 項目 | 仕様 |
+|---|---|
+| namespace | `rideintercom.rtc.runtimeStatus` |
+| 送信契機 | `RouteManager` が接続開始、route状態変更、media開始/停止、local mute / output mute / remote volume変更、package report更新、定期周期で送信する |
+| delivery | routeがunreliable application dataに対応する場合は `.unreliable`、非対応の場合は `.reliable` を使う |
+| periodic | `RTCRuntimeStatusPolicy.periodicInterval` に従う。既定は5秒。`nil` または0以下で定期送信しない |
+| 受信 | 通常の `.receivedApplicationData` として通知し、`RTCRuntimeStatusTransport.decode(_:)` で package status か判定できる |
+| 状態粒度 | session ID、local / expected peers、`CallConnectionState`、media開始状態、mute、peer volume、active/media route、route availability、route capabilities、media ownership、selected audio codec、route設定、audio format、codec設定、他packageのruntime report |
+| package report | `updateRuntimePackageReports(_:)` で `RTCRuntimePackageReport` を渡す。RTC はpayloadを解釈せず、package名、kind、contentType、payloadをstatusへ同梱する |
+| App境界 | App は RTC接続状態、通信設定、codec設定、media ownership を表示用に再構成しない。package status をそのまま Diagnostics の入力にする |
 
 ## Audio codec
 
@@ -276,7 +295,7 @@ sequenceDiagram
 | native型の漏れ | app-facing API と `RTC` target public API に `RTCPeerConnection` などを出さない |
 | route追加 | 新routeは `RTCCallRoute` と `RouteCapabilities` から追加する |
 | codec追加 | 新codecはアプリ側で `AudioFrameCodec` 実装または `AnyAudioFrameCodec` として登録する。`RTC` targetからAudio packageへ直接依存しない |
-| app data schema | RTC packageにはschemaを置かず、namespaceごとの解釈はアプリ側に置く |
+| app data schema | アプリ定義 namespace のschemaはRTC packageに置かない。RTC runtime status の package-owned namespace だけは `RTCRuntimeStatusTransport` で定義する |
 | audio format | Multipeer packet audioではcodec identifier、`AudioFormatDescriptor`、sampleCountをwire envelopeに含める |
 | 診断 | TX/RX/JIT、route metrics、backend detail はCall画面ではなくDiagnosticsへ集約する |
 | サーバー | Cloudflare以外の独自サーバー機能は追加しない |

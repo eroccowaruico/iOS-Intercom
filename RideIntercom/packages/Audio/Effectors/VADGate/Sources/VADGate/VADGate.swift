@@ -6,12 +6,12 @@ public enum VADGateError: Error, Equatable, Sendable {
 	case instantiationFailed(String)
 }
 
-public enum VADGateState: Equatable, Sendable {
+public enum VADGateState: String, Codable, Equatable, Sendable {
 	case silence
 	case speech
 }
 
-public struct VADGateConfiguration: Equatable, Sendable {
+public struct VADGateConfiguration: Codable, Equatable, Sendable {
 	public var attackDuration: Double
 	public var releaseDuration: Double
 	public var updateInterval: Double
@@ -69,7 +69,7 @@ public struct VADGateConfiguration: Equatable, Sendable {
 	}
 }
 
-public struct VADGateAnalysis: Equatable, Sendable {
+public struct VADGateAnalysis: Codable, Equatable, Sendable {
 	public var state: VADGateState
 	public var rms: Float
 	public var rmsDBFS: Float
@@ -79,11 +79,34 @@ public struct VADGateAnalysis: Equatable, Sendable {
 	public var gain: Float
 }
 
+public struct VADGateRuntimeSnapshot: Codable, Equatable, Sendable {
+	public var configuration: VADGateConfiguration
+	public var state: VADGateState
+	public var noiseFloorDBFS: Float
+	public var gain: Float
+	public var lastAnalysis: VADGateAnalysis?
+
+	public init(
+		configuration: VADGateConfiguration,
+		state: VADGateState,
+		noiseFloorDBFS: Float,
+		gain: Float,
+		lastAnalysis: VADGateAnalysis? = nil
+	) {
+		self.configuration = configuration
+		self.state = state
+		self.noiseFloorDBFS = noiseFloorDBFS
+		self.gain = gain
+		self.lastAnalysis = lastAnalysis
+	}
+}
+
 public final class VADGate {
 	public private(set) var configuration: VADGateConfiguration
 	public private(set) var state: VADGateState = .silence
 	public private(set) var noiseFloorDBFS: Float
 	public private(set) var gain: Float
+	public private(set) var lastAnalysis: VADGateAnalysis?
 
 	private var attackElapsed: Double = 0
 	private var releaseElapsed: Double = 0
@@ -104,6 +127,17 @@ public final class VADGate {
 		releaseElapsed = 0
 		self.noiseFloorDBFS = noiseFloorDBFS ?? configuration.initialNoiseFloorDBFS
 		gain = configuration.silenceGain
+		lastAnalysis = nil
+	}
+
+	public var runtimeSnapshot: VADGateRuntimeSnapshot {
+		VADGateRuntimeSnapshot(
+			configuration: configuration,
+			state: state,
+			noiseFloorDBFS: noiseFloorDBFS,
+			gain: gain,
+			lastAnalysis: lastAnalysis
+		)
 	}
 
 	@discardableResult
@@ -144,7 +178,9 @@ public final class VADGate {
 		}
 
 		updateGain(duration: frameDuration)
-		return makeAnalysis(rmsDBFS: rmsDBFS)
+		let analysis = makeAnalysis(rmsDBFS: rmsDBFS)
+		lastAnalysis = analysis
+		return analysis
 	}
 
 	@discardableResult
@@ -242,6 +278,10 @@ public final class VADGateEffect {
 	public func apply(_ configuration: VADGateConfiguration) {
 		vadGate.apply(configuration: configuration)
 		self.configuration = configuration
+	}
+
+	public var runtimeSnapshot: VADGateRuntimeSnapshot {
+		vadGate.runtimeSnapshot
 	}
 
 	private final class AudioUnit: AUAudioUnit {

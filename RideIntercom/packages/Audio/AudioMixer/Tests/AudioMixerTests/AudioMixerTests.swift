@@ -128,8 +128,15 @@ import AVFAudio
     let mixer = AudioMixer()
     let local = try mixer.createBus("local")
     let master = try mixer.createBus("master")
-    try local.addSource(AVAudioPlayerNode())
-    try local.addEffect(AVAudioMixerNode())
+    try local.addSource(AVAudioPlayerNode(), id: "local-monitor")
+    try local.addEffect(
+        AVAudioMixerNode(),
+        id: "local-limiter",
+        state: .active,
+        parameters: [
+            MixerEffectParameterSnapshot(id: "preGain", value: "0", unit: "dB"),
+        ]
+    )
     local.volume = 0.5
     try mixer.route(local, to: master)
     try mixer.routeToOutput(master)
@@ -141,10 +148,115 @@ import AVFAudio
         id: "local",
         volume: 0.5,
         sourceCount: 1,
-        effectCount: 1
+        effectCount: 1,
+        sources: [
+            MixerSourceSnapshot(id: "local-monitor", typeName: "AVAudioPlayerNode", index: 0, inputBusIndex: 0),
+        ],
+        effectChain: [
+            MixerEffectSnapshot(
+                id: "local-limiter",
+                typeName: "AVAudioMixerNode",
+                index: 0,
+                state: .active,
+                parameters: [
+                    MixerEffectParameterSnapshot(id: "preGain", value: "0", unit: "dB"),
+                ]
+            ),
+        ]
     )))
     #expect(snapshot.routes == [
-        MixerRouteSnapshot(sourceBusID: "local", destinationBusID: "master"),
+        MixerRouteSnapshot(sourceBusID: "local", destinationBusID: "master", destinationInputBusIndex: 0),
     ])
     #expect(snapshot.outputBusID == "master")
+    #expect(snapshot.graph.nodes.contains(MixerGraphNodeSnapshot(
+        id: "bus:local:source:local-monitor",
+        kind: .source,
+        label: "local-monitor",
+        busID: "local",
+        index: 0,
+        typeName: "AVAudioPlayerNode"
+    )))
+    #expect(snapshot.graph.nodes.contains(MixerGraphNodeSnapshot(
+        id: "bus:local:effect:local-limiter",
+        kind: .effect,
+        label: "local-limiter",
+        busID: "local",
+        index: 0,
+        typeName: "AVAudioMixerNode"
+    )))
+    #expect(snapshot.graph.edges.contains(MixerGraphEdgeSnapshot(
+        id: "source:local:local-monitor",
+        sourceNodeID: "bus:local:source:local-monitor",
+        destinationNodeID: "bus:local:input",
+        kind: .sourceToBusInput,
+        sourceBusID: nil,
+        destinationBusID: "local",
+        destinationInputBusIndex: 0
+    )))
+    #expect(snapshot.graph.edges.contains(MixerGraphEdgeSnapshot(
+        id: "chain:local:input->local-limiter",
+        sourceNodeID: "bus:local:input",
+        destinationNodeID: "bus:local:effect:local-limiter",
+        kind: .busSignal,
+        sourceBusID: "local",
+        destinationBusID: "local",
+        destinationInputBusIndex: nil
+    )))
+    #expect(snapshot.graph.edges.contains(MixerGraphEdgeSnapshot(
+        id: "route:local->master",
+        sourceNodeID: "bus:local:fader",
+        destinationNodeID: "bus:master:input",
+        kind: .busRoute,
+        sourceBusID: "local",
+        destinationBusID: "master",
+        destinationInputBusIndex: 0
+    )))
+    #expect(snapshot.graph.edges.contains(MixerGraphEdgeSnapshot(
+        id: "output:master",
+        sourceNodeID: "bus:master:fader",
+        destinationNodeID: "mixer:output",
+        kind: .outputRoute,
+        sourceBusID: "master",
+        destinationBusID: nil,
+        destinationInputBusIndex: nil
+    )))
+}
+
+@Test func mixerSnapshotReportsEffectChainOrderAndDefaultIDs() throws {
+    let mixer = AudioMixer()
+    let bus = try mixer.createBus("voice")
+
+    try bus.addEffect(AVAudioMixerNode(), id: "gate")
+    try bus.addEffect(AVAudioMixerNode())
+
+    #expect(bus.snapshot().effectChain == [
+        MixerEffectSnapshot(id: "gate", typeName: "AVAudioMixerNode", index: 0),
+        MixerEffectSnapshot(id: "effect-0", typeName: "AVAudioMixerNode", index: 1),
+    ])
+}
+
+@Test func effectSnapshotStateCanBeUpdatedWithoutKnowingEffectorPackage() throws {
+    let mixer = AudioMixer()
+    let bus = try mixer.createBus("voice")
+
+    try bus.addEffect(AVAudioMixerNode(), id: "vad", state: .active)
+    try bus.updateEffectSnapshot(
+        id: "vad",
+        state: .bypassed,
+        parameters: [
+            MixerEffectParameterSnapshot(id: "gain", value: "0.25"),
+        ]
+    )
+
+    #expect(bus.snapshot().effectChain == [
+        MixerEffectSnapshot(
+            id: "vad",
+            typeName: "AVAudioMixerNode",
+            index: 0,
+            state: .bypassed,
+            parameters: [
+                MixerEffectParameterSnapshot(id: "gain", value: "0.25"),
+            ]
+        ),
+    ])
 }

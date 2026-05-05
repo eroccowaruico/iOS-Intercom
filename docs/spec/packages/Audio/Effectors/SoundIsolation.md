@@ -29,8 +29,11 @@ SoundIsolation は Apple 標準の `AUSoundIsolation` Audio Unit を、RideInter
 | API | 種別 | 役割 |
 |---|---|---|
 | `VoiceIsolationSupport` | enum | `AUSoundIsolation` の `AudioComponentDescription` と利用可否を提供する |
+| `VoiceIsolationSupportSnapshot` | struct | Audio Unit availability と sound type availability を Codable で返す |
 | `VoiceIsolationConfiguration` | struct | 分離対象と Wet/Dry Mix を保持する |
 | `VoiceIsolationSoundType` | enum | `voice` と `highQualityVoice` の選択肢を表す |
+| `VoiceIsolationRuntimeSnapshot` | struct | 現在の設定、support 情報、runtime state を Codable で返す |
+| `VoiceIsolationRuntimeState` | enum | `active` または `unavailable` の実行状態を表す |
 | `VoiceIsolationEffect` | final class | `AVAudioUnitEffect` を生成し、設定を Audio Unit parameter に適用する |
 | `VoiceIsolationError` | enum | 生成不可、未対応設定、パラメータ欠落などの失敗理由を表す |
 
@@ -60,6 +63,18 @@ SoundIsolation は Apple 標準の `AUSoundIsolation` Audio Unit を、RideInter
 
 `VoiceIsolationSoundType.highQualityVoice` はライブラリの対応OS下限より新しい定数を使うため、未対応OSでは `parameterValue` を持たない。未対応OSで `VoiceIsolationEffect.apply` に渡した場合は `VoiceIsolationError.unsupportedSoundType` を返す。
 
+## Runtime snapshot 仕様
+
+| 項目 | 型 | 意味 |
+|---|---|---|
+| `configuration` | `VoiceIsolationConfiguration` | 現在適用されている分離対象と mix |
+| `support.isAvailable` | `Bool` | 現在の実行環境で `AUSoundIsolation` Audio Unit が見つかるか |
+| `support.supportedSoundTypes` | `[VoiceIsolationSoundType]` | 現在OSで指定可能な sound type |
+| `support.unsupportedSoundTypes` | `[VoiceIsolationSoundType]` | 現在OSで指定できない sound type |
+| `state` | `VoiceIsolationRuntimeState` | 設定と support から見た実行状態 |
+
+`VoiceIsolationSupport.snapshot` は effect を生成できない環境でも support 情報を返す。`VoiceIsolationEffect.runtimeSnapshot` は生成済み effect の設定と現在環境の support を返す。SoundIsolation package は AudioMixer や RTC の型へ依存しない。
+
 ## 生成と適用
 
 | 処理 | 仕様 |
@@ -68,6 +83,7 @@ SoundIsolation は Apple 標準の `AUSoundIsolation` Audio Unit を、RideInter
 | ノード取得 | `VoiceIsolationEffect.node` で `AVAudioNode` として取得する |
 | 詳細アクセス | `VoiceIsolationEffect.avAudioUnitEffect` で `AVAudioUnitEffect` として取得する |
 | 設定適用 | `VoiceIsolationEffect.apply(_:)` が Audio Unit parameter tree に Wet/Dry Mix と Sound Type を設定する |
+| runtime snapshot | `VoiceIsolationEffect.runtimeSnapshot` が設定、support、state を返す |
 | 設定保持 | 適用成功時のみ `configuration` を更新する |
 | 失敗時 | Audio Unit がない、生成に失敗した、必要な parameter がない、未対応 Sound Type が指定された場合に throw する |
 
@@ -123,5 +139,6 @@ engine.connect(isolation.node, to: engine.mainMixerNode, format: format)
 | Wet/Dry 変換 | `mix` が `0...100` の `kAUSoundIsolationParam_WetDryMixPercent` 値へ変換される |
 | Sound Type | `.voice` が安定して `kAUSoundIsolationSoundType_Voice` へ変換される |
 | High Quality availability | `.highQualityVoice` が iOS 18 / macOS 15 未満では使用不可として扱われる |
+| runtime snapshot | 設定、support、state を Codable として roundtrip できる |
 
 実 Audio Unit の存在や音質は実行環境に依存するため、単体テストでは設定値と descriptor の正しさを検証する。実機やOS差を含む音声品質評価は、このライブラリを呼び出す統合経路側で扱う。

@@ -38,7 +38,14 @@ public protocol CallSession: AnyObject {
     func stopMedia() async
     func sendAudioFrame(_ frame: AudioFrame) async
     func sendApplicationData(_ message: ApplicationDataMessage) async
+    func updateRuntimePackageReports(_ reports: [RTCRuntimePackageReport]) async
     func setLocalMute(_ muted: Bool) async
     func setOutputMute(_ muted: Bool) async
     func setRemoteOutputVolume(peerID: PeerID, volume: Float) async
+}
+
+public extension CallSession {
+    func updateRuntimePackageReports(_ reports: [RTCRuntimePackageReport]) async {
+        _ = reports
+    }
 }

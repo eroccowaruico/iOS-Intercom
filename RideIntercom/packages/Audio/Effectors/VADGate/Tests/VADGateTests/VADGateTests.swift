@@ -1,6 +1,7 @@
 import Testing
 @testable import VADGate
 import AVFAudio
+import Foundation
 
 @Test func defaultConfigurationUsesRealtimeVoiceGatePreset() {
     let configuration = VADGateConfiguration()
@@ -90,4 +91,22 @@ import AVFAudio
     #expect(analysis.state == .speech)
     #expect(analysis.gain == 1)
     #expect(samples == [Float(0.5), Float(-0.5)])
+}
+
+@Test func runtimeSnapshotReportsConfigurationAndCurrentAnalysis() throws {
+    let gate = VADGate(configuration: VADGateConfiguration(attackDuration: 0.02, updateInterval: 0.02, initialNoiseFloorDBFS: -60))
+
+    let analysis = gate.process(rmsDBFS: -45)
+    let snapshot = gate.runtimeSnapshot
+
+    #expect(snapshot.configuration.attackDuration == 0.02)
+    #expect(snapshot.state == .speech)
+    #expect(snapshot.noiseFloorDBFS == -60)
+    #expect(snapshot.gain == analysis.gain)
+    #expect(snapshot.lastAnalysis == analysis)
+
+    let data = try JSONEncoder().encode(snapshot)
+    let decoded = try JSONDecoder().decode(VADGateRuntimeSnapshot.self, from: data)
+
+    #expect(decoded == snapshot)
 }

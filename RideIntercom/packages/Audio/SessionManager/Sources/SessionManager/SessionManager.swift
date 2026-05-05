@@ -17,21 +17,21 @@ public enum AudioSessionManagerError: Error, Equatable, Sendable {
     case coreAudioOperationFailed(String)
 }
 
-public enum AudioSessionDuckingLevel: Equatable, Sendable {
+public enum AudioSessionDuckingLevel: Codable, Equatable, Sendable {
     case minimum
     case normal
 }
 
-public enum AudioSessionCategory: Equatable, Sendable {
+public enum AudioSessionCategory: Codable, Equatable, Sendable {
     case playAndRecord
 }
 
-public enum AudioSessionMode: Equatable, Sendable {
+public enum AudioSessionMode: Codable, Equatable, Sendable {
     case `default`
     case voiceChat
 }
 
-public enum AudioSessionCategoryOption: Equatable, Hashable, Sendable {
+public enum AudioSessionCategoryOption: Codable, Equatable, Hashable, Sendable {
     case allowBluetoothA2DP
     case allowBluetoothHFP
     case bluetoothHighQualityRecording
@@ -42,8 +42,8 @@ public enum AudioSessionCategoryOption: Equatable, Hashable, Sendable {
     case overrideMutedMicrophoneInterruption
 }
 
-public struct AudioSessionDevice: Equatable, Hashable, Sendable, Identifiable {
-    public struct ID: RawRepresentable, Equatable, Hashable, Sendable, ExpressibleByStringLiteral {
+public struct AudioSessionDevice: Codable, Equatable, Hashable, Sendable, Identifiable {
+    public struct ID: RawRepresentable, Codable, Equatable, Hashable, Sendable, ExpressibleByStringLiteral {
         public var rawValue: String
 
         public init(rawValue: String) {
@@ -55,7 +55,7 @@ public struct AudioSessionDevice: Equatable, Hashable, Sendable, Identifiable {
         }
     }
 
-    public enum Direction: Equatable, Sendable {
+    public enum Direction: Codable, Equatable, Sendable {
         case input
         case output
     }
@@ -99,7 +99,7 @@ public struct AudioSessionDevice: Equatable, Hashable, Sendable, Identifiable {
     )
 }
 
-public enum AudioSessionDeviceSelection: Equatable, Sendable {
+public enum AudioSessionDeviceSelection: Codable, Equatable, Sendable {
     case systemDefault
     case builtInSpeaker
     case builtInReceiver
@@ -119,7 +119,7 @@ public enum AudioSessionDeviceSelection: Equatable, Sendable {
     }
 }
 
-public enum AudioSessionOperation: Equatable, Sendable {
+public enum AudioSessionOperation: Codable, Equatable, Sendable {
     case applyConfiguration
     case setActive(Bool)
     case setPreferredInput(AudioSessionDeviceSelection)
@@ -127,25 +127,25 @@ public enum AudioSessionOperation: Equatable, Sendable {
     case setPrefersEchoCancelledInput(Bool)
 }
 
-public enum AudioSessionIgnoredReason: Equatable, Sendable {
+public enum AudioSessionIgnoredReason: Codable, Equatable, Sendable {
     case unsupportedOnCurrentPlatform
     case unsupportedSelection(AudioSessionDeviceSelection)
     case unavailableDevice(AudioSessionDevice.ID)
 }
 
-public enum AudioSessionOperationFailure: Equatable, Sendable {
+public enum AudioSessionOperationFailure: Codable, Equatable, Sendable {
     case invalidConfiguration(String)
     case coreAudioOperationFailed(String)
     case unexpected(String)
 }
 
-public enum AudioSessionOperationResult: Equatable, Sendable {
+public enum AudioSessionOperationResult: Codable, Equatable, Sendable {
     case applied
     case ignored(AudioSessionIgnoredReason)
     case failed(AudioSessionOperationFailure)
 }
 
-public struct AudioSessionOperationReport: Equatable, Sendable {
+public struct AudioSessionOperationReport: Codable, Equatable, Sendable {
     public var operation: AudioSessionOperation
     public var result: AudioSessionOperationResult
 
@@ -155,7 +155,7 @@ public struct AudioSessionOperationReport: Equatable, Sendable {
     }
 }
 
-public struct AudioSessionConfiguration: Equatable, Sendable {
+public struct AudioSessionConfiguration: Codable, Equatable, Sendable {
     public var mode: AudioSessionMode
     public var defaultToSpeaker: Bool
     public var prefersEchoCancelledInput: Bool
@@ -195,18 +195,22 @@ public struct AudioSessionConfiguration: Equatable, Sendable {
             options.insert(.defaultToSpeaker)
         }
 
+        let resolvedPrefersEchoCancelledInput = mode == .default
+            ? prefersEchoCancelledInput || defaultToSpeaker
+            : nil
+
         return ResolvedAudioSessionConfiguration(
             category: .playAndRecord,
             mode: mode,
             options: options,
-            prefersEchoCancelledInput: mode == .default ? prefersEchoCancelledInput : nil,
+            prefersEchoCancelledInput: resolvedPrefersEchoCancelledInput,
             preferredInput: preferredInput,
             preferredOutput: preferredOutput
         )
     }
 }
 
-public struct ResolvedAudioSessionConfiguration: Equatable, Sendable {
+public struct ResolvedAudioSessionConfiguration: Codable, Equatable, Sendable {
     public var category: AudioSessionCategory
     public var mode: AudioSessionMode
     public var options: Set<AudioSessionCategoryOption>
@@ -231,7 +235,7 @@ public struct ResolvedAudioSessionConfiguration: Equatable, Sendable {
     }
 }
 
-public struct AudioSessionSnapshot: Equatable, Sendable {
+public struct AudioSessionSnapshot: Codable, Equatable, Sendable {
     public var isActive: Bool
     public var availableInputs: [AudioSessionDevice]
     public var availableOutputs: [AudioSessionDevice]
@@ -253,7 +257,7 @@ public struct AudioSessionSnapshot: Equatable, Sendable {
     }
 }
 
-public enum AudioSessionRouteChangeReason: Equatable, Sendable {
+public enum AudioSessionRouteChangeReason: Codable, Equatable, Sendable {
     case newDeviceAvailable
     case oldDeviceUnavailable
     case categoryChanged
@@ -264,7 +268,7 @@ public enum AudioSessionRouteChangeReason: Equatable, Sendable {
     case unknown
 }
 
-public enum AudioSessionSnapshotChangeReason: Equatable, Sendable {
+public enum AudioSessionSnapshotChangeReason: Codable, Equatable, Sendable {
     case routeChanged(AudioSessionRouteChangeReason)
     case deviceListChanged
     case defaultInputChanged
@@ -272,7 +276,7 @@ public enum AudioSessionSnapshotChangeReason: Equatable, Sendable {
     case unknown
 }
 
-public struct AudioSessionSnapshotChange: Equatable, Sendable {
+public struct AudioSessionSnapshotChange: Codable, Equatable, Sendable {
     public var reason: AudioSessionSnapshotChangeReason
     public var snapshot: AudioSessionSnapshot
 
@@ -284,7 +288,7 @@ public struct AudioSessionSnapshotChange: Equatable, Sendable {
 
 public typealias AudioSessionSnapshotChangeHandler = (AudioSessionSnapshotChange) -> Void
 
-public struct AudioSessionConfigurationReport: Equatable, Sendable {
+public struct AudioSessionConfigurationReport: Codable, Equatable, Sendable {
     public var requestedConfiguration: AudioSessionConfiguration
     public var resolvedConfiguration: ResolvedAudioSessionConfiguration
     public var operations: [AudioSessionOperationReport]
@@ -303,7 +307,7 @@ public struct AudioSessionConfigurationReport: Equatable, Sendable {
     }
 }
 
-public enum AudioSessionRuntimeEvent: Equatable, Sendable {
+public enum AudioSessionRuntimeEvent: Codable, Equatable, Sendable {
     case operation(AudioSessionOperationReport)
     case configuration(AudioSessionConfigurationReport)
     case snapshotChanged(AudioSessionSnapshotChange)
@@ -311,7 +315,7 @@ public enum AudioSessionRuntimeEvent: Equatable, Sendable {
 
 public typealias AudioSessionRuntimeEventHandler = (AudioSessionRuntimeEvent) -> Void
 
-public struct AudioInputVoiceProcessingConfiguration: Equatable, Sendable {
+public struct AudioInputVoiceProcessingConfiguration: Codable, Equatable, Sendable {
     public var soundIsolationEnabled: Bool
     public var otherAudioDuckingEnabled: Bool
     public var duckingLevel: AudioSessionDuckingLevel

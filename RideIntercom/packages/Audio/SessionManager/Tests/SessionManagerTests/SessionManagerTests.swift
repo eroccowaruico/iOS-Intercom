@@ -26,6 +26,14 @@ import Testing
     #expect(speakerResolved.options.contains(.defaultToSpeaker))
 }
 
+@Test func defaultToSpeakerAutomaticallyRequestsEchoCancelledInputInDefaultMode() throws {
+    let resolved = try AudioSessionConfiguration(defaultToSpeaker: true).resolved()
+
+    #expect(resolved.mode == .default)
+    #expect(resolved.options.contains(.defaultToSpeaker))
+    #expect(resolved.prefersEchoCancelledInput == true)
+}
+
 @Test func voiceChatDoesNotApplyEchoCancelledInputPreference() throws {
     let resolved = try AudioSessionConfiguration(mode: .voiceChat).resolved()
 
@@ -51,7 +59,6 @@ import Testing
     try manager.configure(
         AudioSessionConfiguration(
             defaultToSpeaker: true,
-            prefersEchoCancelledInput: true,
             preferredInput: .device(input.id),
             preferredOutput: .device(output.id)
         )

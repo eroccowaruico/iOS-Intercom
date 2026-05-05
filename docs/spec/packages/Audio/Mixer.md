@@ -32,7 +32,11 @@ packet audio の受信 frame は再生 stream に変換された source node と
 |---|---|---|
 | `AudioMixer` | final class | `AVAudioEngine` を保持し、Bus 作成、routing、output 接続、start/stop を行う |
 | `MixerBus` | final class | Bus 内の input mixer、effect chain、fader mixer、source/effect 追加を扱う |
-| `AudioMixerSnapshot` | struct | bus一覧、route、output bus、busごとのsource/effect/volumeを確認する |
+| `AudioMixerSnapshot` | struct | bus一覧、route、output bus、busごとのsource/effect/volume、描画用 graph を確認する |
+| `MixerGraphSnapshot` | struct | source、bus input、effect、fader、output を node/edge 形式で確認する |
+| `MixerSourceSnapshot` | struct | Bus に追加された source のID、型名、順序、接続先 input bus index を確認する |
+| `MixerEffectSnapshot` | struct | Bus 内 effect chain のID、型名、順序、状態、表示用 parameter を確認する |
+| `MixerEffectState` | enum | `active`、`bypassed`、`unavailable`、`unknown` の effect 状態を表す |
 | `AudioMixerError` | enum | Bus ID 不正、未知 Bus、routing 不正、循環 routing、effect index 不正などの失敗理由を表す |
 
 ## 基本グラフ
@@ -80,7 +84,27 @@ sources or child buses
 | `routeToOutput(_:)` | Bus の `outputNode` を `engine.mainMixerNode` へ接続する |
 | `start()` | `engine.prepare()` 後に `engine.start()` を呼ぶ |
 | `stop()` | `engine.stop()` を呼ぶ |
-| `snapshot()` | 現在のBus、route、output、source/effect数、volumeを返す |
+| `snapshot()` | 現在のBus、route、output、source/effect数、volume、Busごとのeffect chain順序、描画用 graph を返す |
+| snapshot transport | `AudioMixerSnapshot` / `MixerBusSnapshot` / `MixerSourceSnapshot` / `MixerEffectSnapshot` / `MixerRouteSnapshot` / `MixerGraphSnapshot` は `Codable` とし、RTC の package runtime report payload にそのまま載せられる |
+
+## Snapshot graph 仕様
+
+| Node kind | ID 形式 | 意味 |
+|---|---|---|
+| `source` | `bus:<busID>:source:<sourceID>` | 呼び出し側が `addSource(_:id:)` で追加した入力 node |
+| `busInput` | `bus:<busID>:input` | Bus 内で source と子 Bus を集約する input mixer |
+| `effect` | `bus:<busID>:effect:<effectID>` | Bus 内の effect chain にある effect node |
+| `busFader` | `bus:<busID>:fader` | Bus 全体の volume を持つ fader mixer |
+| `output` | `mixer:output` | `routeToOutput(_:)` で接続された最終出力 |
+
+| Edge kind | ID 形式 | 接続 |
+|---|---|---|
+| `sourceToBusInput` | `source:<busID>:<sourceID>` | `source -> bus input` |
+| `busSignal` | `chain:<busID>:<from>-><to>` | `bus input -> effect chain -> fader` |
+| `busRoute` | `route:<sourceBusID>-><destinationBusID>` | `child bus fader -> parent bus input` |
+| `outputRoute` | `output:<busID>` | `final bus fader -> mixer output` |
+
+graph は UI 専用ではなく、package が現在の信号経路を説明するための診断データである。描画側は node/edge をそのまま使い、App 固有の推測で経路を補完しない。
 
 ## `MixerBus` 仕様
 
@@ -88,8 +112,9 @@ sources or child buses
 |---|---|
 | `volume` | `faderMixer.outputVolume` を読み書きする |
 | `outputNode` | 親 Bus または output へ接続するため `faderMixer` を返す |
-| `addSource(_:)` | Source node を engine に attach し、`inputMixer.nextAvailableInputBus` へ接続する。engine内部nodeは Swift error として拒否する |
-| `addEffect(_:)` | Effect node を engine に attach して末尾に追加し、Bus 内 chain を再構築する。engine内部nodeやsink-only nodeは Swift error として拒否する |
+| `addSource(_:id:)` | Source node を engine に attach し、`inputMixer.nextAvailableInputBus` へ接続する。`id` 未指定時は `source-<n>` を snapshot ID にする。engine内部nodeは Swift error として拒否する |
+| `addEffect(_:id:state:parameters:)` | Effect node を engine に attach して末尾に追加し、Bus 内 chain を再構築する。`id` 未指定時は `effect-<n>` を snapshot ID にする。engine内部nodeやsink-only nodeは Swift error として拒否する |
+| `updateEffectSnapshot(id:state:parameters:)` | Effect node を再接続せず、snapshot に出す状態と表示用 parameter だけを更新する。AudioMixer は Effectors の型を知らない |
 | `removeEffect(at:)` | 指定 index の Effect node を chain から外し、engine から detach して chain を再構築する |
 | `effects` | 現在の Effect chain を順序付きで保持する |
 
@@ -162,7 +187,10 @@ AudioMixer は Effect node の生成や parameter 設定を行わない。Effect
 | Error | 発生条件 | 呼び出し側の扱い |
 |---|---|---|
 | `emptyBusID` | `createBus("")` が呼ばれた | 呼び出し側の ID 定義を修正する |
+| `invalidNodeID` | source/effect の snapshot ID が空 | 呼び出し側の ID 定義を修正する |
+| `duplicateNodeID` | 同じ Bus 内で source/effect の snapshot ID が重複した | graph node ID が衝突しないよう ID 定義を修正する |
 | `unknownBus` | 別 mixer の Bus または未管理 Bus を routing した | 同じ `AudioMixer` が作成した Bus を使う |
+| `unknownEffect` | `updateEffectSnapshot` に未知の effect ID を渡した | `addEffect` 済みの ID を使う |
 | `invalidRoute` | 自分自身への route、source/effect の重複追加など不正な操作 | グラフ定義を修正する |
 | `busAlreadyRouted` | Bus がすでに親 Bus または output に接続済み | v1 では複数 send を使わない構成へ直す |
 | `cycleDetected` | 循環 routing になる | Bus 階層を木構造またはDAGとして見直す |
@@ -175,6 +203,9 @@ AudioMixer は Effect node の生成や parameter 設定を行わない。Effect
 | Bus 作成 | 対応 |
 | Source 追加 | 対応 |
 | Bus ごとの複数 Effect | 対応 |
+| Source ID snapshot | 対応 |
+| Effect 状態 snapshot | 対応 |
+| 描画用 node/edge graph | 対応 |
 | Bus ごとの volume | 対応 |
 | Bus から Bus への routing | 対応 |
 | 最終 output への接続 | 対応 |
@@ -194,6 +225,6 @@ AudioMixer は Effect node の生成や parameter 設定を行わない。Effect
 | volume | `MixerBus.volume` が `faderMixer.outputVolume` に反映される |
 | Effect chain | 複数 Effect を追加でき、指定 index の Effect を削除できる |
 | routing 制約 | 循環 routing と複数親 routing を拒否する |
-| snapshot | graph状態を診断可能な構造体として返す |
+| snapshot | graph状態とeffect chain順序を診断可能な構造体として返す |
 
 実音声の音質や実デバイス出力は実行環境に依存するため、単体テストではグラフ定義、設定値、routing 制約を検証する。実マイク・実スピーカーを含む音声品質評価は、このライブラリを呼び出す統合経路側で扱う。

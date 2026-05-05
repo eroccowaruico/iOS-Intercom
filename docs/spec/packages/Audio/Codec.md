@@ -42,6 +42,7 @@ Codec は RideIntercom のアプリ管理音声を、RTC へ渡せる packet pay
 | `CodecEncoder` | final class | `CodecEncodingConfiguration` に従って `PCMCodecFrame` を `EncodedCodecFrame` に変換する |
 | `CodecDecoder` | final class | `EncodedCodecFrame.codec` を見て自動 decode する |
 | `CodecEncodingConfiguration` | struct | 送信 codec、既定 audio format、AAC/Opus option を保持する |
+| `CodecRuntimeReport` | struct | requested configuration、実際に使う active configuration、利用可能 codec、fallback有無を返す |
 | `CodecIdentifier` | enum | `pcm16`, `mpeg4AACELDv2`, `opus` を表す |
 | `CodecAudioFormat` | struct | sample rate と channel count を表す |
 | `PCMCodecFrame` | struct | Float PCM samples と sequence / format / timestamp を持つ |
@@ -125,12 +126,23 @@ let decoded = try decoder.decode(encodedFrameFromRTC)
 
 ```swift
 let requested = CodecEncodingConfiguration(codec: .opus)
-let configuration = CodecSupport.isEncodingAvailable(for: requested)
-    ? requested
-    : CodecEncodingConfiguration(codec: .pcm16)
+let report = CodecRuntimeReport.resolving(requested)
+let configuration = report.activeConfiguration
 
 let codec = AudioCodec(configuration: configuration)
 ```
+
+## Runtime report
+
+| 項目 | 仕様 |
+|---|---|
+| 解決API | `CodecRuntimeReport.resolving(_:)` は requested configuration を受け取り、現在環境で使える active configuration を返す |
+| facade挙動 | `AudioCodec.init(configuration:)` と `AudioCodec.apply(_:)` は `CodecRuntimeReport` で解決した active configuration を encoder に適用する |
+| selected codec | `selectedCodec` は実際に encode へ使う codec を表す |
+| fallback | requested codec が利用不可の場合、`pcm16` へfallbackし、`isFallback = true` として report に残す |
+| available codecs | `availableCodecs` は現在環境で encode/decode の両方が成立する codec 一覧を返す |
+| Diagnostics | App は codec の可用性判定やfallback表示文字列を自前で作らず、`CodecRuntimeReport` の requested / active / fallback を表示へ渡す |
+| transport | `CodecRuntimeReport` は `Codable` とし、RTC の package runtime report payload にそのまま載せられる |
 
 ## RTC との境界
 

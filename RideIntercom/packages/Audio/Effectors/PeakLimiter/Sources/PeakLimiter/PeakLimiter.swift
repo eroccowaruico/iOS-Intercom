@@ -13,7 +13,7 @@ public enum PeakLimiterParameter: Sendable {
 	case preGain
 }
 
-public struct PeakLimiterConfiguration: Equatable, Sendable {
+public struct PeakLimiterConfiguration: Codable, Equatable, Sendable {
 	public var attackTime: Float
 	public var decayTime: Float
 	public var preGain: Float
@@ -42,6 +42,39 @@ public enum PeakLimiterSupport {
 		var description = componentDescription
 		return AudioComponentFindNext(nil, &description) != nil
 	}
+
+	public static var snapshot: PeakLimiterSupportSnapshot {
+		PeakLimiterSupportSnapshot(isAvailable: isAvailable)
+	}
+}
+
+public struct PeakLimiterSupportSnapshot: Codable, Equatable, Sendable {
+	public var isAvailable: Bool
+
+	public init(isAvailable: Bool) {
+		self.isAvailable = isAvailable
+	}
+}
+
+public enum PeakLimiterRuntimeState: String, Codable, Equatable, Sendable {
+	case active
+	case unavailable
+}
+
+public struct PeakLimiterRuntimeSnapshot: Codable, Equatable, Sendable {
+	public var configuration: PeakLimiterConfiguration
+	public var support: PeakLimiterSupportSnapshot
+	public var state: PeakLimiterRuntimeState
+
+	public init(
+		configuration: PeakLimiterConfiguration,
+		support: PeakLimiterSupportSnapshot = PeakLimiterSupport.snapshot,
+		state: PeakLimiterRuntimeState? = nil
+	) {
+		self.configuration = configuration
+		self.support = support
+		self.state = state ?? (support.isAvailable ? .active : .unavailable)
+	}
 }
 
 public final class PeakLimiterEffect {
@@ -55,6 +88,10 @@ public final class PeakLimiterEffect {
 
 	public var avAudioUnitEffect: AVAudioUnitEffect {
 		effect
+	}
+
+	public var runtimeSnapshot: PeakLimiterRuntimeSnapshot {
+		PeakLimiterRuntimeSnapshot(configuration: configuration)
 	}
 
 	public static func make(configuration: PeakLimiterConfiguration = PeakLimiterConfiguration()) async throws -> PeakLimiterEffect {

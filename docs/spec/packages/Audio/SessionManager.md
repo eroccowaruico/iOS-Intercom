@@ -83,7 +83,7 @@
 | `AudioSessionConfiguration` | category | mode | category options | `setPrefersEchoCancelledInput` | 用途 |
 |---|---|---|---|---|---|
 | 既定 | `playAndRecord` | `default` | 標準ON options | `false` | 無線的な会話、音楽併用、接続中も他アプリ音声を極力保つ |
-| `defaultToSpeaker = true` | `playAndRecord` | `default` | 標準ON options + `defaultToSpeaker` | 設定値通り | スピーカーを既定出力にしたい場合 |
+| `defaultToSpeaker = true` | `playAndRecord` | `default` | 標準ON options + `defaultToSpeaker` | `true` | スピーカーを既定出力にしたい場合。speaker出力はsession側echo cancellation希望と組で解決する |
 | `prefersEchoCancelledInput = true` | `playAndRecord` | `default` | 標準ON options | `true` | `voiceChat` ではなくdefault modeのままecho cancellationだけ使いたい場合 |
 | `mode = voiceChat` | `playAndRecord` | `voiceChat` | 標準ON options、必要なら `defaultToSpeaker` | 適用しない | 電話に近い会話体験やレシーバー利用を優先する場合 |
 | `mode = voiceChat` かつ `prefersEchoCancelledInput = true` | 適用しない | 適用しない | 適用しない | 適用しない | 不正。`echoCancelledInputRequiresDefaultMode` をthrowする |
@@ -122,7 +122,7 @@
 
 | mode | session側echo cancellation | input node側voice processing | 制約 |
 |---|---|---|---|
-| `default` | `prefersEchoCancelledInput` を `setPrefersEchoCancelledInput` へ渡す | `AudioInputVoiceProcessingConfiguration` に従う | echo cancellation preferenceを明示できる |
+| `default` | `prefersEchoCancelledInput || defaultToSpeaker` を `setPrefersEchoCancelledInput` へ渡す | `AudioInputVoiceProcessingConfiguration` に従う | echo cancellation preferenceを明示できる。speaker既定出力では明示値がfalseでもpackage側でtrueへ解決する |
 | `voiceChat` | 明示的な `setPrefersEchoCancelledInput` は使わない | `AudioInputVoiceProcessingConfiguration` に従う | `prefersEchoCancelledInput = true` との同時指定は禁止 |
 
 補足: `voiceChat` は他アプリ音声や出力経路へ大きく影響する可能性があるため、アプリが明示した場合だけ使う。
@@ -172,6 +172,7 @@
 | 設定適用結果 | `AudioSessionManager.configure(_:)` は `AudioSessionConfigurationReport` を返す |
 | active切替結果 | `AudioSessionManager.setActive(_:)` は `AudioSessionOperationReport` を返す |
 | realtime通知 | `AudioSessionManager.setRuntimeEventHandler(_:)` で操作結果、設定適用結果、snapshot変更を購読できる |
+| transport | configuration report、snapshot、stream report、runtime event は `Codable` とし、RTC の package runtime report payload にそのまま載せられる |
 | 操作結果 | `applied`、`ignored`、`failed` のいずれか |
 | ignored | 現在環境では意味がないselection、現在使えないdevice、platform非対応操作を表す |
 | failed | `AudioSessionOperationFailure` として CoreAudio操作失敗、設定矛盾、想定外失敗を表す |
@@ -307,7 +308,7 @@ try sessionManager.configure(
 | テスト | 検証内容 |
 |---|---|
 | default configuration | 標準option、category、mode、echo cancellation既定値 |
-| defaultToSpeaker | 明示時のみoptionが追加されること |
+| defaultToSpeaker | 明示時のみoptionが追加され、default modeではecho cancellation希望もpackage側でtrueへ解決されること |
 | voiceChat | echo cancellation preferenceを適用しないこと |
 | invalid echo cancellation | `voiceChat` と明示echo cancellationの同時指定を拒否すること |
 | manager apply order | category適用、入力、出力、echo cancellation、activeの順序 |

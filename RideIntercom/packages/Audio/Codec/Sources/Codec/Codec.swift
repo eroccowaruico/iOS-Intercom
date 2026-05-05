@@ -205,20 +205,87 @@ public enum CodecSupport {
     }
 }
 
+public struct CodecRuntimeReport: Codable, Equatable, Sendable {
+    public var requestedConfiguration: CodecEncodingConfiguration
+    public var activeConfiguration: CodecEncodingConfiguration
+    public var availableCodecs: [CodecIdentifier]
+    public var selectedCodec: CodecIdentifier
+    public var isFallback: Bool
+
+    public init(
+        requestedConfiguration: CodecEncodingConfiguration,
+        activeConfiguration: CodecEncodingConfiguration,
+        availableCodecs: [CodecIdentifier],
+        selectedCodec: CodecIdentifier,
+        isFallback: Bool
+    ) {
+        self.requestedConfiguration = requestedConfiguration
+        self.activeConfiguration = activeConfiguration
+        self.availableCodecs = availableCodecs
+        self.selectedCodec = selectedCodec
+        self.isFallback = isFallback
+    }
+
+    public static func resolving(
+        _ requestedConfiguration: CodecEncodingConfiguration,
+        fallbackCodec: CodecIdentifier = .pcm16
+    ) -> CodecRuntimeReport {
+        let availableCodecs = CodecIdentifier.allCases.filter {
+            let configuration = CodecEncodingConfiguration(
+                codec: $0,
+                format: requestedConfiguration.format,
+                aacELDv2Options: requestedConfiguration.aacELDv2Options,
+                opusOptions: requestedConfiguration.opusOptions
+            )
+            return CodecSupport.isEncodingAvailable(for: configuration)
+                && CodecSupport.isDecodingAvailable(for: $0, format: requestedConfiguration.format)
+        }
+
+        let selectedCodec: CodecIdentifier
+        if availableCodecs.contains(requestedConfiguration.codec) {
+            selectedCodec = requestedConfiguration.codec
+        } else if availableCodecs.contains(fallbackCodec) {
+            selectedCodec = fallbackCodec
+        } else {
+            selectedCodec = .pcm16
+        }
+
+        let activeConfiguration = CodecEncodingConfiguration(
+            codec: selectedCodec,
+            format: requestedConfiguration.format,
+            aacELDv2Options: requestedConfiguration.aacELDv2Options,
+            opusOptions: requestedConfiguration.opusOptions
+        )
+
+        return CodecRuntimeReport(
+            requestedConfiguration: requestedConfiguration,
+            activeConfiguration: activeConfiguration,
+            availableCodecs: availableCodecs,
+            selectedCodec: selectedCodec,
+            isFallback: selectedCodec != requestedConfiguration.codec
+        )
+    }
+}
+
 public final class AudioCodec {
     private let decoder = CodecDecoder()
     private let encoder: CodecEncoder
+    public private(set) var runtimeReport: CodecRuntimeReport
 
     public var configuration: CodecEncodingConfiguration {
         encoder.configuration
     }
 
     public init(configuration: CodecEncodingConfiguration = CodecEncodingConfiguration()) {
-        self.encoder = CodecEncoder(configuration: configuration)
+        let report = CodecRuntimeReport.resolving(configuration)
+        self.encoder = CodecEncoder(configuration: report.activeConfiguration)
+        self.runtimeReport = report
     }
 
     public func apply(_ configuration: CodecEncodingConfiguration) {
-        encoder.apply(configuration)
+        let report = CodecRuntimeReport.resolving(configuration)
+        encoder.apply(report.activeConfiguration)
+        runtimeReport = report
     }
 
     public func encode(_ frame: PCMCodecFrame) throws -> EncodedCodecFrame {

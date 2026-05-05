@@ -42,6 +42,70 @@ import Testing
     #expect(decodedEnvelope.frame.sequenceNumber == frame.sequenceNumber)
 }
 
+@Test func runtimeStatusApplicationDataRoundTripsThroughPackageNamespace() throws {
+    let status = RTCRuntimeStatus(
+        reason: .connectionStarted,
+        generatedAt: 123,
+        sessionID: "session",
+        localPeer: PeerDescriptor(id: PeerID(rawValue: "local"), displayName: "Local"),
+        expectedPeers: [PeerDescriptor(id: PeerID(rawValue: "remote"), displayName: "Remote")],
+        connectionState: .connected,
+        isMediaStarted: false,
+        localMute: false,
+        outputMute: false,
+        remoteOutputVolumes: [
+            RTCPeerOutputVolume(peerID: PeerID(rawValue: "remote"), volume: 0.75),
+        ],
+        routeSnapshot: ActiveRouteSnapshot(
+            activeRoute: .multipeer,
+            mediaRoute: .multipeer,
+            availableRoutes: [.multipeer],
+            isHandoverInProgress: false
+        ),
+        routes: [
+            RTCRouteRuntimeStatus(
+                route: .multipeer,
+                state: .connected,
+                isAvailable: true,
+                availabilityReason: nil,
+                capabilities: RouteCapabilities(
+                    supportsLocalDiscovery: true,
+                    supportsOfflineOperation: true,
+                    supportsRouteManagedMedia: false,
+                    supportsAppManagedPacketAudio: true,
+                    supportsReliableApplicationData: true,
+                    supportsUnreliableApplicationData: true,
+                    requiresSignaling: false,
+                    supportedAudioCodecs: [.pcm16],
+                    backendName: "test"
+                ),
+                mediaOwnership: .appManagedPacketAudio,
+                isActiveRoute: true,
+                isMediaRoute: true,
+                selectedAudioCodec: .pcm16
+            ),
+        ],
+        packageReports: [
+            RTCRuntimePackageReport(
+                package: "Codec",
+                kind: "runtime",
+                generatedAt: 122,
+                payload: Data([1, 2, 3])
+            ),
+        ],
+        configuration: CallRouteConfiguration(),
+        audioFormat: AudioFormatDescriptor(),
+        audioCodecConfiguration: AudioCodecConfiguration()
+    )
+
+    let message = try RTCRuntimeStatusTransport.makeMessage(status)
+    let decoded = try RTCRuntimeStatusTransport.decode(message)
+
+    #expect(message.namespace == RTCRuntimeStatusTransport.namespace)
+    #expect(message.delivery == .unreliable)
+    #expect(decoded == status)
+}
+
 @Test func packetAudioUsesSelectedCodecFromRegistry() throws {
     let codecID = AudioCodecIdentifier.mpeg4AACELDv2
     let registry = AudioCodecRegistry(codecs: [makeAppBridgeStyleCodec(identifier: codecID), PCM16AudioCodec()])
@@ -164,10 +228,58 @@ import Testing
 
     #expect(multipeer.prepareCount == 1)
     #expect(multipeer.startConnectionCount == 1)
-    #expect(multipeer.sentApplicationData.count == 1)
+    #expect(multipeer.sentApplicationData.filter { $0.namespace == "test" }.count == 1)
     #expect(webRTC.prepareCount == 0)
     #expect(webRTC.startConnectionCount == 0)
     #expect(webRTC.sentApplicationData.isEmpty)
+}
+
+@Test func routeManagerBroadcastsRuntimeStatusWhenConnectionStarts() async throws {
+    let multipeer = FakeRoute(kind: .multipeer, supportsPacketAudio: true)
+    let configuration = CallRouteConfiguration(enabledRoutes: [.multipeer], preferredRoute: .multipeer)
+    let request = makeRequest(
+        configuration: configuration,
+        audioCodecConfiguration: AudioCodecConfiguration(preferredCodecs: [.pcm16])
+    )
+    let manager = RouteManager(routes: [multipeer], configuration: configuration)
+
+    await manager.prepare(request)
+    await manager.startConnection()
+
+    let messages = multipeer.sentApplicationData.filter { $0.namespace == RTCRuntimeStatusTransport.namespace }
+    let firstMessage = try #require(messages.first)
+    let status = try #require(try RTCRuntimeStatusTransport.decode(firstMessage))
+    #expect(status.reason == .connectionStarted)
+    #expect(status.sessionID == request.sessionID)
+    #expect(status.localPeer == request.localPeer)
+    #expect(status.configuration == configuration)
+    #expect(status.audioCodecConfiguration == request.audioCodecConfiguration)
+    #expect(status.routes.first?.selectedAudioCodec == .pcm16)
+}
+
+@Test func routeManagerCanAttachPackageRuntimeReportsToBroadcastStatus() async throws {
+    let multipeer = FakeRoute(kind: .multipeer, supportsPacketAudio: true)
+    let manager = RouteManager(
+        routes: [multipeer],
+        configuration: CallRouteConfiguration(enabledRoutes: [.multipeer], preferredRoute: .multipeer)
+    )
+    let report = RTCRuntimePackageReport(
+        package: "AudioMixer",
+        kind: "snapshot",
+        generatedAt: 10,
+        payload: Data([9])
+    )
+
+    await manager.prepare(makeRequest())
+    await manager.startConnection()
+    await manager.updateRuntimePackageReports([report])
+
+    let statuses = try multipeer.sentApplicationData
+        .filter { $0.namespace == RTCRuntimeStatusTransport.namespace }
+        .compactMap { try RTCRuntimeStatusTransport.decode($0) }
+    let status = try #require(statuses.last)
+    #expect(status.reason == .packageReportsChanged)
+    #expect(status.packageReports == [report])
 }
 
 @Test func routeManagerAutomaticallyFallsBackToWebRTC() async {

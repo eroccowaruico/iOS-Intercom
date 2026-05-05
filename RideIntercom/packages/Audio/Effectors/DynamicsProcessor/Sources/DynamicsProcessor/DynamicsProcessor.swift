@@ -17,7 +17,7 @@ public enum DynamicsProcessorParameter: Sendable {
 	case overallGain
 }
 
-public struct DynamicsProcessorConfiguration: Equatable, Sendable {
+public struct DynamicsProcessorConfiguration: Codable, Equatable, Sendable {
 	public var threshold: Float
 	public var headRoom: Float
 	public var expansionRatio: Float
@@ -62,6 +62,39 @@ public enum DynamicsProcessorSupport {
 		var description = componentDescription
 		return AudioComponentFindNext(nil, &description) != nil
 	}
+
+	public static var snapshot: DynamicsProcessorSupportSnapshot {
+		DynamicsProcessorSupportSnapshot(isAvailable: isAvailable)
+	}
+}
+
+public struct DynamicsProcessorSupportSnapshot: Codable, Equatable, Sendable {
+	public var isAvailable: Bool
+
+	public init(isAvailable: Bool) {
+		self.isAvailable = isAvailable
+	}
+}
+
+public enum DynamicsProcessorRuntimeState: String, Codable, Equatable, Sendable {
+	case active
+	case unavailable
+}
+
+public struct DynamicsProcessorRuntimeSnapshot: Codable, Equatable, Sendable {
+	public var configuration: DynamicsProcessorConfiguration
+	public var support: DynamicsProcessorSupportSnapshot
+	public var state: DynamicsProcessorRuntimeState
+
+	public init(
+		configuration: DynamicsProcessorConfiguration,
+		support: DynamicsProcessorSupportSnapshot = DynamicsProcessorSupport.snapshot,
+		state: DynamicsProcessorRuntimeState? = nil
+	) {
+		self.configuration = configuration
+		self.support = support
+		self.state = state ?? (support.isAvailable ? .active : .unavailable)
+	}
 }
 
 public final class DynamicsProcessorEffect {
@@ -75,6 +108,10 @@ public final class DynamicsProcessorEffect {
 
 	public var avAudioUnitEffect: AVAudioUnitEffect {
 		effect
+	}
+
+	public var runtimeSnapshot: DynamicsProcessorRuntimeSnapshot {
+		DynamicsProcessorRuntimeSnapshot(configuration: configuration)
 	}
 
 	public static func make(configuration: DynamicsProcessorConfiguration = DynamicsProcessorConfiguration()) async throws -> DynamicsProcessorEffect {

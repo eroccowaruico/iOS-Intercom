@@ -18,6 +18,18 @@ import Testing
     #expect(configuration.opusOptions.bitRate == 32_000)
 }
 
+@Test func runtimeReportKeepsRequestedAndSelectedCodecInformationInPackage() {
+    let requested = CodecEncodingConfiguration(codec: .pcm16)
+
+    let report = CodecRuntimeReport.resolving(requested)
+
+    #expect(report.requestedConfiguration == requested)
+    #expect(report.activeConfiguration == requested)
+    #expect(report.selectedCodec == .pcm16)
+    #expect(report.isFallback == false)
+    #expect(report.availableCodecs.contains(.pcm16))
+}
+
 @Test func formatClampsToSupportedVoiceRanges() {
     let low = CodecAudioFormat(sampleRate: 1_000, channelCount: 0)
     let high = CodecAudioFormat(sampleRate: 192_000, channelCount: 8)
