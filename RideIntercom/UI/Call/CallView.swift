@@ -116,6 +116,17 @@ struct CallView: View {
                         .font(AppTypography.caption)
                         .foregroundStyle(AppColorPalette.textSecondary)
                         .accessibilityIdentifier("outputStateLabel")
+
+                    Slider(
+                        value: Binding(
+                            get: { Double(viewModel.masterOutputVolume) },
+                            set: { viewModel.setMasterOutputVolume(Float($0)) }
+                        ),
+                        in: 0...2
+                    )
+                    .accessibilityLabel("Output Volume")
+                    .accessibilityValue(outputPercentLabel)
+                    .accessibilityIdentifier("masterOutputSlider")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -154,7 +165,7 @@ struct CallView: View {
     }
 
     private var outputStateLabel: String {
-        viewModel.isOutputMuted ? "Output Muted" : "Output Live"
+        viewModel.isOutputMuted ? "Output Muted" : "Output \(Int(viewModel.masterOutputVolume * 100))%"
     }
 
     private var showsDuckingStatusIcon: Bool {

@@ -1,17 +1,23 @@
 import Foundation
+import Logging
 import SessionManager
 
 extension IntercomViewModel {
     func handleAudioSessionRuntimeEvent(_ event: SessionManager.AudioSessionRuntimeEvent) {
         switch event {
         case .configuration(let report):
+            lastAudioSessionConfigurationReport = report
             if let snapshot = report.snapshot {
                 applyAudioSessionSnapshot(snapshot)
             }
         case .snapshotChanged(let change):
             applyAudioSessionSnapshot(change.snapshot)
-        case .operation:
-            break
+            AppLoggers.audio.notice(
+                "audio.session.route_changed",
+                metadata: .event("audio.session.route_changed")
+            )
+        case .operation(let report):
+            lastAudioSessionActivationReport = report
         }
     }
 
@@ -27,8 +33,8 @@ extension IntercomViewModel {
 
     func refreshOutputRendererIfNeeded() {
         guard isAudioReady || audioCheckPhase == .playing else { return }
-        _ = audioOutputRenderer.stop()
-        _ = audioOutputRenderer.start()
+        lastOutputStreamOperationReport = audioOutputRenderer.stop()
+        lastOutputStreamOperationReport = audioOutputRenderer.start()
     }
 
     func deduplicatedPorts(_ ports: [AudioPortInfo]) -> [AudioPortInfo] {

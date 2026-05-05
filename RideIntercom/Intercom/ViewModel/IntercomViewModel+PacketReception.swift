@@ -1,4 +1,5 @@
 import Foundation
+import Logging
 import RTC
 
 extension IntercomViewModel {
@@ -21,9 +22,20 @@ extension IntercomViewModel {
     }
 
     func handleRouteMetrics(_ metrics: RTC.RouteMetrics) {
+        lastRouteMetrics = metrics
         droppedAudioPacketCount = metrics.droppedAudioFrameCount
         jitterQueuedFrameCount = metrics.queuedAudioFrameCount
         receivedVoicePacketCount = max(receivedVoicePacketCount, metrics.receivedAudioFrameCount)
+        if metrics.droppedAudioFrameCount > 0 || (metrics.packetLoss ?? 0) > 0.05 {
+            AppLoggers.rtc.warning(
+                "rtc.route.degraded",
+                metadata: .event("rtc.route.degraded", [
+                    "route": "\(metrics.route.rawValue)",
+                    "packetLoss": "\(metrics.packetLoss ?? 0)",
+                    "drop": "\(metrics.droppedAudioFrameCount)"
+                ])
+            )
+        }
     }
 
     func applyReceivedVoiceMemberState(peerID: String, voiceLevel: Float) {

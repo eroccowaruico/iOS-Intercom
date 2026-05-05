@@ -2,6 +2,7 @@ import Foundation
 import RTC
 import SessionManager
 import Testing
+import VADGate
 @testable import RideIntercom
 
 @MainActor
@@ -113,7 +114,14 @@ struct RideIntercomTests {
 
     @Test func audioTransmissionControllerSendsVoiceAndKeepalive() {
         var controller = AudioTransmissionController(
-            detector: VoiceActivityDetector(threshold: 0.1),
+            vadGate: VADGate(configuration: VADGateConfiguration(
+                attackDuration: 0.01,
+                releaseDuration: 0.05,
+                updateInterval: 0.02,
+                speechThresholdOffsetDB: 6,
+                silenceThresholdOffsetDB: 3,
+                initialNoiseFloorDBFS: -60
+            )),
             preRollLimit: 2,
             keepaliveIntervalFrames: 3
         )
@@ -187,7 +195,9 @@ struct RideIntercomTests {
         await Self.waitUntil { harness.viewModel.isAudioReady }
         harness.inputBackend.emit(AudioStreamFrame(sequenceNumber: 1, format: .intercom, capturedAt: 100, samples: [0.3]))
         harness.inputBackend.emit(AudioStreamFrame(sequenceNumber: 2, format: .intercom, capturedAt: 101, samples: [0.4]))
-        await Self.waitUntil { harness.callSession.sentAudioPackets.count >= 2 }
+        harness.inputBackend.emit(AudioStreamFrame(sequenceNumber: 3, format: .intercom, capturedAt: 102, samples: [0.4]))
+        harness.inputBackend.emit(AudioStreamFrame(sequenceNumber: 4, format: .intercom, capturedAt: 103, samples: [0.4]))
+        await Self.waitUntil { harness.callSession.sentAudioPackets.count >= 4 }
 
         #expect(harness.callSession.sentAudioPackets.prefix(2) == [
             .voice(frameID: 1, samples: [0.3]),
@@ -245,7 +255,8 @@ struct RideIntercomTests {
         await Self.waitUntil { harness.viewModel.isAudioReady }
         harness.viewModel.toggleMute()
 
-        #expect(harness.voiceProcessingBackend.mutedValues.last == true)
+        #expect(harness.inputBackend.voiceProcessingConfigurations.last?.inputMuted == true)
+        #expect(harness.inputBackend.voiceProcessingConfigurations.last?.soundIsolationEnabled == false)
         #expect(harness.callSession.localMuteValues.last == true)
         #expect(harness.callSession.sentControlMessages.contains(.peerMuteState(isMuted: true)))
         #expect(harness.callSession.sentControlMessages.contains(.keepalive))
@@ -269,14 +280,97 @@ struct RideIntercomTests {
     @Test func viewModelResetAllSettingsKeepsGroupsAndRestoresAudioDefaults() {
         let harness = Self.makeHarness()
 
-        harness.viewModel.setVoiceActivityDetectionThreshold(VoiceActivityDetector.maxThreshold)
+        harness.viewModel.setAudioSessionProfile(.voiceChat)
+        harness.viewModel.setVADSensitivity(.noisy)
+        harness.viewModel.setAACELDv2BitRate(128_000)
+        harness.viewModel.setOpusBitRate(128_000)
+        harness.viewModel.setMasterOutputVolume(2)
+        harness.viewModel.setDuckOthersEnabled(false)
         harness.viewModel.toggleOutputMute()
         harness.viewModel.resetAllSettings()
 
-        #expect(harness.viewModel.voiceActivityDetectionThreshold == AudioTransmissionController.defaultVoiceActivityThreshold)
+        #expect(harness.viewModel.audioSessionProfile == IntercomViewModel.defaultAudioSessionProfile)
+        #expect(harness.viewModel.isDuckOthersEnabled == IntercomViewModel.defaultDuckOthersEnabled)
+        #expect(harness.viewModel.vadSensitivity == IntercomViewModel.defaultVADSensitivity)
+        #expect(harness.viewModel.aacELDv2BitRate == IntercomViewModel.defaultAACELDv2BitRate)
+        #expect(harness.viewModel.opusBitRate == IntercomViewModel.defaultOpusBitRate)
+        #expect(harness.viewModel.masterOutputVolume == 1)
         #expect(!harness.viewModel.isOutputMuted)
         #expect(harness.viewModel.groups.count == IntercomSeedData.recentGroups.count)
         #expect(harness.callSession.outputMuteValues.last == false)
+    }
+
+    @Test func viewModelKeepsCodecUISettingsAsRequestedValues() {
+        let harness = Self.makeHarness()
+
+        harness.viewModel.setPreferredTransmitCodec(.mpeg4AACELDv2)
+        harness.viewModel.setAACELDv2BitRate(11_000)
+        harness.viewModel.setOpusBitRate(129_000)
+
+        #expect(harness.viewModel.preferredTransmitCodec == .mpeg4AACELDv2)
+        #expect(harness.viewModel.aacELDv2BitRate == 12_000)
+        #expect(harness.viewModel.opusBitRate == 128_000)
+        #expect(harness.callSession.preferredCodecs.last == .mpeg4AACELDv2)
+        #expect(harness.callSession.codecOptions.last?.aacELDv2BitRate == 12_000)
+        #expect(harness.callSession.codecOptions.last?.opusBitRate == 128_000)
+    }
+
+    @Test func viewModelAppliesAudioSessionMatrixProfilesThroughSessionManager() {
+        let harness = Self.makeHarness()
+
+        #expect(harness.viewModel.audioSessionProfile == .echoCancelledInput)
+        #expect(harness.viewModel.isSessionEchoCancellationEnabled)
+        #expect(harness.viewModel.isDuckOthersEnabled)
+
+        harness.viewModel.setSessionEchoCancellationEnabled(true)
+        var applied = harness.audioSessionBackend.appliedConfigurations.last
+        #expect(applied?.mode == .default)
+        #expect(applied?.prefersEchoCancelledInput == true)
+        #expect(applied?.options.contains(.defaultToSpeaker) == false)
+
+        harness.viewModel.setSpeakerOutputEnabled(true)
+        applied = harness.audioSessionBackend.appliedConfigurations.last
+        #expect(applied?.mode == .default)
+        #expect(applied?.prefersEchoCancelledInput == true)
+        #expect(applied?.options.contains(.defaultToSpeaker) == true)
+
+        harness.viewModel.setAudioSessionModeProfile(.voiceChat)
+        harness.viewModel.setSpeakerOutputEnabled(true)
+        applied = harness.audioSessionBackend.appliedConfigurations.last
+        #expect(applied?.mode == .voiceChat)
+        #expect(applied?.prefersEchoCancelledInput == nil)
+        #expect(applied?.options.contains(.defaultToSpeaker) == true)
+    }
+
+    @Test func viewModelLoadsAndPersistsAppAudioSettings() {
+        let settingsStore = InMemoryAppSettingsStore(settings: AppSettings(
+            audioSessionProfile: .voiceChat,
+            vadSensitivity: .noisy,
+            preferredTransmitCodec: .opus,
+            aacELDv2BitRate: 11_000,
+            opusBitRate: 129_000
+        ))
+        let harness = Self.makeHarness(appSettingsStore: settingsStore)
+
+        #expect(harness.viewModel.audioSessionProfile == .voiceChat)
+        #expect(harness.viewModel.vadSensitivity == .noisy)
+        #expect(harness.viewModel.preferredTransmitCodec == .opus)
+        #expect(harness.viewModel.aacELDv2BitRate == 12_000)
+        #expect(harness.viewModel.opusBitRate == 128_000)
+        #expect(harness.callSession.codecOptions.last?.aacELDv2BitRate == 12_000)
+        #expect(harness.callSession.codecOptions.last?.opusBitRate == 128_000)
+
+        harness.viewModel.setAudioSessionProfile(.echoCancelledInput)
+        harness.viewModel.setVADSensitivity(.lowNoise)
+        harness.viewModel.setPreferredTransmitCodec(.mpeg4AACELDv2)
+        harness.viewModel.setAACELDv2BitRate(40_000)
+
+        let saved = settingsStore.load()
+        #expect(saved.audioSessionProfile == .echoCancelledInput)
+        #expect(saved.vadSensitivity == .lowNoise)
+        #expect(saved.preferredTransmitCodec == .mpeg4AACELDv2)
+        #expect(saved.aacELDv2BitRate == 40_000)
+        #expect(saved.opusBitRate == 128_000)
     }
 
     @Test func diagnosticsSnapshotSummarizesCurrentAppState() {
@@ -295,12 +389,12 @@ struct RideIntercomTests {
         let audioSessionBackend: FakeAudioSessionBackend
         let inputBackend: FakeInputStreamBackend
         let outputBackend: FakeOutputStreamBackend
-        let voiceProcessingBackend: FakeVoiceProcessingBackend
     }
 
     private static func makeHarness(
         groups: [IntercomGroup]? = nil,
-        credentialStore: GroupCredentialStoring? = nil
+        credentialStore: GroupCredentialStoring? = nil,
+        appSettingsStore: AppSettingsStoring? = nil
     ) -> Harness {
         let groups = groups ?? IntercomSeedData.recentGroups
         let credentialStore = credentialStore ?? InMemoryGroupCredentialStore()
@@ -309,8 +403,6 @@ struct RideIntercomTests {
         let audioSessionBackend = FakeAudioSessionBackend()
         let inputBackend = FakeInputStreamBackend()
         let outputBackend = FakeOutputStreamBackend()
-        let voiceProcessingBackend = FakeVoiceProcessingBackend()
-        let voiceProcessingManager = AudioInputVoiceProcessingManager(backend: voiceProcessingBackend)
         let identityStore = InMemoryLocalMemberIdentityStore(
             identity: LocalMemberIdentity(memberID: groups.first?.members.first?.id ?? "member-local", displayName: "You")
         )
@@ -319,6 +411,7 @@ struct RideIntercomTests {
             callSession: callSession,
             credentialStore: credentialStore,
             groupStore: groupStore,
+            appSettingsStore: appSettingsStore,
             localMemberIdentityStore: identityStore,
             audioSessionManager: AudioSessionManager(backend: audioSessionBackend),
             audioInputCapture: AudioInputStreamCapture(
@@ -326,7 +419,6 @@ struct RideIntercomTests {
                 backend: inputBackend
             ),
             audioOutputRenderer: AudioOutputStreamRenderer(configuration: .intercom, backend: outputBackend),
-            audioInputVoiceProcessingManager: voiceProcessingManager,
             callTicker: NoOpCallTicker()
         )
         return Harness(
@@ -335,8 +427,7 @@ struct RideIntercomTests {
             groupStore: groupStore,
             audioSessionBackend: audioSessionBackend,
             inputBackend: inputBackend,
-            outputBackend: outputBackend,
-            voiceProcessingBackend: voiceProcessingBackend
+            outputBackend: outputBackend
         )
     }
 
@@ -389,6 +480,7 @@ private final class RecordingCallSession: RideIntercom.CallSession {
     private(set) var stopMediaCallCount = 0
     private(set) var disconnectCallCount = 0
     private(set) var preferredCodecs: [AudioCodecIdentifier] = []
+    private(set) var codecOptions: [(aacELDv2BitRate: Int, opusBitRate: Int)] = []
     private(set) var localMuteValues: [Bool] = []
     private(set) var outputMuteValues: [Bool] = []
     private(set) var sentAudioPackets: [OutboundAudioPacket] = []
@@ -423,6 +515,10 @@ private final class RecordingCallSession: RideIntercom.CallSession {
 
     func setPreferredAudioCodec(_ codec: AudioCodecIdentifier) {
         preferredCodecs.append(codec)
+    }
+
+    func setAudioCodecOptions(aacELDv2BitRate: Int, opusBitRate: Int) {
+        codecOptions.append((aacELDv2BitRate, opusBitRate))
     }
 
     func setLocalMute(_ muted: Bool) {
@@ -515,6 +611,7 @@ private final class FakeAudioSessionBackend: SessionManager.AudioSessionBackend 
 private final class FakeInputStreamBackend: SessionManager.AudioInputStreamBackend {
     private(set) var startCount = 0
     private(set) var stopCount = 0
+    private(set) var voiceProcessingConfigurations: [SessionManager.AudioInputVoiceProcessingConfiguration] = []
     private var onFrame: ((SessionManager.AudioStreamFrame) -> Void)?
 
     func startCapture(
@@ -529,6 +626,10 @@ private final class FakeInputStreamBackend: SessionManager.AudioInputStreamBacke
     func stopCapture() throws {
         stopCount += 1
         onFrame = nil
+    }
+
+    func updateVoiceProcessing(_ configuration: SessionManager.AudioInputVoiceProcessingConfiguration) throws {
+        voiceProcessingConfigurations.append(configuration)
     }
 
     func emit(_ frame: SessionManager.AudioStreamFrame) {
@@ -552,29 +653,6 @@ private final class FakeOutputStreamBackend: SessionManager.AudioOutputStreamBac
 
     func schedule(_ frame: SessionManager.AudioStreamFrame) throws {
         scheduledFrames.append(frame)
-    }
-}
-
-private final class FakeVoiceProcessingBackend: SessionManager.AudioInputVoiceProcessingBackend {
-    private(set) var enabledValues: [Bool] = []
-    private(set) var bypassedValues: [Bool] = []
-    private(set) var duckingValues: [(enabled: Bool, level: SessionManager.AudioSessionDuckingLevel)] = []
-    private(set) var mutedValues: [Bool] = []
-
-    func setVoiceProcessingEnabled(_ enabled: Bool) throws {
-        enabledValues.append(enabled)
-    }
-
-    func setVoiceProcessingBypassed(_ bypassed: Bool) throws {
-        bypassedValues.append(bypassed)
-    }
-
-    func setAdvancedDucking(enabled: Bool, level: SessionManager.AudioSessionDuckingLevel) throws {
-        duckingValues.append((enabled, level))
-    }
-
-    func setInputMuted(_ muted: Bool) throws {
-        mutedValues.append(muted)
     }
 }
 

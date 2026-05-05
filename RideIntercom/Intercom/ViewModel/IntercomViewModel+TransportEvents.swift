@@ -2,6 +2,7 @@ import AVFoundation
 import Codec
 import CryptoKit
 import Foundation
+import Logging
 import OSLog
 import RTC
 import SessionManager
@@ -39,6 +40,13 @@ extension IntercomViewModel {
             lastLocalNetworkPeerID = event.peerID
             lastLocalNetworkEventAt = event.occurredAt
         case .connected(let peerIDs):
+            AppLoggers.rtc.info(
+                "rtc.connection.started",
+                metadata: .event("rtc.connection.started", [
+                    "route": "local",
+                    "peerCount": "\(peerIDs.count)"
+                ])
+            )
             connectedPeerIDs = peerIDs
             addDiscoveredMembersIfNeeded(peerIDs: peerIDs)
             removeDisconnectedAuthenticatedPeers(connectedPeerIDs: peerIDs)
@@ -74,6 +82,13 @@ extension IntercomViewModel {
             markMembers(.offline)
         case .linkFailed(let internetAvailable):
             _ = internetAvailable
+            AppLoggers.rtc.error(
+                "rtc.connection.failed",
+                metadata: .event("rtc.connection.failed", [
+                    "route": "\(routeLabel)",
+                    "isRecoverable": "true"
+                ])
+            )
             stopAudioPipeline()
             connectedPeerIDs = []
             authenticatedPeerIDs = []

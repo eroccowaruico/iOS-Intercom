@@ -1,43 +1,37 @@
-import CryptoKit
-import AVFoundation
-import Codec
 import Foundation
-import Observation
-import OSLog
-import RTC
-import SessionManager
 import VADGate
 
 struct AudioTransmissionController {
-    static let defaultVoiceActivityThreshold = VoiceActivityDetector.defaultThreshold
+    static let defaultVADSensitivity = VoiceActivitySensitivity.standard
 
     private struct CapturedFrame {
         let frameID: Int
         let samples: [Float]
     }
 
-    private var detector: VoiceActivityDetector
+    private let vadGate: VADGate
     private let preRollLimit: Int
     private let keepaliveIntervalFrames: Int
     private var preRoll: [CapturedFrame] = []
     private var framesSinceKeepalive = 0
     private var wasSendingVoice = false
+    private(set) var lastAnalysis: VADGateAnalysis?
 
     init(
-        detector: VoiceActivityDetector = VoiceActivityDetector(threshold: Self.defaultVoiceActivityThreshold),
+        vadGate: VADGate = VADGate(configuration: Self.defaultVADSensitivity.configuration),
         preRollLimit: Int = 20,
         keepaliveIntervalFrames: Int = 50
     ) {
-        self.detector = detector
+        self.vadGate = vadGate
         self.preRollLimit = preRollLimit
         self.keepaliveIntervalFrames = keepaliveIntervalFrames
     }
 
     mutating func process(frameID: Int, level: Float, samples: [Float] = []) -> [OutboundAudioPacket] {
-        let state = detector.process(level: level)
+        let analysis = analyze(level: level, samples: samples)
         var packets: [OutboundAudioPacket] = []
 
-        if state == .talking || state == .release {
+        if analysis.state == .speech {
             if !wasSendingVoice {
                 packets.append(contentsOf: preRoll.map { .voice(frameID: $0.frameID, samples: $0.samples) })
             }
@@ -58,8 +52,13 @@ struct AudioTransmissionController {
         return packets
     }
 
-    mutating func setVoiceActivityThreshold(_ threshold: Float) {
-        detector.setThreshold(threshold)
+    mutating func applyVADSensitivity(_ sensitivity: VoiceActivitySensitivity) {
+        vadGate.apply(configuration: sensitivity.configuration)
+        vadGate.reset()
+        lastAnalysis = nil
+        preRoll.removeAll()
+        framesSinceKeepalive = 0
+        wasSendingVoice = false
     }
 
     private mutating func appendToPreRoll(frameID: Int, samples: [Float]) {
@@ -67,5 +66,18 @@ struct AudioTransmissionController {
         if preRoll.count > preRollLimit {
             preRoll.removeFirst(preRoll.count - preRollLimit)
         }
+    }
+
+    private mutating func analyze(level: Float, samples: [Float]) -> VADGateAnalysis {
+        let analysis: VADGateAnalysis
+        if samples.isEmpty {
+            let rms = min(1, max(0, level))
+            let rmsDBFS = 20 * log10(max(rms, 0.000_001))
+            analysis = vadGate.process(rmsDBFS: rmsDBFS)
+        } else {
+            analysis = vadGate.process(samples: samples)
+        }
+        lastAnalysis = analysis
+        return analysis
     }
 }

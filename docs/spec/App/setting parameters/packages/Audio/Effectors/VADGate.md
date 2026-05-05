@@ -10,12 +10,22 @@
 
 | package 設定 | App から渡す値 | 種別 |
 |---|---|---|
-| `VADGateConfiguration` | package default、または `voiceActivityDetectionThreshold` から導出した App preset | 画面設定から導出 |
+| `VADGateConfiguration` | `vadSensitivity` から導出した App preset | 画面設定から導出 |
 | attack / release | package default | 固定 |
 | noise floor | package default | 固定 |
 | gate gain / ramp | package default | 固定 |
 
-`voiceActivityDetectionThreshold` は App 画面から設定するが、package の細かい VAD parameter を画面へ直接出さない。
+`vadSensitivity` は App 画面から選ぶが、package の細かい VAD parameter を画面へ直接出さない。
+
+## App preset
+
+| `vadSensitivity` | 導出方針 | 用途 |
+|---|---|---|
+| `.lowNoise` | package default より小さい threshold offset と短め attack | 静かな環境で小さい声を拾う |
+| `.standard` | package default | 通常環境 |
+| `.noisy` | package default より大きい threshold offset と長め attack | 走行音や風切り音がある環境 |
+
+具体的な dB 値、attack/release、noise floor の範囲は `docs/spec/packages/Audio/Effectors/VADGate.md` を正とする。App は preset 名と直近 `VADGateAnalysis` だけを表示する。
 
 ## App 画面に出さない値
 

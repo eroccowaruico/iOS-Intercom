@@ -18,8 +18,23 @@ extension IntercomViewModel {
         switch event {
         case .inputFrame(let frame):
             handleMicrophoneFrame(frame)
-        case .operation, .outputFrameScheduled:
+        case .operation(let report):
+            recordAudioStreamReport(report)
+        case .outputFrameScheduled:
             break
+        }
+    }
+
+    func recordAudioStreamReport(_ report: SessionManager.AudioStreamOperationReport) {
+        switch report.snapshot.direction {
+        case .input:
+            if case .updateInputVoiceProcessing = report.operation {
+                lastVoiceProcessingOperationReport = report
+            } else {
+                lastInputStreamOperationReport = report
+            }
+        case .output:
+            lastOutputStreamOperationReport = report
         }
     }
 
@@ -43,6 +58,7 @@ extension IntercomViewModel {
 
         setLocalVoiceLevel(level)
         let packets = audioTransmissionController.process(frameID: frameID, level: level, samples: samples)
+        latestVADAnalysis = audioTransmissionController.lastAnalysis
         for packet in packets {
             send(packet)
         }

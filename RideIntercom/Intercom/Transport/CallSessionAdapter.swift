@@ -85,6 +85,7 @@ protocol CallSession: AnyObject {
     func stopMedia()
     func disconnect()
     func setPreferredAudioCodec(_ codec: AudioCodecIdentifier)
+    func setAudioCodecOptions(aacELDv2BitRate: Int, opusBitRate: Int)
     func setLocalMute(_ muted: Bool)
     func setOutputMute(_ muted: Bool)
     func sendAudioFrame(_ frame: OutboundAudioPacket)
@@ -104,17 +105,23 @@ final class RideIntercomCallSessionAdapter: CallSession {
     private nonisolated static let peerMuteStateNamespace = "rideintercom.peerMuteState"
     private let memberID: String
     private let rtcSession: RTC.CallSession
+    private let audioCodecOptions: AppAudioCodecOptions
     private var eventTask: Task<Void, Never>?
     private var preferredAudioCodec: AudioCodecIdentifier = .pcm16
 
     init(memberID: String) {
         self.memberID = memberID
+        let audioCodecOptions = AppAudioCodecOptions()
+        self.audioCodecOptions = audioCodecOptions
         #if canImport(MultipeerConnectivity)
         self.rtcSession = RTC.RouteManager(
             routes: [
                 RTC.MultipeerLocalRoute(
                     displayName: memberID,
-                    codecRegistry: AppAudioCodecBridge.makeRTCCodecRegistry(format: .intercomPacketAudio)
+                    codecRegistry: AppAudioCodecBridge.makeRTCCodecRegistry(
+                        format: .intercomPacketAudio,
+                        options: audioCodecOptions
+                    )
                 )
             ],
             configuration: RTC.CallRouteConfiguration(
@@ -133,6 +140,7 @@ final class RideIntercomCallSessionAdapter: CallSession {
 
     init(memberID: String = "member-local", rtcSession: RTC.CallSession) {
         self.memberID = memberID
+        self.audioCodecOptions = AppAudioCodecOptions()
         self.rtcSession = rtcSession
         bindEvents()
     }
@@ -174,6 +182,10 @@ final class RideIntercomCallSessionAdapter: CallSession {
 
     func setPreferredAudioCodec(_ codec: AudioCodecIdentifier) {
         preferredAudioCodec = AppAudioCodecBridge.resolvedPreferredCodec(codec, format: .intercomPacketAudio)
+    }
+
+    func setAudioCodecOptions(aacELDv2BitRate: Int, opusBitRate: Int) {
+        audioCodecOptions.update(aacELDv2BitRate: aacELDv2BitRate, opusBitRate: opusBitRate)
     }
 
     func setLocalMute(_ muted: Bool) {

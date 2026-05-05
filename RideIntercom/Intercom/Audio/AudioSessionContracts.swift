@@ -1,6 +1,72 @@
 import Foundation
 import SessionManager
 
+enum AudioSessionProfile: String, CaseIterable, Identifiable, Sendable {
+    case standard
+    case speakerDefault
+    case echoCancelledInput
+    case voiceChat
+
+    static let settingsModeCases: [AudioSessionProfile] = [
+        .standard,
+        .voiceChat
+    ]
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .standard:
+            "Burst mode"
+        case .speakerDefault:
+            "Burst mode + Speaker"
+        case .echoCancelledInput:
+            "Burst mode + Echo Cancellation"
+        case .voiceChat:
+            "Stream mode"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .standard:
+            "Burst mode / Intercom Style"
+        case .speakerDefault:
+            "Burst mode / Speaker Intercom Style"
+        case .echoCancelledInput:
+            "Burst mode / Echo-Cancelled Intercom Style"
+        case .voiceChat:
+            "Stream mode / Phone like Style"
+        }
+    }
+
+    var settingsModeProfile: AudioSessionProfile {
+        switch self {
+        case .standard, .speakerDefault, .echoCancelledInput:
+            .standard
+        case .voiceChat:
+            .voiceChat
+        }
+    }
+
+    var mode: SessionManager.AudioSessionMode {
+        switch self {
+        case .standard, .speakerDefault, .echoCancelledInput:
+            .default
+        case .voiceChat:
+            .voiceChat
+        }
+    }
+
+    var defaultToSpeaker: Bool {
+        self == .speakerDefault
+    }
+
+    var prefersEchoCancelledInput: Bool {
+        self == .echoCancelledInput || self == .speakerDefault
+    }
+}
+
 struct AudioPortInfo: Identifiable, Equatable, Hashable {
     let id: String
     let name: String
@@ -50,14 +116,18 @@ extension AudioPortInfo {
 
 extension SessionManager.AudioSessionConfiguration {
     static func intercom(
+        profile: AudioSessionProfile = .standard,
         prefersSpeakerOutput: Bool = false,
         preferredInput: SessionManager.AudioSessionDeviceSelection = .systemDefault,
         preferredOutput: SessionManager.AudioSessionDeviceSelection = .systemDefault
     ) -> SessionManager.AudioSessionConfiguration {
-        SessionManager.AudioSessionConfiguration(
-            mode: .default,
-            defaultToSpeaker: prefersSpeakerOutput,
-            prefersEchoCancelledInput: false,
+        let mode = profile.mode
+        let defaultToSpeaker = profile.defaultToSpeaker || prefersSpeakerOutput
+        let prefersEchoCancelledInput = mode == .default && (profile.prefersEchoCancelledInput || defaultToSpeaker)
+        return SessionManager.AudioSessionConfiguration(
+            mode: mode,
+            defaultToSpeaker: defaultToSpeaker,
+            prefersEchoCancelledInput: prefersEchoCancelledInput,
             preferredInput: preferredInput,
             preferredOutput: preferredOutput
         )

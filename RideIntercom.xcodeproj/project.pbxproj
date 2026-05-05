@@ -69,6 +69,7 @@
 				packages/Audio/Codec,
 				packages/Audio/Effectors/DynamicsProcessor,
 				packages/Audio/Effectors/PeakLimiter,
+				packages/Audio/Effectors/SoundIsolation,
 				packages/Audio/Effectors/VADGate,
 				packages/Audio/SessionManager,
 				packages/RTC,

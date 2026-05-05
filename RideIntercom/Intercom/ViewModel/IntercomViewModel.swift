@@ -15,8 +15,14 @@ final class IntercomViewModel {
     static let pendingMemberPrefix = "pending-"
     static let pendingInviteMemberPrefix = "invite-pending-"
     nonisolated static let defaultSoundIsolationEnabled = true
+    nonisolated static let defaultAudioSessionProfile = AudioSessionProfile.echoCancelledInput
+    nonisolated static let defaultDuckOthersEnabled = true
+    nonisolated static let defaultVADSensitivity = VoiceActivitySensitivity.standard
     nonisolated static let defaultTransmitCodec: AudioCodecIdentifier = .pcm16
+    nonisolated static let defaultAACELDv2BitRate = 24_000
+    nonisolated static let defaultOpusBitRate = 32_000
     nonisolated static let otherAudioDuckingHoldDuration: TimeInterval = 1.0
+    nonisolated static let audibleOutputLevelThreshold: Float = 0.00025
 
     var groups: [IntercomGroup]
     var selectedGroup: IntercomGroup?
@@ -28,10 +34,15 @@ final class IntercomViewModel {
     var audioErrorMessage: String?
     var selectedInputPort: AudioPortInfo = .systemDefault
     var selectedOutputPort: AudioPortInfo = .systemDefault
-    var isDuckOthersEnabled = false
-    var voiceActivityDetectionThreshold: Float = AudioTransmissionController.defaultVoiceActivityThreshold
+    var audioSessionProfile = IntercomViewModel.defaultAudioSessionProfile
+    var isDuckOthersEnabled = IntercomViewModel.defaultDuckOthersEnabled
+    var vadSensitivity = IntercomViewModel.defaultVADSensitivity
+    var latestVADAnalysis: VADGateAnalysis?
     var isSoundIsolationEnabled = IntercomViewModel.defaultSoundIsolationEnabled
     var preferredTransmitCodec: AudioCodecIdentifier = IntercomViewModel.defaultTransmitCodec
+    var aacELDv2BitRate = IntercomViewModel.defaultAACELDv2BitRate
+    var opusBitRate = IntercomViewModel.defaultOpusBitRate
+    var masterOutputVolume: Float = 1
     var isOutputMuted = false
     var isMicrophoneCaptureRunning: Bool {
         isAudioReady
@@ -100,11 +111,11 @@ final class IntercomViewModel {
     let audioSessionManager: SessionManager.AudioSessionManager
     let audioInputCapture: SessionManager.AudioInputStreamCapture
     let audioOutputRenderer: SessionManager.AudioOutputStreamRenderer
-    let audioInputVoiceProcessingManager: SessionManager.AudioInputVoiceProcessingManager?
     let callTicker: CallTicking
     let credentialStore: GroupCredentialStoring
     let credentialProvider: any GroupCredentialProviding
     let groupStore: GroupStoring
+    let appSettingsStore: AppSettingsStoring
     let localMemberIdentity: LocalMemberIdentity
     let remoteTalkerTimeout: TimeInterval
     var audioTransmissionController: AudioTransmissionController
@@ -121,17 +132,23 @@ final class IntercomViewModel {
     var isLocalStandbyOnly = false
     var nextAudioFrameID = 1
     var isOtherAudioDuckingActiveInternal = false
+    var lastAudioSessionConfigurationReport: SessionManager.AudioSessionConfigurationReport?
+    var lastAudioSessionActivationReport: SessionManager.AudioSessionOperationReport?
+    var lastInputStreamOperationReport: SessionManager.AudioStreamOperationReport?
+    var lastOutputStreamOperationReport: SessionManager.AudioStreamOperationReport?
+    var lastVoiceProcessingOperationReport: SessionManager.AudioStreamOperationReport?
+    var lastRouteMetrics: RTC.RouteMetrics?
 
     init(
         groups: [IntercomGroup]? = nil,
         callSession: CallSession? = nil,
         credentialStore: GroupCredentialStoring? = nil,
         groupStore: GroupStoring? = nil,
+        appSettingsStore: AppSettingsStoring? = nil,
         localMemberIdentityStore: LocalMemberIdentityStoring? = nil,
         audioSessionManager: SessionManager.AudioSessionManager? = nil,
         audioInputCapture: SessionManager.AudioInputStreamCapture? = nil,
         audioOutputRenderer: SessionManager.AudioOutputStreamRenderer? = nil,
-        audioInputVoiceProcessingManager: SessionManager.AudioInputVoiceProcessingManager? = nil,
         audioTransmissionController: AudioTransmissionController? = nil,
         callTicker: CallTicking? = nil,
         remoteTalkerTimeout: TimeInterval = 0.6
@@ -139,30 +156,33 @@ final class IntercomViewModel {
         let localMemberIdentityStore = localMemberIdentityStore ?? InMemoryLocalMemberIdentityStore()
         let localMemberIdentity = localMemberIdentityStore.loadOrCreate()
         let groupStore = groupStore ?? InMemoryGroupStore()
+        let appSettingsStore = appSettingsStore ?? InMemoryAppSettingsStore()
+        let appSettings = appSettingsStore.load()
         let storedGroups = groupStore.loadGroups()
         self.groups = groups ?? storedGroups
         self.callSession = callSession ?? RideIntercomCallSessionAdapter(memberID: localMemberIdentity.memberID)
         let sessionManager = audioSessionManager ?? SessionManager.AudioSessionManager()
         self.audioSessionManager = sessionManager
-        let audioInputPipeline = audioInputCapture.map {
-            AudioInputPipeline(capture: $0, voiceProcessingManager: audioInputVoiceProcessingManager)
-        } ?? Self.makeDefaultAudioInputPipeline()
-        self.audioInputCapture = audioInputPipeline.capture
-        self.audioInputVoiceProcessingManager = audioInputVoiceProcessingManager ?? audioInputPipeline.voiceProcessingManager
+        self.audioInputCapture = audioInputCapture ?? Self.makeDefaultAudioInputCapture()
         self.audioOutputRenderer = audioOutputRenderer ?? Self.makeDefaultAudioOutputRenderer()
-        let initialVoiceActivityDetectionThreshold = AudioTransmissionController.defaultVoiceActivityThreshold
-        self.voiceActivityDetectionThreshold = initialVoiceActivityDetectionThreshold
         self.audioTransmissionController = audioTransmissionController ?? AudioTransmissionController()
         self.callTicker = callTicker ?? RepeatingCallTicker()
         self.credentialStore = credentialStore ?? InMemoryGroupCredentialStore()
         self.credentialProvider = DefaultGroupCredentialProvider()
         self.groupStore = groupStore
+        self.appSettingsStore = appSettingsStore
         self.localMemberIdentity = localMemberIdentity
         self.audioSessionSnapshot = (try? sessionManager.snapshot()) ?? Self.defaultAudioSessionSnapshot()
         self.remoteTalkerTimeout = remoteTalkerTimeout
-        self.audioTransmissionController.setVoiceActivityThreshold(initialVoiceActivityDetectionThreshold)
+        self.audioSessionProfile = appSettings.audioSessionProfile
+        self.vadSensitivity = appSettings.vadSensitivity
+        self.preferredTransmitCodec = appSettings.preferredTransmitCodec
+        self.aacELDv2BitRate = appSettings.aacELDv2BitRate
+        self.opusBitRate = appSettings.opusBitRate
         self.selectedInputPort = AudioPortInfo(device: audioSessionSnapshot.currentInput)
         self.selectedOutputPort = AudioPortInfo(device: audioSessionSnapshot.currentOutput)
+        self.audioTransmissionController.applyVADSensitivity(vadSensitivity)
+        self.callSession.setAudioCodecOptions(aacELDv2BitRate: aacELDv2BitRate, opusBitRate: opusBitRate)
 
         self.callSession.onEvent = { [weak self] event in
             DispatchQueue.main.async { self?.handleTransportEvent(event) }

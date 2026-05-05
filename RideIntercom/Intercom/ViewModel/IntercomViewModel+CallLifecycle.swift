@@ -1,4 +1,6 @@
 import Foundation
+import Logging
+import RTC
 import SessionManager
 
 extension IntercomViewModel {
@@ -53,6 +55,7 @@ extension IntercomViewModel {
 
         callSession.startMedia()
         guard configureAudioSession(active: true),
+              applyCurrentVoiceProcessingConfiguration(),
               startInputCapture(),
               startOutputRenderer() else {
             callSession.stopMedia()
@@ -60,15 +63,22 @@ extension IntercomViewModel {
             return false
         }
 
-        applyCurrentVoiceProcessingConfiguration()
         callTicker.start()
         isAudioReady = true
         refreshOtherAudioDuckingState()
         audioErrorMessage = nil
+        AppLoggers.audio.info(
+            "audio.media.started",
+            metadata: .event("audio.media.started", [
+                "route": "\(routeLabel)",
+                "codec": "\(selectedTransmitCodec.rawValue)"
+            ])
+        )
         return true
     }
 
     func stopAudioPipeline(deactivateSession: Bool = false) {
+        let wasAudioReady = isAudioReady
         setOtherAudioDuckingActive(false)
         callSession.stopMedia()
         _ = audioInputCapture.stop()
@@ -78,6 +88,14 @@ extension IntercomViewModel {
             _ = try? audioSessionManager.setActive(false)
         }
         isAudioReady = false
+        if wasAudioReady {
+            AppLoggers.audio.info(
+                "audio.media.stopped",
+                metadata: .event("audio.media.stopped", [
+                    "route": "\(routeLabel)"
+                ])
+            )
+        }
     }
 
     func startLocalStandby() {
@@ -122,29 +140,54 @@ extension IntercomViewModel {
     func configureAudioSession(active: Bool) -> Bool {
         do {
             let report = try audioSessionManager.configure(makeAudioSessionConfiguration())
+            lastAudioSessionConfigurationReport = report
             if let snapshot = report.snapshot {
                 applyAudioSessionSnapshot(snapshot)
             }
             if active {
                 let activeReport = try audioSessionManager.setActive(true)
+                lastAudioSessionActivationReport = activeReport
                 guard activeReport.result.isContinuable else {
                     audioErrorMessage = "Audio session activation failed"
+                    AppLoggers.audio.error(
+                        "audio.session.failed",
+                        metadata: .event("audio.session.failed", [
+                            "operation": "setActive",
+                            "isRecoverable": "true"
+                        ])
+                    )
                     return false
                 }
             }
             guard report.operations.allSatisfy(\.result.isContinuable) else {
                 audioErrorMessage = "Audio session configuration failed"
+                AppLoggers.audio.error(
+                    "audio.session.failed",
+                    metadata: .event("audio.session.failed", [
+                        "operation": "configure",
+                        "isRecoverable": "true"
+                    ])
+                )
                 return false
             }
             return true
         } catch {
             audioErrorMessage = "Audio session configuration failed"
+            AppLoggers.audio.error(
+                "audio.session.failed",
+                metadata: .event("audio.session.failed", [
+                    "operation": "configure",
+                    "errorType": "\(type(of: error))",
+                    "isRecoverable": "true"
+                ])
+            )
             return false
         }
     }
 
     func makeAudioSessionConfiguration() -> SessionManager.AudioSessionConfiguration {
         .intercom(
+            profile: audioSessionProfile,
             prefersSpeakerOutput: selectedOutputPort == .speaker,
             preferredInput: selectedInputPort.sessionManagerInputSelection,
             preferredOutput: selectedOutputPort.sessionManagerOutputSelection
@@ -153,6 +196,7 @@ extension IntercomViewModel {
 
     func startInputCapture() -> Bool {
         let report = audioInputCapture.start()
+        lastInputStreamOperationReport = report
         guard report.result.isContinuable else {
             audioErrorMessage = "Microphone capture failed"
             return false
@@ -162,6 +206,7 @@ extension IntercomViewModel {
 
     func startOutputRenderer() -> Bool {
         let report = audioOutputRenderer.start()
+        lastOutputStreamOperationReport = report
         guard report.result.isContinuable else {
             audioErrorMessage = "Audio output failed"
             return false
@@ -171,24 +216,46 @@ extension IntercomViewModel {
 
     func currentVoiceProcessingConfiguration() -> SessionManager.AudioInputVoiceProcessingConfiguration {
         SessionManager.AudioInputVoiceProcessingConfiguration(
-            soundIsolationEnabled: isSoundIsolationEnabled,
+            soundIsolationEnabled: false,
             otherAudioDuckingEnabled: isOtherAudioDuckingActiveInternal,
-            duckingLevel: .minimum,
+            duckingLevel: isOtherAudioDuckingActiveInternal ? .normal : .minimum,
             inputMuted: isMuted
         )
     }
 
-    func applyCurrentVoiceProcessingConfiguration() {
-        try? audioInputVoiceProcessingManager?.configure(currentVoiceProcessingConfiguration())
+    @discardableResult
+    func applyCurrentVoiceProcessingConfiguration() -> Bool {
+        let report = audioInputCapture.updateVoiceProcessing(currentVoiceProcessingConfiguration())
+        lastVoiceProcessingOperationReport = report
+        if case .ignored(let reason) = report.result {
+            AppLoggers.audio.debug(
+                "audio.input.voice_processing_ignored",
+                metadata: .event("audio.input.voice_processing_ignored", [
+                    "reason": "\(reason)"
+                ])
+            )
+        }
+        guard report.result.isContinuable else {
+            audioErrorMessage = "Audio input processing update failed"
+            AppLoggers.audio.warning(
+                "audio.input.voice_processing_failed",
+                metadata: .event("audio.input.voice_processing_failed", [
+                    "errorType": "\(report.result)",
+                    "isRecoverable": "true"
+                ])
+            )
+            return false
+        }
+        return true
     }
 }
 
 private extension SessionManager.AudioSessionOperationResult {
     var isContinuable: Bool {
         switch self {
-        case .applied, .ignored:
+        case .applied, .ignored(_):
             true
-        case .failed:
+        case .failed(_):
             false
         }
     }
@@ -197,9 +264,9 @@ private extension SessionManager.AudioSessionOperationResult {
 private extension SessionManager.AudioStreamOperationResult {
     var isContinuable: Bool {
         switch self {
-        case .applied, .ignored(.alreadyRunning):
+        case .applied, .ignored(_):
             true
-        case .ignored, .failed:
+        case .failed(_):
             false
         }
     }

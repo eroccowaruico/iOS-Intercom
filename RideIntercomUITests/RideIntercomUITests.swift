@@ -81,8 +81,12 @@ final class RideIntercomUITests: XCTestCase {
         relaunchOnDiagnosticsTab()
 
         XCTAssertTrue(app.descendants(matching: .any)["liveTransmitPipelineView"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts["Mic"].exists)
-        XCTAssertTrue(app.staticTexts["VAD"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["liveReceivePipelineView"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.descendants(matching: .any)["pipeline-session-step"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["pipeline-effects-step"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["receive-pipeline-mix-step"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["receive-mix-topology"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["receive-pipeline-output-step"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["realDeviceCallDebugSummaryLabel"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["audioIOPanel"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["audioCheckPanel"].exists)
@@ -142,8 +146,9 @@ final class RideIntercomUITests: XCTestCase {
         relaunchOnDiagnosticsTab()
 
         XCTAssertTrue(app.descendants(matching: .any)["liveTransmitPipelineView"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts["Mic"].exists)
-        XCTAssertTrue(app.staticTexts["VAD"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["liveReceivePipelineView"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.descendants(matching: .any)["pipeline-input-step"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["pipeline-effect-stage-vad-gate"].exists)
     }
 
     @MainActor
@@ -158,9 +163,10 @@ final class RideIntercomUITests: XCTestCase {
 
         openSettingsTab()
         XCTAssertTrue(app.descendants(matching: .any)["settingsScrollView"].firstMatch.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.descendants(matching: .any)["audioSessionPanel"].firstMatch.waitForExistence(timeout: 3))
         XCTAssertTrue(app.descendants(matching: .any)["transmitCodecPanel"].firstMatch.waitForExistence(timeout: 3))
-        revealSettingsPanelIfNeeded(identifier: "vadThresholdPanel")
-        XCTAssertTrue(app.descendants(matching: .any)["vadThresholdPanel"].firstMatch.waitForExistence(timeout: 3))
+        revealSettingsPanelIfNeeded(identifier: "voiceActivityPanel")
+        XCTAssertTrue(app.descendants(matching: .any)["voiceActivityPanel"].firstMatch.waitForExistence(timeout: 3))
 
         openGroupsTab()
         XCTAssertTrue(waitForVisibleRoot(in: app))
@@ -196,11 +202,12 @@ final class RideIntercomUITests: XCTestCase {
     func testSettingsShowsConfigPanelsWithoutDiagnosticsRows() throws {
         openSettingsTab()
 
+        XCTAssertTrue(app.descendants(matching: .any)["audioSessionPanel"].firstMatch.waitForExistence(timeout: 3))
         XCTAssertTrue(app.descendants(matching: .any)["audioIOPanel"].firstMatch.waitForExistence(timeout: 3))
         XCTAssertTrue(app.descendants(matching: .any)["audioCheckPanel"].firstMatch.waitForExistence(timeout: 3))
         XCTAssertTrue(app.descendants(matching: .any)["transmitCodecPanel"].firstMatch.waitForExistence(timeout: 3))
-        revealSettingsPanelIfNeeded(identifier: "vadThresholdPanel")
-        XCTAssertTrue(app.descendants(matching: .any)["vadThresholdPanel"].firstMatch.waitForExistence(timeout: 3))
+        revealSettingsPanelIfNeeded(identifier: "voiceActivityPanel")
+        XCTAssertTrue(app.descendants(matching: .any)["voiceActivityPanel"].firstMatch.waitForExistence(timeout: 3))
         XCTAssertFalse(app.descendants(matching: .any)["audioIOApplyStateLabel"].firstMatch.exists)
         XCTAssertFalse(app.descendants(matching: .any)["audioInputProcessingSummaryLabel"].firstMatch.exists)
     }

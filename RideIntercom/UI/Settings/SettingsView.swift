@@ -6,14 +6,72 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            AudioSessionPanel(viewModel: viewModel)
             AudioIOPanel(viewModel: viewModel)
             AudioCheckPanel(viewModel: viewModel)
             TransmitCodecPanel(viewModel: viewModel)
-            VADThresholdPanel(viewModel: viewModel)
+            VoiceActivityPanel(viewModel: viewModel)
             ResetSettingsPanel(viewModel: viewModel)
         }
         .formStyle(.grouped)
         .accessibilityIdentifier("settingsScrollView")
+    }
+}
+
+struct AudioSessionPanel: View {
+    @Bindable var viewModel: IntercomViewModel
+
+    var body: some View {
+        Section {
+            Picker("Mode", selection: Binding(
+                get: { viewModel.audioSessionModeProfile },
+                set: { viewModel.setAudioSessionModeProfile($0) }
+            )) {
+                ForEach(AudioSessionProfile.settingsModeCases) { profile in
+                    Text(profile.label).tag(profile)
+                }
+            }
+            .pickerStyle(.menu)
+            .accessibilityIdentifier("audioSessionProfilePicker")
+
+            Toggle(
+                "Use Speaker",
+                isOn: Binding(
+                    get: { viewModel.isSpeakerOutputEnabled },
+                    set: { viewModel.setSpeakerOutputEnabled($0) }
+                )
+            )
+            .accessibilityIdentifier("speakerOutputToggle")
+
+            if viewModel.audioSessionModeProfile == .standard {
+                Toggle(
+                    "Echo Cancellation",
+                    isOn: Binding(
+                        get: { viewModel.isSessionEchoCancellationEnabled },
+                        set: { viewModel.setSessionEchoCancellationEnabled($0) }
+                    )
+                )
+                .disabled(!viewModel.canToggleSessionEchoCancellation)
+                .accessibilityIdentifier("echoCancellationToggle")
+            }
+
+            if viewModel.supportsAdvancedMixingOptions {
+                Toggle(
+                    "Duck Other Audio",
+                    isOn: Binding(
+                        get: { viewModel.isDuckOthersEnabled },
+                        set: { viewModel.setDuckOthersEnabled($0) }
+                    )
+                )
+                .accessibilityIdentifier("duckOthersToggle")
+            }
+
+            LabeledContent("Requested", value: viewModel.audioSessionRequestSummary)
+                .accessibilityIdentifier("audioSessionProfileStatus")
+        } header: {
+            Label("Audio Session", systemImage: "slider.horizontal.3")
+        }
+        .accessibilityIdentifier("audioSessionPanel")
     }
 }
 
@@ -48,24 +106,13 @@ struct AudioIOPanel: View {
 
             if viewModel.supportsSoundIsolation {
                 Toggle(
-                    "Sound Isolation",
+                    "Voice Isolation Effect",
                     isOn: Binding(
                         get: { viewModel.isSoundIsolationEnabled },
                         set: { viewModel.setSoundIsolationEnabled($0) }
                     )
                 )
                 .accessibilityIdentifier("soundIsolationToggle")
-            }
-
-            if viewModel.supportsAdvancedMixingOptions {
-                Toggle(
-                    "Duck Other Audio",
-                    isOn: Binding(
-                        get: { viewModel.isDuckOthersEnabled },
-                        set: { viewModel.setDuckOthersEnabled($0) }
-                    )
-                )
-                .accessibilityIdentifier("duckOthersToggle")
             }
         } header: {
             Label("Audio I/O", systemImage: "waveform")
@@ -84,16 +131,76 @@ struct TransmitCodecPanel: View {
                 set: { viewModel.setPreferredTransmitCodec($0) }
             )) {
                 Text("PCM 16-bit").tag(AudioCodecIdentifier.pcm16)
-                Text("HE-AAC v2 VBR").tag(AudioCodecIdentifier.heAACv2)
+                Text("AAC-ELD v2").tag(AudioCodecIdentifier.mpeg4AACELDv2)
                 Text("Opus").tag(AudioCodecIdentifier.opus)
             }
             .pickerStyle(.segmented)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("transmitCodecPicker")
+
+            LabeledContent("Using") {
+                VStack(alignment: .trailing, spacing: AppSpacing.xxs) {
+                    Text(viewModel.codecDisplaySummary)
+                        .font(AppTypography.captionStrongMono)
+                    Text(viewModel.codecFallbackSummary)
+                        .font(AppTypography.caption2)
+                        .foregroundStyle(viewModel.preferredTransmitCodec == viewModel.selectedTransmitCodec ? AppColorPalette.textSecondary : AppColorPalette.warning)
+                }
+            }
+            .accessibilityIdentifier("transmitCodecStatus")
+
+            if viewModel.preferredTransmitCodec == .mpeg4AACELDv2 {
+                BitRateStepper(
+                    title: "AAC-ELD v2 Bitrate",
+                    value: Binding(
+                        get: { viewModel.aacELDv2BitRate },
+                        set: { viewModel.setAACELDv2BitRate($0) }
+                    ),
+                    range: 12_000...128_000,
+                    step: 4_000,
+                    accessibilityIdentifier: "aacELDv2BitRateStepper"
+                )
+            }
+
+            if viewModel.preferredTransmitCodec == .opus {
+                BitRateStepper(
+                    title: "Opus Bitrate",
+                    value: Binding(
+                        get: { viewModel.opusBitRate },
+                        set: { viewModel.setOpusBitRate($0) }
+                    ),
+                    range: 6_000...128_000,
+                    step: 2_000,
+                    accessibilityIdentifier: "opusBitRateStepper"
+                )
+            }
         } header: {
             Label("Transmit Codec", systemImage: "antenna.radiowaves.left.and.right")
         }
         .accessibilityIdentifier("transmitCodecPanel")
+    }
+}
+
+private struct BitRateStepper: View {
+    let title: String
+    @Binding var value: Int
+    let range: ClosedRange<Int>
+    let step: Int
+    let accessibilityIdentifier: String
+
+    var body: some View {
+        Stepper(
+            value: Binding(
+                get: { value },
+                set: { value = min(range.upperBound, max(range.lowerBound, $0)) }
+            ),
+            in: range,
+            step: step
+        ) {
+            LabeledContent(title, value: "\(value / 1_000) kbps")
+        }
+        .accessibilityValue("\(value / 1_000) kilobits per second")
+        .accessibilityIdentifier(accessibilityIdentifier)
     }
 }
 
@@ -176,38 +283,28 @@ struct AudioCheckPanel: View {
 
 }
 
-struct VADThresholdPanel: View {
+struct VoiceActivityPanel: View {
     @Bindable var viewModel: IntercomViewModel
 
     var body: some View {
         Section {
-            HStack {
-                Text("Voice Activity Detection Threshold")
-                Spacer()
-                Text(String(format: "%.4f", viewModel.voiceActivityDetectionThreshold))
-                    .font(AppTypography.captionStrongMono)
-                    .foregroundStyle(AppColorPalette.textSecondary)
+            Picker("VAD Sensitivity", selection: Binding(
+                get: { viewModel.vadSensitivity },
+                set: { viewModel.setVADSensitivity($0) }
+            )) {
+                ForEach(VoiceActivitySensitivity.allCases) { sensitivity in
+                    Text(sensitivity.label).tag(sensitivity)
+                }
             }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("vadSensitivityPicker")
 
-            Slider(
-                value: Binding(
-                    get: { Double(viewModel.voiceActivityDetectionThreshold) },
-                    set: {
-                        let minValue = Double(VoiceActivityDetector.minThreshold)
-                        let maxValue = Double(VoiceActivityDetector.maxThreshold)
-                        let clamped = min(max(minValue, $0), maxValue)
-                        let step = 0.00025
-                        let snapped = (clamped / step).rounded() * step
-                        viewModel.setVoiceActivityDetectionThreshold(Float(min(max(minValue, snapped), maxValue)))
-                    }
-                ),
-                in: Double(VoiceActivityDetector.minThreshold)...Double(VoiceActivityDetector.maxThreshold)
-            )
-            .accessibilityIdentifier("voiceActivityDetectionThresholdSlider")
+            LabeledContent("Analysis", value: viewModel.vadAnalysisSummary)
+                .accessibilityIdentifier("vadAnalysisStatus")
         } header: {
-            Label("VAD Threshold", systemImage: "waveform.badge.mic")
+            Label("Voice Activity", systemImage: "waveform.badge.mic")
         }
-        .accessibilityIdentifier("vadThresholdPanel")
+        .accessibilityIdentifier("voiceActivityPanel")
     }
 }
 

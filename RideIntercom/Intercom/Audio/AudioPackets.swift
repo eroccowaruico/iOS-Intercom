@@ -9,10 +9,6 @@ enum OutboundAudioPacket: Equatable {
 
 typealias AudioCodecIdentifier = RTC.AudioCodecIdentifier
 
-extension RTC.AudioCodecIdentifier {
-    static let heAACv2 = RTC.AudioCodecIdentifier.mpeg4AACELDv2
-}
-
 extension RTC.AudioFormatDescriptor {
     static let intercomPacketAudio = RTC.AudioFormatDescriptor(sampleRate: 16_000, channelCount: 1)
 
@@ -33,21 +29,44 @@ private extension Codec.CodecIdentifier {
     }
 }
 
+final class AppAudioCodecOptions: @unchecked Sendable {
+    private let lock = NSLock()
+    private var aacELDv2BitRate: Int
+    private var opusBitRate: Int
+
+    init(aacELDv2BitRate: Int = 24_000, opusBitRate: Int = 32_000) {
+        self.aacELDv2BitRate = Codec.AACELDv2Options(bitRate: aacELDv2BitRate).bitRate
+        self.opusBitRate = Codec.OpusOptions(bitRate: opusBitRate).bitRate
+    }
+
+    func update(aacELDv2BitRate: Int, opusBitRate: Int) {
+        lock.withLock {
+            self.aacELDv2BitRate = Codec.AACELDv2Options(bitRate: aacELDv2BitRate).bitRate
+            self.opusBitRate = Codec.OpusOptions(bitRate: opusBitRate).bitRate
+        }
+    }
+
+    var aacELDv2Options: Codec.AACELDv2Options {
+        lock.withLock { Codec.AACELDv2Options(bitRate: aacELDv2BitRate) }
+    }
+
+    var opusOptions: Codec.OpusOptions {
+        lock.withLock { Codec.OpusOptions(bitRate: opusBitRate) }
+    }
+}
+
 private struct PackageAudioFrameCodec: RTC.AudioFrameCodec {
     let identifier: RTC.AudioCodecIdentifier
     private let codecIdentifier: Codec.CodecIdentifier
-    private let aacELDv2Options: Codec.AACELDv2Options
-    private let opusOptions: Codec.OpusOptions
+    private let options: AppAudioCodecOptions
 
     init(
         codecIdentifier: Codec.CodecIdentifier,
-        aacELDv2Options: Codec.AACELDv2Options = Codec.AACELDv2Options(),
-        opusOptions: Codec.OpusOptions = Codec.OpusOptions()
+        options: AppAudioCodecOptions
     ) {
         self.identifier = codecIdentifier.rtcIdentifier
         self.codecIdentifier = codecIdentifier
-        self.aacELDv2Options = aacELDv2Options
-        self.opusOptions = opusOptions
+        self.options = options
     }
 
     func encode(_ frame: RTC.AudioFrame) throws -> RTC.EncodedAudioFrame {
@@ -55,8 +74,8 @@ private struct PackageAudioFrameCodec: RTC.AudioFrameCodec {
         let configuration = Codec.CodecEncodingConfiguration(
             codec: codecIdentifier,
             format: codecFormat,
-            aacELDv2Options: aacELDv2Options,
-            opusOptions: opusOptions
+            aacELDv2Options: options.aacELDv2Options,
+            opusOptions: options.opusOptions
         )
         let encoded = try Codec.CodecEncoder(configuration: configuration).encode(Codec.PCMCodecFrame(
             sequenceNumber: frame.sequenceNumber,
@@ -97,11 +116,14 @@ private struct PackageAudioFrameCodec: RTC.AudioFrameCodec {
 }
 
 enum AppAudioCodecBridge {
-    static func makeRTCCodecRegistry(format: RTC.AudioFormatDescriptor) -> RTC.AudioCodecRegistry {
+    static func makeRTCCodecRegistry(
+        format: RTC.AudioFormatDescriptor,
+        options: AppAudioCodecOptions = AppAudioCodecOptions()
+    ) -> RTC.AudioCodecRegistry {
         var codecs: [any RTC.AudioFrameCodec] = [RTC.PCM16AudioCodec()]
         for codecIdentifier in [Codec.CodecIdentifier.mpeg4AACELDv2, .opus]
         where isAvailable(codecIdentifier, format: format) {
-            codecs.append(PackageAudioFrameCodec(codecIdentifier: codecIdentifier))
+            codecs.append(PackageAudioFrameCodec(codecIdentifier: codecIdentifier, options: options))
         }
         return RTC.AudioCodecRegistry(codecs: codecs)
     }

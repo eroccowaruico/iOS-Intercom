@@ -1,6 +1,8 @@
 #if os(macOS)
 import AppKit
 #endif
+import Foundation
+import Logging
 import SwiftUI
 
 @main
@@ -9,6 +11,16 @@ struct RideIntercomApp: App {
     @Environment(\.openWindow) private var openWindow
     @NSApplicationDelegateAdaptor(RideIntercomApplicationDelegate.self) private var appDelegate
     #endif
+
+    init() {
+        RideIntercomLogging.bootstrap()
+        AppLoggers.app.info(
+            "app.lifecycle.started",
+            metadata: .event("app.lifecycle.started", [
+                "operationID": "\(UUID().uuidString)"
+            ])
+        )
+    }
 
     var body: some Scene {
         #if os(macOS)

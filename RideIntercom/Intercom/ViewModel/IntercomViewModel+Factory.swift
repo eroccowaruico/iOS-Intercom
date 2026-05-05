@@ -8,11 +8,6 @@ import RTC
 import SessionManager
 import VADGate
 
-struct AudioInputPipeline {
-    let capture: SessionManager.AudioInputStreamCapture
-    let voiceProcessingManager: SessionManager.AudioInputVoiceProcessingManager?
-}
-
 extension IntercomViewModel {
     static func makeForCurrentProcess() -> IntercomViewModel {
         let localMemberIdentityStore = UserDefaultsLocalMemberIdentityStore()
@@ -20,6 +15,7 @@ extension IntercomViewModel {
             callSession: makeDefaultCallSession(localMemberIdentityStore: localMemberIdentityStore),
             credentialStore: KeychainGroupCredentialStore(),
             groupStore: UserDefaultsGroupStore(),
+            appSettingsStore: UserDefaultsAppSettingsStore(),
             localMemberIdentityStore: localMemberIdentityStore
         )
     }
@@ -28,21 +24,9 @@ extension IntercomViewModel {
         RideIntercomCallSessionAdapter(memberID: localMemberIdentityStore.loadOrCreate().memberID)
     }
 
-    static func makeDefaultAudioInputPipeline() -> AudioInputPipeline {
-        let engine = AVAudioEngine()
-        let voiceProcessingManager = SessionManager.AudioInputVoiceProcessingManager(
-            backend: SessionManager.SystemAudioInputVoiceProcessingBackend(inputNode: engine.inputNode)
-        )
-        let backend = SessionManager.SystemAudioInputStreamBackend(
-            engine: engine,
-            voiceProcessingManager: voiceProcessingManager
-        )
-        return AudioInputPipeline(
-            capture: SessionManager.AudioInputStreamCapture(
-                configuration: .intercom(voiceProcessing: defaultVoiceProcessingConfiguration()),
-                backend: backend
-            ),
-            voiceProcessingManager: voiceProcessingManager
+    static func makeDefaultAudioInputCapture() -> SessionManager.AudioInputStreamCapture {
+        SessionManager.AudioInputStreamCapture(
+            configuration: .intercom(voiceProcessing: defaultVoiceProcessingConfiguration())
         )
     }
 
@@ -52,7 +36,7 @@ extension IntercomViewModel {
 
     static func defaultVoiceProcessingConfiguration() -> SessionManager.AudioInputVoiceProcessingConfiguration {
         SessionManager.AudioInputVoiceProcessingConfiguration(
-            soundIsolationEnabled: defaultSoundIsolationEnabled,
+            soundIsolationEnabled: false,
             otherAudioDuckingEnabled: false,
             duckingLevel: .minimum,
             inputMuted: false

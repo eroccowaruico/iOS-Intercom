@@ -123,9 +123,23 @@ logger.info(
 | `rtc.route.degraded` | `.warning` |
 | `rtc.handshake.rejected` | `.error` |
 | `audio.media.started` | `.info` |
+| `audio.media.stopped` | `.info` |
 | `audio.session.failed` | `.error` |
+| `audio.input.voice_processing_ignored` | `.debug` |
+| `audio.input.voice_processing_failed` | `.warning` |
+| `audio.output.schedule_failed` | `.warning` |
 | `audio.codec.fallback` | `.notice` |
 | `audio.codec.decode_failed` | `.error` |
+| `settings.codec.changed` | `.info` |
+| `settings.codec.bitrate_changed` | `.info` |
+| `settings.audio_session.changed` | `.info` |
+| `settings.audio_speaker.changed` | `.info` |
+| `settings.echo_cancellation.changed` | `.info` |
+| `settings.audio_device.changed` | `.info` |
+| `settings.sound_isolation.changed` | `.info` |
+| `settings.ducking.changed` | `.info` |
+| `settings.vad.changed` | `.info` |
+| `settings.reset` | `.notice` |
 | `security.invariant_broken` | `.critical` |
 
 ## 保守ルール

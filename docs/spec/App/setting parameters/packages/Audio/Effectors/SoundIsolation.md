@@ -11,9 +11,15 @@
 | package 設定 | App から渡す値 | 種別 |
 |---|---|---|
 | `VoiceIsolationConfiguration` | package default | 固定 |
-| effect chain 挿入 | App adapter の固定構成で決める | adapter 導出 |
+| effect chain 挿入 | `isSoundIsolationEnabled && VoiceIsolationSupport.isAvailable` | 画面設定と runtime support から導出 |
 
-Sound Isolation の画面設定は、原則として `SessionManager` の input voice processing へ渡す。`SoundIsolation` effect を mixer chain に挿入する場合も、mix などの Audio Unit parameter は画面設定にしない。
+Settings の `Voice Isolation Effect` は `SoundIsolation` package の effect-level 設定として扱う。SessionManager の `AudioInputVoiceProcessingConfiguration.soundIsolationEnabled` へは渡さない。mix などの Audio Unit parameter は画面設定にしない。
+
+| 状態 | App の扱い |
+|---|---|
+| `isSoundIsolationEnabled == true` かつ `VoiceIsolationSupport.isAvailable == true` | 送信用 effect chain に `VoiceIsolationEffect` を挿入する |
+| `isSoundIsolationEnabled == true` かつ `VoiceIsolationSupport.isAvailable == false` | Toggle を非表示にし、Diagnostics では effect unavailable として扱う |
+| `isSoundIsolationEnabled == false` | effect chain へ挿入しない |
 
 ## App 画面に出さない値
 
@@ -21,6 +27,6 @@ Sound Isolation の画面設定は、原則として `SessionManager` の input 
 |---|---|
 | wet / dry mix | package default |
 | Audio Unit parameter | package 仕様を正とする |
-| support check / fallback | package adapter で扱う |
+| support check / fallback の詳細 | package adapter で扱う |
 
 詳細な SoundIsolation の仕様は `docs/spec/packages/Audio/Effectors/SoundIsolation.md` を正とする。
