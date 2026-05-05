@@ -28,6 +28,7 @@ struct CallView: View {
                     VStack(spacing: AppSpacing.l) {
                         ForEach(Array(remoteMembers.enumerated()), id: \.element.id) { index, member in
                             RemoteParticipantRowView(
+                                viewModel: viewModel,
                                 index: index,
                                 member: member
                             )
@@ -127,6 +128,19 @@ struct CallView: View {
                     .accessibilityLabel("Output Volume")
                     .accessibilityValue(outputPercentLabel)
                     .accessibilityIdentifier("masterOutputSlider")
+
+                    if viewModel.supportsSoundIsolation {
+                        Toggle(isOn: Binding(
+                            get: { viewModel.receiveMasterSoundIsolationEnabled },
+                            set: { viewModel.setReceiveMasterSoundIsolationEnabled($0) }
+                        )) {
+                            Label("Voice Isolation", systemImage: "wand.and.sparkles")
+                                .font(AppTypography.captionStrong)
+                        }
+                        .accessibilityLabel("Master Output Voice Isolation Effect")
+                        .accessibilityValue(viewModel.receiveMasterSoundIsolationEnabled ? "Enabled" : "Bypassed")
+                        .accessibilityIdentifier("masterVoiceIsolationToggle")
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 

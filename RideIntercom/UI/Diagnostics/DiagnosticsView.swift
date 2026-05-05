@@ -6,12 +6,12 @@ struct DiagnosticsView: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.5)) { _ in
             ScrollView {
-                VStack(alignment: .leading, spacing: AppSpacing.screen) {
+                VStack(alignment: .leading, spacing: AppSpacing.l) {
                     LiveTransmitPipelineView(viewModel: viewModel)
                     LiveReceivePipelineView(viewModel: viewModel)
                     DiagnosticsOverviewGrid(rows: viewModel.diagnosticsOverviewRows)
                 }
-                .padding(AppSpacing.screen)
+                .padding(AppSpacing.l)
             }
             .accessibilityIdentifier("diagnosticsScrollView")
         }

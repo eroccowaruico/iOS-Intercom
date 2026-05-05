@@ -109,7 +109,7 @@ struct AudioIOPanel: View {
 
             if viewModel.supportsSoundIsolation {
                 Toggle(
-                    "Voice Isolation Effect",
+                    "Transmit Voice Isolation Effect",
                     isOn: Binding(
                         get: { viewModel.isSoundIsolationEnabled },
                         set: { viewModel.setSoundIsolationEnabled($0) }

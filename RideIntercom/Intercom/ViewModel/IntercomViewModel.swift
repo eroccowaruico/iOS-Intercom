@@ -15,12 +15,16 @@ final class IntercomViewModel {
     static let pendingMemberPrefix = "pending-"
     static let pendingInviteMemberPrefix = "invite-pending-"
     nonisolated static let defaultSoundIsolationEnabled = true
+    nonisolated static let defaultReceiveSoundIsolationEnabled = false
     nonisolated static let defaultAudioSessionProfile = AudioSessionProfile.echoCancelledInput
     nonisolated static let defaultDuckOthersEnabled = true
     nonisolated static let defaultVADSensitivity = VoiceActivitySensitivity.standard
     nonisolated static let defaultTransmitCodec: AudioCodecIdentifier = .mpeg4AACELDv2
     nonisolated static let defaultAACELDv2BitRate = 32_000
     nonisolated static let defaultOpusBitRate = 32_000
+    nonisolated static let defaultMasterOutputVolume: Float = 1
+    nonisolated static let defaultRemoteOutputVolume: Float = 1
+    nonisolated static let receiveMasterPeakLimiterCeiling: Float = 1
     nonisolated static let otherAudioDuckingHoldDuration: TimeInterval = 1.0
     nonisolated static let audibleOutputLevelThreshold: Float = 0.00025
 
@@ -42,8 +46,11 @@ final class IntercomViewModel {
     var preferredTransmitCodec: AudioCodecIdentifier = IntercomViewModel.defaultTransmitCodec
     var aacELDv2BitRate = IntercomViewModel.defaultAACELDv2BitRate
     var opusBitRate = IntercomViewModel.defaultOpusBitRate
-    var masterOutputVolume: Float = 1
+    var masterOutputVolume: Float = IntercomViewModel.defaultMasterOutputVolume
     var isOutputMuted = false
+    var remoteOutputVolumes: [String: Float] = [:]
+    var receiveMasterSoundIsolationEnabled = IntercomViewModel.defaultReceiveSoundIsolationEnabled
+    var remoteSoundIsolationEnabled: [String: Bool] = [:]
     var isMicrophoneCaptureRunning: Bool {
         isAudioReady
     }
@@ -182,6 +189,7 @@ final class IntercomViewModel {
         self.selectedInputPort = AudioPortInfo(device: audioSessionSnapshot.currentInput)
         self.selectedOutputPort = AudioPortInfo(device: audioSessionSnapshot.currentOutput)
         self.audioTransmissionController.applyVADSensitivity(vadSensitivity)
+        self.callSession.setPreferredAudioCodec(preferredTransmitCodec)
         self.callSession.setAudioCodecOptions(aacELDv2BitRate: aacELDv2BitRate, opusBitRate: opusBitRate)
 
         self.callSession.onEvent = { [weak self] event in

@@ -5,86 +5,39 @@ import SessionManager
 struct LiveReceivePipelineView: View {
     @Bindable var viewModel: IntercomViewModel
 
-    private let columns = [
-        GridItem(.adaptive(minimum: 128), spacing: AppSpacing.m, alignment: .top)
-    ]
-
     var body: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.xl) {
-            Label("Live RX Pipeline", systemImage: "point.bottomleft.forward.to.point.topright.scurvepath")
-                .font(AppTypography.sectionTitle)
+        VStack(alignment: .leading, spacing: AppSpacing.m) {
+            CompactPipelineHeader(
+                title: "Live RX Pipeline",
+                systemImage: "point.bottomleft.forward.to.point.topright.scurvepath",
+                detail: "RTC -> Decode -> peer buses -> mix -> RX master -> limiter -> output"
+            )
 
-            ViewThatFits(in: .horizontal) {
-                horizontalPipeline
-                gridPipeline
+            VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                ReceiveRTCPeersGroup(step: rtcReceiveStep, peers: receivePeerBuses)
+                ReceiveDecodePeersGroup(
+                    step: codecDecodeStep,
+                    peers: receivePeerBuses,
+                    droppedFrameCount: viewModel.droppedAudioPacketCount
+                )
+                ReceivePeerBusesGroup(
+                    step: peerBusStep,
+                    peerBuses: receivePeerBuses,
+                    master: receiveMasterMix
+                )
+                CompactPipelineStepRow(step: receiveMixStep)
+                ReceiveMasterMixGroup(
+                    step: masterBusStep,
+                    effectStep: masterEffectChainStep,
+                    effectStages: masterEffectStages,
+                    master: receiveMasterMix
+                )
+                CompactPipelineStepRow(step: outputStep)
             }
-
-            ReceiveMixTopologyView(
-                peerBuses: receivePeerBuses,
-                master: receiveMasterMix
-            )
-            .accessibilityIdentifier("receive-mix-topology")
-
-            EffectChainStagesView(
-                title: "RX Peer Effect Chain",
-                accessibilityIdentifier: "receive-peer-effect-chain",
-                stageIdentifierPrefix: "receive-peer-effect-stage",
-                stages: peerEffectStages
-            )
-
-            EffectChainStagesView(
-                title: "RX Master Effect Chain",
-                accessibilityIdentifier: "receive-master-effect-chain",
-                stageIdentifierPrefix: "receive-master-effect-stage",
-                stages: masterEffectStages
-            )
         }
         .appDiagnosticsCardStyle()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("liveReceivePipelineView")
-    }
-
-    private var horizontalPipeline: some View {
-        HStack(alignment: .top, spacing: AppSpacing.xs) {
-            ForEach(Array(steps.enumerated()), id: \.element.id) { index, step in
-                PipelineStepView(step: step)
-                    .frame(width: 124)
-                    .accessibilityIdentifier(step.accessibilityIdentifier)
-
-                if index < steps.count - 1 {
-                    pipelineConnector(color: connectorColor(after: index))
-                        .frame(width: AppSize.connector.width, height: AppSize.connector.height)
-                        .accessibilityIdentifier("receivePipelineConnector\(index)")
-                }
-            }
-        }
-    }
-
-    private var gridPipeline: some View {
-        LazyVGrid(columns: columns, alignment: .leading, spacing: AppSpacing.m) {
-            ForEach(Array(steps.enumerated()), id: \.element.id) { index, step in
-                PipelineStepView(step: step)
-                    .accessibilityIdentifier(step.accessibilityIdentifier)
-                    .overlay(alignment: .topTrailing) {
-                        Text("\(index + 1)")
-                            .font(AppTypography.caption2Mono)
-                            .foregroundStyle(AppColorPalette.textTertiary)
-                    }
-            }
-        }
-    }
-
-    private var steps: [PipelineStep] {
-        [
-            rtcReceiveStep,
-            codecDecodeStep,
-            peerBusStep,
-            peerEffectChainStep,
-            receiveMixStep,
-            masterBusStep,
-            masterEffectChainStep,
-            outputStep
-        ]
     }
 
     private var rtcReceiveStep: PipelineStep {
@@ -115,7 +68,7 @@ struct LiveReceivePipelineView: View {
                 id: "rtc-receive",
                 package: "RTC",
                 title: "RTC RX",
-                detail: "\(viewModel.routeLabel) RX \(viewModel.receivedVoicePacketCount)",
+                detail: "\(viewModel.routeLabel) / C \(viewModel.connectedPeerCount) / A \(viewModel.authenticatedPeerCount) / RX \(viewModel.receivedVoicePacketCount)",
                 icon: "dot.radiowaves.left.and.right",
                 state: .passing,
                 accessibilityIdentifier: "receive-pipeline-rtc-step"
@@ -125,7 +78,7 @@ struct LiveReceivePipelineView: View {
             id: "rtc-receive",
             package: "RTC",
             title: "RTC RX",
-            detail: "\(viewModel.routeLabel) Ready",
+            detail: "\(viewModel.routeLabel) / C \(viewModel.connectedPeerCount) / A \(viewModel.authenticatedPeerCount)",
             icon: "dot.radiowaves.left.and.right",
             state: .waiting,
             accessibilityIdentifier: "receive-pipeline-rtc-step"
@@ -149,7 +102,7 @@ struct LiveReceivePipelineView: View {
                 id: "codec-decode",
                 package: "Codec",
                 title: "Decode",
-                detail: "\(codecLabel) / DROP \(viewModel.droppedAudioPacketCount)",
+                detail: "Peer decode / DROP \(viewModel.droppedAudioPacketCount)",
                 icon: "cpu",
                 state: .waiting,
                 accessibilityIdentifier: "receive-pipeline-codec-step"
@@ -159,7 +112,7 @@ struct LiveReceivePipelineView: View {
             id: "codec-decode",
             package: "Codec",
             title: "Decode",
-            detail: viewModel.receivedVoicePacketCount > 0 ? codecLabel : "\(codecLabel) Ready",
+            detail: viewModel.receivedVoicePacketCount > 0 ? "Peer decode / RX \(viewModel.receivedVoicePacketCount)" : "Peer decode Ready",
             icon: viewModel.receivedVoicePacketCount > 0 ? "cpu.fill" : "cpu",
             state: viewModel.receivedVoicePacketCount > 0 ? .passing : .waiting,
             accessibilityIdentifier: "receive-pipeline-codec-step"
@@ -182,33 +135,10 @@ struct LiveReceivePipelineView: View {
             id: "peer-bus",
             package: "AudioMixer",
             title: "Peer Buses",
-            detail: "\(receivePeerBusCount) buses / RX \(viewModel.receivedVoicePacketCount)",
+            detail: "\(receivePeerBusCount) peers / RX \(viewModel.receivedVoicePacketCount)",
             icon: "person.2.wave.2",
             state: viewModel.receivedVoicePacketCount > 0 ? .passing : .waiting,
             accessibilityIdentifier: "receive-pipeline-peer-bus-step"
-        )
-    }
-
-    private var peerEffectChainStep: PipelineStep {
-        guard viewModel.isAudioReady else {
-            return PipelineStep(
-                id: "peer-effects",
-                package: "AudioMixer",
-                title: "Peer FX",
-                detail: "Idle",
-                icon: "wand.and.sparkles",
-                state: .idle,
-                accessibilityIdentifier: "receive-pipeline-peer-effects-step"
-            )
-        }
-        return PipelineStep(
-            id: "peer-effects",
-            package: "AudioMixer",
-            title: "Peer FX",
-            detail: effectChainDetail(peerEffectStages),
-            icon: "wand.and.sparkles",
-            state: aggregateState(peerEffectStages.map(\.state)),
-            accessibilityIdentifier: "receive-pipeline-peer-effects-step"
         )
     }
 
@@ -275,7 +205,7 @@ struct LiveReceivePipelineView: View {
             id: "master-effects",
             package: "AudioMixer",
             title: "Master FX",
-            detail: effectChainDetail(masterEffectStages),
+            detail: viewModel.receiveMasterEffectChainSnapshot.summary,
             icon: "wand.and.sparkles",
             state: aggregateState(masterEffectStages.map(\.state)),
             accessibilityIdentifier: "receive-pipeline-master-effects-step"
@@ -318,30 +248,8 @@ struct LiveReceivePipelineView: View {
         )
     }
 
-    private var peerEffectStages: [EffectChainStage] {
-        [
-            EffectChainStage(
-                id: "sound-isolation",
-                package: "SoundIsolation",
-                name: "SoundIsolation",
-                shortLabel: receiveIsolationShortLabel,
-                detail: receiveIsolationDetail,
-                state: receiveIsolationState
-            )
-        ]
-    }
-
     private var masterEffectStages: [EffectChainStage] {
-        [
-            EffectChainStage(
-                id: "sound-isolation",
-                package: "SoundIsolation",
-                name: "SoundIsolation",
-                shortLabel: receiveIsolationShortLabel,
-                detail: receiveIsolationDetail,
-                state: receiveIsolationState
-            )
-        ]
+        viewModel.receiveMasterEffectChainSnapshot.stages.map(EffectChainStage.init(snapshot:))
     }
 
     private var receivePeerBuses: [ReceivePeerBusSnapshot] {
@@ -353,6 +261,7 @@ struct LiveReceivePipelineView: View {
                     || member.receivedAudioPacketCount > 0
                     || member.playedAudioFrameCount > 0
                 guard shouldShowBus else { return nil }
+                let effectChain = viewModel.receivePeerEffectChainSnapshot(peerID: member.id)
                 return ReceivePeerBusSnapshot(
                     id: member.id,
                     displayName: member.displayName,
@@ -361,6 +270,12 @@ struct LiveReceivePipelineView: View {
                     playedFrameCount: member.playedAudioFrameCount,
                     level: member.voiceLevel,
                     peakLevel: member.voicePeakLevel,
+                    connectionLabel: connectionLabel(member.connectionState),
+                    authenticationLabel: member.authenticationState.rawValue,
+                    activeCodec: member.activeCodec,
+                    outputVolume: viewModel.remoteOutputVolume(for: member.id),
+                    effectSummary: effectChain.compactSummary,
+                    effectStages: effectChain.stages.map(EffectChainStage.init(snapshot:)),
                     isMuted: member.isMuted,
                     state: state(for: member.audioPipelineState)
                 )
@@ -369,6 +284,7 @@ struct LiveReceivePipelineView: View {
 
         let existingPeerIDs = Set(snapshots.map(\.id))
         for peerID in viewModel.authenticatedPeerIDs where !existingPeerIDs.contains(peerID) {
+            let effectChain = viewModel.receivePeerEffectChainSnapshot(peerID: peerID)
             snapshots.append(
                 ReceivePeerBusSnapshot(
                     id: peerID,
@@ -378,6 +294,12 @@ struct LiveReceivePipelineView: View {
                     playedFrameCount: 0,
                     level: 0,
                     peakLevel: 0,
+                    connectionLabel: "Connected",
+                    authenticationLabel: PeerAuthenticationState.authenticated.rawValue,
+                    activeCodec: nil,
+                    outputVolume: viewModel.remoteOutputVolume(for: peerID),
+                    effectSummary: effectChain.compactSummary,
+                    effectStages: effectChain.stages.map(EffectChainStage.init(snapshot:)),
                     isMuted: false,
                     state: viewModel.receivedVoicePacketCount > 0 ? .passing : .waiting
                 )
@@ -398,33 +320,10 @@ struct LiveReceivePipelineView: View {
             outputLevel: viewModel.diagnosticsOutputLevel,
             outputPeakLevel: viewModel.diagnosticsOutputPeakLevel,
             masterVolume: viewModel.masterOutputVolume,
+            effectSummary: viewModel.receiveMasterEffectChainSnapshot.compactSummary,
             isMuted: viewModel.isOutputMuted,
             state: viewModel.playedAudioFrameCount > 0 ? .passing : (viewModel.isAudioReady ? .waiting : .idle)
         )
-    }
-
-    private var receiveIsolationShortLabel: String {
-        if !viewModel.supportsSoundIsolation { return "SI N/A" }
-        return viewModel.isSoundIsolationEnabled ? "SI" : "SI Off"
-    }
-
-    private var receiveIsolationDetail: String {
-        if !viewModel.supportsSoundIsolation { return "Unavailable" }
-        return viewModel.isSoundIsolationEnabled ? "Enabled" : "Bypassed"
-    }
-
-    private var receiveIsolationState: PipelineStepState {
-        guard viewModel.isAudioReady else { return .idle }
-        if viewModel.isSoundIsolationEnabled && !viewModel.supportsSoundIsolation {
-            return .waiting
-        }
-        return .passing
-    }
-
-    private func effectChainDetail(_ stages: [EffectChainStage]) -> String {
-        let activeStage = stages.first { $0.state == .blocked || $0.state == .waiting } ?? stages.last
-        let focus = activeStage.map { "\($0.shortLabel) \($0.detail)" } ?? "Empty"
-        return "\(stages.count) stages / \(focus)"
     }
 
     private func outputStreamDetail(snapshot: SessionManager.AudioStreamSnapshot?) -> String {
@@ -438,34 +337,15 @@ struct LiveReceivePipelineView: View {
         "\(Int(format.sampleRate / 1_000))k/\(format.channelCount)ch"
     }
 
-    private var codecLabel: String {
-        let codec = viewModel.selectedTransmitCodec
-        if codec == .pcm16 { return "PCM" }
-        if codec == .mpeg4AACELDv2 { return "AAC" }
-        if codec == .opus { return "Opus" }
-        return codec.rawValue
-    }
-
-    private func connectorColor(after index: Int) -> Color {
-        let left = steps[index].state
-        let right = steps[index + 1].state
-        if left == .blocked || right == .blocked {
-            return AppColorPalette.danger
+    private func connectionLabel(_ state: PeerConnectionState) -> String {
+        switch state {
+        case .connected:
+            return "Connected"
+        case .connecting:
+            return "Connecting"
+        case .offline:
+            return "Offline"
         }
-        if left == .passing && right == .passing {
-            return AppColorPalette.success
-        }
-        if left == .passing || right == .waiting {
-            return AppColorPalette.warning
-        }
-        return AppColorPalette.connectorNeutral
-    }
-
-    private func pipelineConnector(color: Color) -> some View {
-        Text(">")
-            .font(.system(size: 11, weight: .regular, design: .default))
-            .foregroundStyle(color)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
     private func aggregateState(_ states: [PipelineStepState]) -> PipelineStepState {
@@ -495,8 +375,219 @@ private struct ReceivePeerBusSnapshot: Identifiable, Equatable {
     let playedFrameCount: Int
     let level: Float
     let peakLevel: Float
+    let connectionLabel: String
+    let authenticationLabel: String
+    let activeCodec: AudioCodecIdentifier?
+    let outputVolume: Float
+    let effectSummary: String
+    let effectStages: [EffectChainStage]
     let isMuted: Bool
     let state: PipelineStepState
+}
+
+private struct ReceiveRTCPeersGroup: View {
+    let step: PipelineStep
+    let peers: [ReceivePeerBusSnapshot]
+
+    private let columns = [
+        GridItem(.adaptive(minimum: 148), spacing: AppSpacing.xs, alignment: .top)
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            CompactPipelineStepRow(step: step, accessibilityIdentifier: "\(step.accessibilityIdentifier)-summary")
+
+            VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                ReceiveInlineGroupHeader(title: "RTC Peers", detail: "\(peers.count) peers")
+
+                if peers.isEmpty {
+                    ReceiveInlineEmptyRow(text: "No connected peer")
+                        .accessibilityIdentifier("receive-rtc-peers-empty")
+                } else {
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: AppSpacing.xs) {
+                        ForEach(Array(peers.enumerated()), id: \.element.id) { index, peer in
+                            ReceivePeerRTCChip(peer: peer)
+                                .accessibilityIdentifier("receive-peer-rtc-\(index)")
+                        }
+                    }
+                }
+            }
+            .padding(.leading, CompactPipelineLayout.childIndent)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("receive-rtc-peers")
+        }
+        .padding(.vertical, AppSpacing.xs)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(step.accessibilityIdentifier)
+    }
+}
+
+private struct ReceiveDecodePeersGroup: View {
+    let step: PipelineStep
+    let peers: [ReceivePeerBusSnapshot]
+    let droppedFrameCount: Int
+
+    private let columns = [
+        GridItem(.adaptive(minimum: 148), spacing: AppSpacing.xs, alignment: .top)
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            CompactPipelineStepRow(step: step, accessibilityIdentifier: "\(step.accessibilityIdentifier)-summary")
+
+            VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                ReceiveInlineGroupHeader(title: "Peer Decode", detail: dropDetail)
+
+                if peers.isEmpty {
+                    ReceiveInlineEmptyRow(text: "No peer codec metadata")
+                        .accessibilityIdentifier("receive-codec-peers-empty")
+                } else {
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: AppSpacing.xs) {
+                        ForEach(Array(peers.enumerated()), id: \.element.id) { index, peer in
+                            ReceivePeerCodecChip(peer: peer)
+                                .accessibilityIdentifier("receive-peer-codec-\(index)")
+                        }
+                    }
+                }
+            }
+            .padding(.leading, CompactPipelineLayout.childIndent)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("receive-codec-peers")
+        }
+        .padding(.vertical, AppSpacing.xs)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(step.accessibilityIdentifier)
+    }
+
+    private var dropDetail: String {
+        droppedFrameCount > 0 ? "DROP \(droppedFrameCount)" : "\(peers.count) decoders"
+    }
+}
+
+private struct ReceiveInlineGroupHeader: View {
+    let title: String
+    let detail: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
+            Text(title)
+                .font(AppTypography.caption2)
+                .foregroundStyle(AppColorPalette.textTertiary)
+
+            Text(detail)
+                .font(AppTypography.caption2Mono)
+                .foregroundStyle(AppColorPalette.textSecondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+    }
+}
+
+private struct ReceiveInlineEmptyRow: View {
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .center, spacing: AppSpacing.s) {
+            Image(systemName: "minus.circle")
+                .foregroundStyle(AppColorPalette.neutral)
+                .frame(width: AppSize.iconS)
+                .accessibilityHidden(true)
+
+            Text(text)
+                .font(AppTypography.caption2Mono)
+                .foregroundStyle(AppColorPalette.textSecondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, AppSpacing.xs)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(text)
+    }
+}
+
+private struct ReceivePeerRTCChip: View {
+    let peer: ReceivePeerBusSnapshot
+
+    var body: some View {
+        HStack(alignment: .top, spacing: AppSpacing.s) {
+            Circle()
+                .fill(peer.state.color)
+                .frame(width: 6, height: 6)
+                .padding(.top, 4)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+                Text(peer.displayName)
+                    .font(AppTypography.captionStrong)
+                    .foregroundStyle(AppColorPalette.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                Text("\(peer.connectionLabel) / \(peer.authenticationLabel)")
+                    .font(AppTypography.caption2Mono)
+                    .foregroundStyle(peer.state.color)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, AppSpacing.s)
+        .padding(.vertical, AppSpacing.xs)
+        .background(AppColorPalette.panelSurface.opacity(0.36))
+        .clipShape(RoundedRectangle(cornerRadius: AppCornerRadius.card))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("RTC peer \(peer.displayName)")
+        .accessibilityValue("\(peer.connectionLabel), \(peer.authenticationLabel)")
+    }
+}
+
+private struct ReceivePeerCodecChip: View {
+    let peer: ReceivePeerBusSnapshot
+
+    var body: some View {
+        HStack(alignment: .top, spacing: AppSpacing.s) {
+            Circle()
+                .fill(peer.state.color)
+                .frame(width: 6, height: 6)
+                .padding(.top, 4)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+                Text(peer.displayName)
+                    .font(AppTypography.captionStrong)
+                    .foregroundStyle(AppColorPalette.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                Text("DEC \(codecLabel(peer.activeCodec))")
+                    .font(AppTypography.caption2Mono)
+                    .foregroundStyle(peer.state.color)
+                    .lineLimit(1)
+
+                Text("RX \(peer.receivedFrameCount)")
+                    .font(AppTypography.caption2Mono)
+                    .foregroundStyle(AppColorPalette.textSecondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, AppSpacing.s)
+        .padding(.vertical, AppSpacing.xs)
+        .background(AppColorPalette.panelSurface.opacity(0.36))
+        .clipShape(RoundedRectangle(cornerRadius: AppCornerRadius.card))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Decode peer \(peer.displayName)")
+        .accessibilityValue("\(codecLabel(peer.activeCodec)), received \(peer.receivedFrameCount)")
+    }
+
+    private func codecLabel(_ codec: AudioCodecIdentifier?) -> String {
+        guard let codec else { return "Unknown" }
+        if codec == .pcm16 { return "PCM" }
+        if codec == .mpeg4AACELDv2 { return "AAC" }
+        if codec == .opus { return "Opus" }
+        if codec == .routeManaged { return "Route" }
+        return codec.rawValue
+    }
 }
 
 private struct ReceiveMasterMixSnapshot: Equatable {
@@ -506,145 +597,241 @@ private struct ReceiveMasterMixSnapshot: Equatable {
     let outputLevel: Float
     let outputPeakLevel: Float
     let masterVolume: Float
+    let effectSummary: String
     let isMuted: Bool
     let state: PipelineStepState
 }
 
-private struct ReceiveMixTopologyView: View {
+private struct ReceivePeerBusesGroup: View {
+    let step: PipelineStep
     let peerBuses: [ReceivePeerBusSnapshot]
     let master: ReceiveMasterMixSnapshot
 
-    private let columns = [
-        GridItem(.adaptive(minimum: 172), spacing: AppSpacing.m, alignment: .top)
-    ]
-
     var body: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.m) {
-            HStack(alignment: .firstTextBaseline, spacing: AppSpacing.m) {
-                Text("Receive Mix Topology")
-                    .font(AppTypography.captionStrong)
-                    .foregroundStyle(AppColorPalette.textSecondary)
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            CompactPipelineStepRow(step: step, accessibilityIdentifier: "\(step.accessibilityIdentifier)-summary")
 
-                Text("\(master.sourceBusCount) peer buses -> receive master")
-                    .font(AppTypography.caption2Mono)
-                    .foregroundStyle(master.state.color)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-            }
-
-            LazyVGrid(columns: columns, alignment: .leading, spacing: AppSpacing.m) {
+            VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                ReceiveMixTopologyHeader(master: master)
                 if peerBuses.isEmpty {
-                    EmptyReceivePeerBusesCard()
+                    EmptyReceivePeerBusesRow()
                         .accessibilityIdentifier("receive-peer-buses-empty")
                 } else {
                     ForEach(Array(peerBuses.enumerated()), id: \.element.id) { index, peerBus in
-                        ReceivePeerBusCard(index: index + 1, peerBus: peerBus)
+                        ReceivePeerBusCompactRow(index: index + 1, peerBus: peerBus)
                             .accessibilityIdentifier("receive-peer-bus-\(index)")
                     }
                 }
-
-                ReceiveMasterMixCard(master: master)
-                    .accessibilityIdentifier("receive-master-mix-card")
             }
+            .padding(.leading, CompactPipelineLayout.childIndent)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("receive-mix-topology")
         }
+        .padding(.vertical, AppSpacing.xs)
         .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(step.accessibilityIdentifier)
     }
 }
 
-private struct EmptyReceivePeerBusesCard: View {
+private struct ReceiveMixTopologyHeader: View {
+    let master: ReceiveMasterMixSnapshot
+
     var body: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.s) {
-            Label("Peer Buses", systemImage: "person.2.slash")
-                .font(AppTypography.captionStrong)
+        HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
+            Text("Peer Bus List")
+                .font(AppTypography.caption2)
+                .foregroundStyle(AppColorPalette.textTertiary)
+
+            Text("\(master.sourceBusCount) peer buses -> receive master")
+                .font(AppTypography.caption2Mono)
+                .foregroundStyle(master.state.color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+        }
+    }
+}
+
+private struct EmptyReceivePeerBusesRow: View {
+    var body: some View {
+        HStack(alignment: .center, spacing: AppSpacing.s) {
+            Image(systemName: "person.2.slash")
                 .foregroundStyle(AppColorPalette.neutral)
+                .frame(width: AppSize.iconS)
+                .accessibilityHidden(true)
+
             Text("No authenticated peer bus")
                 .font(AppTypography.caption2Mono)
                 .foregroundStyle(AppColorPalette.textSecondary)
         }
-        .frame(maxWidth: .infinity, minHeight: 82, alignment: .leading)
-        .padding(AppSpacing.m)
-        .background(AppColorPalette.panelSurface.opacity(0.55))
-        .clipShape(RoundedRectangle(cornerRadius: AppCornerRadius.card))
-        .accessibilityElement(children: .combine)
+        .padding(.vertical, AppSpacing.xs)
+        .accessibilityElement(children: .contain)
         .accessibilityLabel("No authenticated peer bus")
     }
 }
 
-private struct ReceivePeerBusCard: View {
+private struct ReceivePeerBusCompactRow: View {
     let index: Int
     let peerBus: ReceivePeerBusSnapshot
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.s) {
-            HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
-                Text("Bus \(index)")
-                    .font(AppTypography.caption2Mono)
-                    .foregroundStyle(peerBus.state.color)
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            HStack(alignment: .top, spacing: AppSpacing.s) {
+                Circle()
+                    .fill(peerBus.state.color)
+                    .frame(width: 6, height: 6)
+                    .padding(.top, 5)
+                    .accessibilityHidden(true)
 
-                Text(peerBus.displayName)
-                    .font(AppTypography.captionStrong)
-                    .foregroundStyle(AppColorPalette.textPrimary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+                VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+                    HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
+                        Text("Bus \(index)")
+                            .font(AppTypography.caption2Mono)
+                            .foregroundStyle(AppColorPalette.textTertiary)
+                            .frame(width: 42, alignment: .leading)
+
+                        Text(peerBus.displayName)
+                            .font(AppTypography.captionStrong)
+                            .foregroundStyle(AppColorPalette.textPrimary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+
+                        Spacer(minLength: AppSpacing.s)
+                    }
+
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .firstTextBaseline, spacing: AppSpacing.m) {
+                            mixerFramesText
+                            volumeEffectText
+                        }
+
+                        VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+                            mixerFramesText
+                            volumeEffectText
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                VoiceMeterView(
+                    level: peerBus.isMuted ? 0 : peerBus.level,
+                    peakLevel: peerBus.isMuted ? 0 : peerBus.peakLevel,
+                    isMuted: peerBus.isMuted,
+                    showsValueText: false
+                )
+                .frame(width: 72)
             }
 
-            Text("RX \(peerBus.receivedFrameCount) / JIT \(peerBus.queuedFrameCount) / PLAY \(peerBus.playedFrameCount)")
-                .font(AppTypography.caption2Mono)
-                .foregroundStyle(AppColorPalette.textSecondary)
-                .lineLimit(2)
-                .minimumScaleFactor(0.75)
-
-            VoiceMeterView(
-                level: peerBus.isMuted ? 0 : peerBus.level,
-                peakLevel: peerBus.isMuted ? 0 : peerBus.peakLevel,
-                isMuted: peerBus.isMuted,
-                showsValueText: false
+            InlineEffectStageChips(
+                stageIdentifierPrefix: "receive-peer-\(index)-effect-stage",
+                stages: peerBus.effectStages
             )
+            .padding(.leading, CompactPipelineLayout.childIndent)
         }
-        .frame(maxWidth: .infinity, minHeight: 98, alignment: .leading)
-        .padding(AppSpacing.m)
-        .background(AppColorPalette.panelSurface.opacity(0.55))
+        .padding(.horizontal, AppSpacing.s)
+        .padding(.vertical, AppSpacing.xs)
+        .background(AppColorPalette.panelSurface.opacity(0.36))
         .clipShape(RoundedRectangle(cornerRadius: AppCornerRadius.card))
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
         .accessibilityLabel("Receive peer bus \(index) \(peerBus.displayName)")
-        .accessibilityValue("Received \(peerBus.receivedFrameCount), played \(peerBus.playedFrameCount)")
+        .accessibilityValue("Mixer received \(peerBus.receivedFrameCount), queued \(peerBus.queuedFrameCount), played \(peerBus.playedFrameCount), volume \(Int(peerBus.outputVolume * 100)) percent, effects \(peerBus.effectSummary)")
+    }
+
+    private var mixerFramesText: some View {
+        Text("MIX RX \(peerBus.receivedFrameCount) / JIT \(peerBus.queuedFrameCount) / PLAY \(peerBus.playedFrameCount)")
+            .font(AppTypography.caption2Mono)
+            .foregroundStyle(peerBus.isMuted ? AppColorPalette.warning : peerBus.state.color)
+            .lineLimit(1)
+            .minimumScaleFactor(0.78)
+    }
+
+    private var volumeEffectText: some View {
+        Text("VOL \(Int(peerBus.outputVolume * 100))% / FX \(peerBus.effectSummary)")
+            .font(AppTypography.caption2Mono)
+            .foregroundStyle(AppColorPalette.textSecondary)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
-private struct ReceiveMasterMixCard: View {
+private struct InlineEffectStageChips: View {
+    let stageIdentifierPrefix: String
+    let stages: [EffectChainStage]
+
+    private let columns = [
+        GridItem(.adaptive(minimum: 112), spacing: AppSpacing.xs, alignment: .top)
+    ]
+
+    var body: some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: AppSpacing.xs) {
+            ForEach(stages) { stage in
+                EffectChainStageChip(stage: stage)
+                    .accessibilityIdentifier("\(stageIdentifierPrefix)-\(stage.id)")
+            }
+        }
+    }
+}
+
+private struct ReceiveMasterMixGroup: View {
+    let step: PipelineStep
+    let effectStep: PipelineStep
+    let effectStages: [EffectChainStage]
     let master: ReceiveMasterMixSnapshot
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.s) {
-            Label("Mix Down -> RX Master", systemImage: "arrow.triangle.merge")
-                .font(AppTypography.captionStrong)
-                .foregroundStyle(master.state.color)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            CompactPipelineStepRow(step: step, accessibilityIdentifier: "\(step.accessibilityIdentifier)-summary")
 
-            Text("\(master.sourceBusCount) buses / RX \(master.receivedFrameCount) / PLAY \(master.playedFrameCount)")
-                .font(AppTypography.caption2Mono)
-                .foregroundStyle(AppColorPalette.textSecondary)
-                .lineLimit(2)
-                .minimumScaleFactor(0.75)
+            HStack(alignment: .top, spacing: AppSpacing.s) {
+                Circle()
+                    .fill(master.state.color)
+                    .frame(width: 6, height: 6)
+                    .padding(.top, 5)
+                    .accessibilityHidden(true)
 
-            Text(master.isMuted ? "OUT muted" : "OUT \(Int(master.masterVolume * 100))%")
-                .font(AppTypography.caption2Mono)
-                .foregroundStyle(master.isMuted ? AppColorPalette.warning : master.state.color)
+                VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+                    Text("\(master.sourceBusCount) buses / RX \(master.receivedFrameCount) / PLAY \(master.playedFrameCount)")
+                        .font(AppTypography.caption2Mono)
+                        .foregroundStyle(AppColorPalette.textSecondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
 
-            VoiceMeterView(
-                level: master.isMuted ? 0 : master.outputLevel,
-                peakLevel: master.isMuted ? 0 : master.outputPeakLevel,
-                isMuted: master.isMuted,
-                showsValueText: false
+                    Text(master.isMuted ? "OUT muted" : "VOL \(Int(master.masterVolume * 100))% / FX \(master.effectSummary)")
+                        .font(AppTypography.caption2Mono)
+                        .foregroundStyle(master.isMuted ? AppColorPalette.warning : master.state.color)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                VoiceMeterView(
+                    level: master.isMuted ? 0 : master.outputLevel,
+                    peakLevel: master.isMuted ? 0 : master.outputPeakLevel,
+                    isMuted: master.isMuted,
+                    showsValueText: false
+                )
+                .frame(width: 72)
+            }
+            .padding(.horizontal, AppSpacing.s)
+            .padding(.vertical, AppSpacing.xs)
+            .background(AppColorPalette.panelSurface.opacity(0.42))
+            .clipShape(RoundedRectangle(cornerRadius: AppCornerRadius.card))
+            .padding(.leading, CompactPipelineLayout.childIndent)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Receive mix down to master")
+            .accessibilityValue("\(master.sourceBusCount) peer buses, played \(master.playedFrameCount)")
+            .accessibilityIdentifier("receive-master-mix-card")
+
+            CompactEffectChainGroup(
+                step: effectStep,
+                title: "RX Master Effects",
+                accessibilityIdentifier: "receive-pipeline-master-effects-step",
+                stageIdentifierPrefix: "receive-master-effect-stage",
+                stages: effectStages
             )
+            .padding(.leading, CompactPipelineLayout.childIndent)
         }
-        .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
-        .padding(AppSpacing.m)
-        .background(AppColorPalette.panelSurface.opacity(0.7))
-        .clipShape(RoundedRectangle(cornerRadius: AppCornerRadius.card))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Receive mix down to master")
-        .accessibilityValue("\(master.sourceBusCount) peer buses, played \(master.playedFrameCount)")
+        .padding(.vertical, AppSpacing.xs)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(step.accessibilityIdentifier)
     }
 }

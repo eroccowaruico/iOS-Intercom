@@ -185,11 +185,61 @@ extension IntercomViewModel {
         masterOutputVolume = min(2, max(0, volume))
     }
 
+    func remoteOutputVolume(for peerID: String) -> Float {
+        remoteOutputVolumes[peerID] ?? Self.defaultRemoteOutputVolume
+    }
+
+    func setRemoteOutputVolume(peerID: String, volume: Float) {
+        let normalizedVolume = min(1, max(0, volume))
+        if normalizedVolume == Self.defaultRemoteOutputVolume {
+            remoteOutputVolumes.removeValue(forKey: peerID)
+        } else {
+            remoteOutputVolumes[peerID] = normalizedVolume
+        }
+        callSession.setRemoteOutputVolume(peerID: peerID, volume: normalizedVolume)
+        AppLoggers.settings.info(
+            "settings.remote_output_volume.changed",
+            metadata: .event("settings.remote_output_volume.changed", [
+                "peerID": "\(peerID)",
+                "volume": "\(normalizedVolume)"
+            ])
+        )
+    }
+
     func setSoundIsolationEnabled(_ enabled: Bool) {
         isSoundIsolationEnabled = enabled
         AppLoggers.settings.info(
             "settings.sound_isolation.changed",
             metadata: .event("settings.sound_isolation.changed", [
+                "enabled": "\(enabled)"
+            ])
+        )
+    }
+
+    func isRemoteSoundIsolationEnabled(peerID: String) -> Bool {
+        remoteSoundIsolationEnabled[peerID] ?? Self.defaultReceiveSoundIsolationEnabled
+    }
+
+    func setRemoteSoundIsolationEnabled(peerID: String, enabled: Bool) {
+        if enabled == Self.defaultReceiveSoundIsolationEnabled {
+            remoteSoundIsolationEnabled.removeValue(forKey: peerID)
+        } else {
+            remoteSoundIsolationEnabled[peerID] = enabled
+        }
+        AppLoggers.settings.info(
+            "settings.remote_sound_isolation.changed",
+            metadata: .event("settings.remote_sound_isolation.changed", [
+                "peerID": "\(peerID)",
+                "enabled": "\(enabled)"
+            ])
+        )
+    }
+
+    func setReceiveMasterSoundIsolationEnabled(_ enabled: Bool) {
+        receiveMasterSoundIsolationEnabled = enabled
+        AppLoggers.settings.info(
+            "settings.receive_master_sound_isolation.changed",
+            metadata: .event("settings.receive_master_sound_isolation.changed", [
                 "enabled": "\(enabled)"
             ])
         )
@@ -252,7 +302,14 @@ extension IntercomViewModel {
         setPreferredTransmitCodec(Self.defaultTransmitCodec)
         setAACELDv2BitRate(Self.defaultAACELDv2BitRate)
         setOpusBitRate(Self.defaultOpusBitRate)
-        setMasterOutputVolume(1)
+        setMasterOutputVolume(Self.defaultMasterOutputVolume)
+        let resetRemoteOutputPeerIDs = Array(remoteOutputVolumes.keys)
+        remoteOutputVolumes.removeAll()
+        for peerID in resetRemoteOutputPeerIDs {
+            callSession.setRemoteOutputVolume(peerID: peerID, volume: Self.defaultRemoteOutputVolume)
+        }
+        receiveMasterSoundIsolationEnabled = Self.defaultReceiveSoundIsolationEnabled
+        remoteSoundIsolationEnabled.removeAll()
         isOutputMuted = false
         callSession.setOutputMute(false)
         let operationID = UUID().uuidString

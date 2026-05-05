@@ -52,6 +52,7 @@ struct LocalMicrophoneHeaderControl: View {
 }
 
 struct RemoteParticipantRowView: View {
+    @Bindable var viewModel: IntercomViewModel
     let index: Int
     let member: GroupMember
 
@@ -87,6 +88,7 @@ struct RemoteParticipantRowView: View {
 
             VStack(alignment: .leading, spacing: AppSpacing.l) {
                 participantMeter
+                participantOutputControls
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -110,6 +112,46 @@ struct RemoteParticipantRowView: View {
             )
         }
         .accessibilityIdentifier("participantVoiceLevel\(index)")
+    }
+
+    private var participantOutputControls: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.s) {
+            HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
+                Label("Output", systemImage: "speaker.wave.2.fill")
+                    .font(AppTypography.captionStrong)
+                    .foregroundStyle(AppColorPalette.textSecondary)
+
+                Text(participantOutputPercentLabel)
+                    .font(AppTypography.caption2Mono)
+                    .foregroundStyle(AppColorPalette.textSecondary)
+                    .accessibilityIdentifier("participantOutputValue\(index)")
+            }
+
+            Slider(
+                value: Binding(
+                    get: { Double(viewModel.remoteOutputVolume(for: member.id)) },
+                    set: { viewModel.setRemoteOutputVolume(peerID: member.id, volume: Float($0)) }
+                ),
+                in: 0...1
+            )
+            .accessibilityLabel("\(member.displayName) Output")
+            .accessibilityValue(participantOutputPercentLabel)
+            .accessibilityIdentifier("participantOutputSlider\(index)")
+
+            if viewModel.supportsSoundIsolation {
+                Toggle(isOn: Binding(
+                    get: { viewModel.isRemoteSoundIsolationEnabled(peerID: member.id) },
+                    set: { viewModel.setRemoteSoundIsolationEnabled(peerID: member.id, enabled: $0) }
+                )) {
+                    Label("Voice Isolation", systemImage: "wand.and.sparkles")
+                        .font(AppTypography.captionStrong)
+                }
+                .accessibilityLabel("\(member.displayName) Voice Isolation Effect")
+                .accessibilityValue(viewModel.isRemoteSoundIsolationEnabled(peerID: member.id) ? "Enabled" : "Bypassed")
+                .accessibilityIdentifier("participantVoiceIsolationToggle\(index)")
+            }
+        }
+        .accessibilityIdentifier("participantOutputControls\(index)")
     }
 
     private var statusSummary: String {
@@ -175,6 +217,10 @@ struct RemoteParticipantRowView: View {
         case .offline:
             "Auth Off"
         }
+    }
+
+    private var participantOutputPercentLabel: String {
+        "Output \(Int(viewModel.remoteOutputVolume(for: member.id) * 100))%"
     }
 
     private var codecLabel: String {

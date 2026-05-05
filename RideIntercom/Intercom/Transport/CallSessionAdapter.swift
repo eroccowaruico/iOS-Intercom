@@ -68,6 +68,7 @@ enum TransportEvent: Equatable {
     case connected(peerIDs: [String])
     case authenticated(peerIDs: [String])
     case remotePeerMuteState(peerID: String, isMuted: Bool)
+    case remotePeerMetadata(peerID: String, activeCodec: AudioCodecIdentifier?)
     case receivedApplicationData(peerID: String, message: ApplicationDataMessage)
     case disconnected
     case linkFailed(internetAvailable: Bool)
@@ -88,6 +89,7 @@ protocol CallSession: AnyObject {
     func setAudioCodecOptions(aacELDv2BitRate: Int, opusBitRate: Int)
     func setLocalMute(_ muted: Bool)
     func setOutputMute(_ muted: Bool)
+    func setRemoteOutputVolume(peerID: String, volume: Float)
     func sendAudioFrame(_ frame: OutboundAudioPacket)
     func sendControl(_ message: ControlMessage)
     func sendApplicationData(_ message: ApplicationDataMessage)
@@ -95,6 +97,10 @@ protocol CallSession: AnyObject {
 
 private struct PeerMuteStateApplicationPayload: Codable, Equatable {
     let isMuted: Bool
+}
+
+private struct PeerMetadataApplicationPayload: Codable, Equatable {
+    let activeCodec: AudioCodecIdentifier?
 }
 
 final class RideIntercomCallSessionAdapter: CallSession {
@@ -200,6 +206,12 @@ final class RideIntercomCallSessionAdapter: CallSession {
         }
     }
 
+    func setRemoteOutputVolume(peerID: String, volume: Float) {
+        Task { [rtcSession] in
+            await rtcSession.setRemoteOutputVolume(peerID: RTC.PeerID(rawValue: peerID), volume: volume)
+        }
+    }
+
     func sendAudioFrame(_ frame: OutboundAudioPacket) {
         guard case .voice(let frameID, let samples) = frame else {
             sendControl(.keepalive)
@@ -221,9 +233,10 @@ final class RideIntercomCallSessionAdapter: CallSession {
     func sendControl(_ message: ControlMessage) {
         switch message {
         case .keepalive:
+            let payload = try? JSONEncoder().encode(PeerMetadataApplicationPayload(activeCodec: preferredAudioCodec))
             sendApplicationData(ApplicationDataMessage(
                 namespace: Self.keepaliveNamespace,
-                payload: Data(),
+                payload: payload ?? Data(),
                 delivery: .unreliable
             ))
         case .peerMuteState(let isMuted):
@@ -301,6 +314,10 @@ final class RideIntercomCallSessionAdapter: CallSession {
         if message.namespace == peerMuteStateNamespace,
            let payload = try? JSONDecoder().decode(PeerMuteStateApplicationPayload.self, from: message.payload) {
             return .remotePeerMuteState(peerID: peerID, isMuted: payload.isMuted)
+        }
+        if message.namespace == keepaliveNamespace,
+           let payload = try? JSONDecoder().decode(PeerMetadataApplicationPayload.self, from: message.payload) {
+            return .remotePeerMetadata(peerID: peerID, activeCodec: payload.activeCodec)
         }
 
         return .receivedApplicationData(peerID: peerID, message: message)

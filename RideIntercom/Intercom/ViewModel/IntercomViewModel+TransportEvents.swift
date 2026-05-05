@@ -70,6 +70,10 @@ extension IntercomViewModel {
             sendStateMetadataSnapshot()
         case .remotePeerMuteState(let peerID, let isMuted):
             setRemotePeerMuteState(peerID: peerID, isMuted: isMuted)
+        case .remotePeerMetadata(let peerID, let activeCodec):
+            if let activeCodec {
+                setRemotePeerCodec(peerID, codec: activeCodec)
+            }
         case .receivedApplicationData:
             break
         case .disconnected:

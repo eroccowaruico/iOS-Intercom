@@ -41,12 +41,53 @@ struct RideIntercomTests {
         let callView = try Self.source("RideIntercom/UI/Call/CallView.swift")
         let settingsView = try Self.source("RideIntercom/UI/Settings/SettingsView.swift")
         let diagnosticsView = try Self.source("RideIntercom/UI/Diagnostics/DiagnosticsView.swift")
+        let transmitPipelineView = try Self.source("RideIntercom/UI/Diagnostics/LiveTransmitPipelineView.swift")
+        let receivePipelineView = try Self.source("RideIntercom/UI/Diagnostics/LiveReceivePipelineView.swift")
+        let effectChainSource = try Self.source("RideIntercom/Intercom/ViewModel/IntercomViewModel+EffectChains.swift")
+        let callSessionAdapter = try Self.source("RideIntercom/Intercom/Transport/CallSessionAdapter.swift")
+        let diagnosticsSpec = try Self.source("docs/spec/App/UI/Diagnostics.md")
+        let audioSpec = try Self.source("docs/spec/App/音声処理仕様.md")
 
         #expect(contentView.contains("struct ContentView"))
         #expect(contentView.components(separatedBy: .newlines).count < 80)
         #expect(callView.contains("struct CallView"))
         #expect(settingsView.contains("struct SettingsView"))
         #expect(diagnosticsView.contains("struct DiagnosticsView"))
+        #expect(callView.contains("masterVoiceIsolationToggle"))
+        #expect(callView.contains("RemoteParticipantRowView"))
+        let participantViews = try Self.source("RideIntercom/UI/Call/ParticipantViews.swift")
+        #expect(participantViews.contains("participantOutputSlider"))
+        #expect(participantViews.contains("participantVoiceIsolationToggle"))
+        #expect(transmitPipelineView.contains("CompactEffectChainGroup"))
+        #expect(transmitPipelineView.contains("ViewThatFits(in: .horizontal)"))
+        #expect(transmitPipelineView.contains("minHeight: 104") == false)
+        #expect(receivePipelineView.contains("ReceiveRTCPeersGroup"))
+        #expect(receivePipelineView.contains("ReceiveDecodePeersGroup"))
+        #expect(receivePipelineView.contains("ReceivePeerBusCompactRow"))
+        #expect(receivePipelineView.contains("ReceivePeerBusCard") == false)
+        #expect(receivePipelineView.contains("receiveCodecSummary") == false)
+        #expect(transmitPipelineView.contains("viewModel.transmitEffectChainSnapshot"))
+        #expect(receivePipelineView.contains("stageIdentifierPrefix: \"receive-master-effect-stage\""))
+        #expect(receivePipelineView.contains("viewModel.receivePeerEffectChainSnapshot"))
+        #expect(receivePipelineView.contains("viewModel.receiveMasterEffectChainSnapshot"))
+        #expect(receivePipelineView.contains("connectionLabel(member.connectionState)"))
+        #expect(receivePipelineView.contains("activeCodec: member.activeCodec"))
+        #expect(receivePipelineView.contains("receive-peer-rtc-\\(index)"))
+        #expect(receivePipelineView.contains("receive-peer-codec-\\(index)"))
+        #expect(receivePipelineView.contains("DEC \\(codecLabel(peer.activeCodec))"))
+        #expect(receivePipelineView.contains("RTC \\(peerBus.connectionLabel)") == false)
+        #expect(receivePipelineView.contains("DEC \\(codecLabel(peerBus.activeCodec))") == false)
+        #expect(receivePipelineView.contains("ViewThatFits(in: .horizontal)"))
+        #expect(receivePipelineView.contains("defaultReceiveSoundIsolationEnabled") == false)
+        #expect(effectChainSource.contains("var transmitEffectChainSnapshot"))
+        #expect(effectChainSource.contains("func receivePeerEffectChainSnapshot"))
+        #expect(effectChainSource.contains("var receiveMasterEffectChainSnapshot"))
+        #expect(effectChainSource.contains("peakLimiterStageSnapshot(detailWhenActive: \"Final peak guard ready\")"))
+        #expect(callSessionAdapter.contains("case remotePeerMetadata(peerID: String, activeCodec: AudioCodecIdentifier?)"))
+        #expect(callSessionAdapter.contains("PeerMetadataApplicationPayload(activeCodec: preferredAudioCodec)"))
+        #expect(callSessionAdapter.contains("return .remotePeerMetadata(peerID: peerID, activeCodec: payload.activeCodec)"))
+        #expect(diagnosticsSpec.contains("receive-master-effect-stage-peak-limiter"))
+        #expect(audioSpec.contains("master effect chain の最後は PeakLimiter 固定"))
     }
 
     @Test func appRootKeepsPlatformSpecificWindowPolicyAtMacBoundary() throws {
@@ -285,6 +326,9 @@ struct RideIntercomTests {
         harness.viewModel.setAACELDv2BitRate(128_000)
         harness.viewModel.setOpusBitRate(128_000)
         harness.viewModel.setMasterOutputVolume(2)
+        harness.viewModel.setRemoteOutputVolume(peerID: "member-108", volume: 0.25)
+        harness.viewModel.setRemoteSoundIsolationEnabled(peerID: "member-108", enabled: true)
+        harness.viewModel.setReceiveMasterSoundIsolationEnabled(true)
         harness.viewModel.setDuckOthersEnabled(false)
         harness.viewModel.toggleOutputMute()
         harness.viewModel.resetAllSettings()
@@ -295,10 +339,155 @@ struct RideIntercomTests {
         #expect(harness.viewModel.preferredTransmitCodec == IntercomViewModel.defaultTransmitCodec)
         #expect(harness.viewModel.aacELDv2BitRate == IntercomViewModel.defaultAACELDv2BitRate)
         #expect(harness.viewModel.opusBitRate == IntercomViewModel.defaultOpusBitRate)
-        #expect(harness.viewModel.masterOutputVolume == 1)
+        #expect(harness.viewModel.masterOutputVolume == IntercomViewModel.defaultMasterOutputVolume)
+        #expect(harness.viewModel.remoteOutputVolumes.isEmpty)
+        #expect(harness.viewModel.remoteSoundIsolationEnabled.isEmpty)
+        #expect(harness.viewModel.receiveMasterSoundIsolationEnabled == IntercomViewModel.defaultReceiveSoundIsolationEnabled)
         #expect(!harness.viewModel.isOutputMuted)
         #expect(harness.viewModel.groups.count == IntercomSeedData.recentGroups.count)
+        #expect(harness.callSession.remoteOutputVolumeValues.last?.peerID == "member-108")
+        #expect(harness.callSession.remoteOutputVolumeValues.last?.volume == IntercomViewModel.defaultRemoteOutputVolume)
         #expect(harness.callSession.outputMuteValues.last == false)
+    }
+
+    @Test func viewModelAppliesParticipantOutputVolumeToPlaybackAndRTC() {
+        let harness = Self.makeHarness()
+        let peerID = "member-108"
+
+        harness.viewModel.setRemoteOutputVolume(peerID: peerID, volume: 0.25)
+        harness.viewModel.scheduleOutputFrame(
+            peerID: peerID,
+            frame: RTC.AudioFrame(
+                sequenceNumber: 1,
+                format: RTC.AudioFormatDescriptor(sampleRate: 16_000, channelCount: 1),
+                capturedAt: 100,
+                samples: [0.5, -0.5]
+            ),
+            receivedAt: 100
+        )
+
+        #expect(harness.viewModel.remoteOutputVolume(for: peerID) == 0.25)
+        #expect(harness.callSession.remoteOutputVolumeValues.last?.peerID == peerID)
+        #expect(harness.callSession.remoteOutputVolumeValues.last?.volume == 0.25)
+        #expect(harness.outputBackend.scheduledFrames.last?.samples == [0.125, -0.125])
+    }
+
+    @Test func viewModelAppliesReceiveMasterPeakLimiterAfterOutputGain() {
+        let harness = Self.makeHarness()
+        let peerID = "member-108"
+
+        harness.viewModel.setMasterOutputVolume(2)
+        harness.viewModel.scheduleOutputFrame(
+            peerID: peerID,
+            frame: RTC.AudioFrame(
+                sequenceNumber: 1,
+                format: RTC.AudioFormatDescriptor(sampleRate: 16_000, channelCount: 1),
+                capturedAt: 100,
+                samples: [0.75, -0.75, 0.25]
+            ),
+            receivedAt: 100
+        )
+
+        #expect(harness.outputBackend.scheduledFrames.last?.samples == [1, -1, 0.5])
+        #expect(harness.viewModel.lastScheduledOutputRMS <= IntercomViewModel.receiveMasterPeakLimiterCeiling)
+    }
+
+    @Test func viewModelTracksReceiveVoiceIsolationControls() {
+        let harness = Self.makeHarness()
+        let peerID = "member-108"
+
+        #expect(!harness.viewModel.isRemoteSoundIsolationEnabled(peerID: peerID))
+        #expect(!harness.viewModel.receiveMasterSoundIsolationEnabled)
+        #expect(harness.viewModel.receivePeerEffectChainSnapshot(peerID: peerID).stages.first?.state == .idle)
+        #expect(harness.viewModel.receiveMasterEffectChainSnapshot.stages.map(\.id) == ["sound-isolation", "peak-limiter"])
+        #expect(harness.viewModel.receiveMasterEffectChainSnapshot.stages.last?.id == "peak-limiter")
+
+        harness.viewModel.setRemoteSoundIsolationEnabled(peerID: peerID, enabled: true)
+        harness.viewModel.setReceiveMasterSoundIsolationEnabled(true)
+        harness.viewModel.isAudioReady = true
+
+        #expect(harness.viewModel.isRemoteSoundIsolationEnabled(peerID: peerID))
+        #expect(harness.viewModel.receiveMasterSoundIsolationEnabled)
+        if harness.viewModel.supportsSoundIsolation {
+            #expect(harness.viewModel.receivePeerEffectChainSnapshot(peerID: peerID).stages.first?.state == .active)
+            #expect(harness.viewModel.receiveMasterEffectChainSnapshot.stages.first?.state == .active)
+        } else {
+            #expect(harness.viewModel.receivePeerEffectChainSnapshot(peerID: peerID).stages.first?.state == .unavailable)
+            #expect(harness.viewModel.receiveMasterEffectChainSnapshot.stages.first?.state == .unavailable)
+        }
+        #expect(harness.viewModel.remoteOutputVolume(for: peerID) == IntercomViewModel.defaultRemoteOutputVolume)
+        #expect(harness.viewModel.masterOutputVolume == IntercomViewModel.defaultMasterOutputVolume)
+    }
+
+    @Test func viewModelTracksRemoteCodecMetadataPerPeer() throws {
+        let harness = Self.makeHarness()
+        let peerID = "member-108"
+
+        harness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
+        harness.viewModel.handleTransportEvent(.connected(peerIDs: [peerID]))
+        harness.viewModel.handleTransportEvent(.authenticated(peerIDs: [peerID]))
+        harness.viewModel.handleTransportEvent(.remotePeerMetadata(peerID: peerID, activeCodec: .opus))
+
+        let remoteMember = try #require(harness.viewModel.selectedGroup?.members.first { $0.id == peerID })
+        #expect(remoteMember.connectionState == .connected)
+        #expect(remoteMember.authenticationState == .authenticated)
+        #expect(remoteMember.activeCodec == .opus)
+    }
+
+    @Test func viewModelExposesTransmitEffectChainFromRuntimeSettings() {
+        let harness = Self.makeHarness()
+
+        #expect(harness.viewModel.transmitEffectChainSnapshot.stages.map(\.id) == [
+            "sound-isolation",
+            "vad-gate",
+            "dynamics-processor",
+            "peak-limiter"
+        ])
+
+        harness.viewModel.isAudioReady = true
+        harness.viewModel.setSoundIsolationEnabled(false)
+
+        #expect(harness.viewModel.transmitEffectChainSnapshot.stages.first?.state == .bypassed)
+        #expect(harness.viewModel.transmitEffectChainSnapshot.stages.last?.id == "peak-limiter")
+        #expect(harness.viewModel.transmitEffectChainSnapshot.stages.last?.state == .active)
+    }
+
+    @Test func effectChainDisplayPreservesRuntimeRegisteredOrder() {
+        let runtimeChain = AudioEffectChainSnapshot(
+            id: "custom",
+            stages: [
+                AudioEffectStageSnapshot(
+                    id: "noise-reducer",
+                    package: "NoiseReducer",
+                    name: "Noise",
+                    shortLabel: "NR",
+                    detail: "Ready",
+                    state: .active
+                ),
+                AudioEffectStageSnapshot(
+                    id: "sound-isolation",
+                    package: "SoundIsolation",
+                    name: "SoundIsolation",
+                    shortLabel: "SI",
+                    detail: "Enabled",
+                    state: .active
+                ),
+                AudioEffectStageSnapshot(
+                    id: "custom-tail",
+                    package: "CustomEffect",
+                    name: "Tail",
+                    shortLabel: "Tail",
+                    detail: "Bypassed",
+                    state: .bypassed
+                )
+            ]
+        )
+
+        let displayStages = runtimeChain.stages.map(EffectChainStage.init(snapshot:))
+
+        #expect(displayStages.map(\.id) == ["noise-reducer", "sound-isolation", "custom-tail"])
+        #expect(runtimeChain.compactSummary == "NR, SI, Tail")
+        #expect(displayStages.map(\.state) == [.passing, .passing, .idle])
     }
 
     @Test func viewModelKeepsCodecUISettingsAsRequestedValues() {
@@ -307,6 +496,7 @@ struct RideIntercomTests {
         #expect(harness.viewModel.preferredTransmitCodec == .mpeg4AACELDv2)
         #expect(harness.viewModel.aacELDv2BitRate == 32_000)
         #expect(harness.viewModel.opusBitRate == 32_000)
+        #expect(harness.callSession.preferredCodecs.last == .mpeg4AACELDv2)
         #expect(harness.callSession.codecOptions.last?.aacELDv2BitRate == 32_000)
         #expect(harness.callSession.codecOptions.last?.opusBitRate == 32_000)
 
@@ -364,6 +554,7 @@ struct RideIntercomTests {
         #expect(harness.viewModel.preferredTransmitCodec == .opus)
         #expect(harness.viewModel.aacELDv2BitRate == 12_000)
         #expect(harness.viewModel.opusBitRate == 128_000)
+        #expect(harness.callSession.preferredCodecs.last == .opus)
         #expect(harness.callSession.codecOptions.last?.aacELDv2BitRate == 12_000)
         #expect(harness.callSession.codecOptions.last?.opusBitRate == 128_000)
 
@@ -387,6 +578,16 @@ struct RideIntercomTests {
         #expect(snapshot.transportSummary == "TRANSPORT RecordingCallSession")
         #expect(snapshot.audio.summary.contains("TX 0"))
         #expect(snapshot.connectionSummary == "PEERS 0")
+
+        let overviewRows = harness.viewModel.diagnosticsOverviewRows
+        #expect(overviewRows.map(\.id) == ["call", "network", "invite"])
+        #expect(overviewRows.map(\.title) == ["Call", "Network Quality", "Invite"])
+        #expect(overviewRows.contains { $0.accessibilityIdentifier == "audioSessionSummaryLabel" } == false)
+        #expect(overviewRows.contains { $0.accessibilityIdentifier == "audioInputProcessingSummaryLabel" } == false)
+        #expect(overviewRows.contains { $0.accessibilityIdentifier == "playbackDebugSummaryLabel" } == false)
+        #expect(overviewRows.contains { $0.accessibilityIdentifier == "codecDebugSummaryLabel" } == false)
+        #expect(overviewRows.contains { $0.accessibilityIdentifier == "audioDebugSummaryLabel" } == false)
+        #expect(overviewRows.contains { $0.accessibilityIdentifier == "authenticationDebugSummaryLabel" } == false)
     }
 
     private struct Harness {
@@ -490,6 +691,7 @@ private final class RecordingCallSession: RideIntercom.CallSession {
     private(set) var codecOptions: [(aacELDv2BitRate: Int, opusBitRate: Int)] = []
     private(set) var localMuteValues: [Bool] = []
     private(set) var outputMuteValues: [Bool] = []
+    private(set) var remoteOutputVolumeValues: [(peerID: String, volume: Float)] = []
     private(set) var sentAudioPackets: [OutboundAudioPacket] = []
     private(set) var sentControlMessages: [ControlMessage] = []
     private(set) var sentApplicationDataMessages: [ApplicationDataMessage] = []
@@ -534,6 +736,10 @@ private final class RecordingCallSession: RideIntercom.CallSession {
 
     func setOutputMute(_ muted: Bool) {
         outputMuteValues.append(muted)
+    }
+
+    func setRemoteOutputVolume(peerID: String, volume: Float) {
+        remoteOutputVolumeValues.append((peerID, volume))
     }
 
     func sendAudioFrame(_ frame: OutboundAudioPacket) {

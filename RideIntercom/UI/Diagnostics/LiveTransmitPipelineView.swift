@@ -5,71 +5,33 @@ import SessionManager
 struct LiveTransmitPipelineView: View {
     @Bindable var viewModel: IntercomViewModel
 
-    private let columns = [
-        GridItem(.adaptive(minimum: 128), spacing: AppSpacing.m, alignment: .top)
-    ]
-
     var body: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.xl) {
-            Label("Live TX Pipeline", systemImage: "point.topleft.down.curvedto.point.bottomright.up")
-                .font(AppTypography.sectionTitle)
-
-            ViewThatFits(in: .horizontal) {
-                horizontalPipeline
-                gridPipeline
-            }
-
-            EffectChainStagesView(
-                title: "TX Effect Chain",
-                accessibilityIdentifier: "pipeline-effect-chain",
-                stageIdentifierPrefix: "pipeline-effect-stage",
-                stages: transmitEffectStages
+        VStack(alignment: .leading, spacing: AppSpacing.m) {
+            CompactPipelineHeader(
+                title: "Live TX Pipeline",
+                systemImage: "point.topleft.down.curvedto.point.bottomright.up",
+                detail: "Session -> Input -> TX bus -> FX -> Codec -> RTC"
             )
+
+            VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                CompactPipelineStepRow(step: sessionStep)
+                CompactPipelineStepRow(step: inputStreamStep)
+                CompactPipelineStepRow(step: mixerBusStep)
+                CompactEffectChainGroup(
+                    step: mixerEffectChainStep,
+                    title: "TX Bus Effects",
+                    accessibilityIdentifier: "pipeline-effects-step",
+                    stageIdentifierPrefix: "pipeline-effect-stage",
+                    stages: transmitEffectStages
+                )
+                .padding(.leading, CompactPipelineLayout.childIndent)
+                CompactPipelineStepRow(step: codecStep)
+                CompactPipelineStepRow(step: rtcStep)
+            }
         }
         .appDiagnosticsCardStyle()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("liveTransmitPipelineView")
-    }
-
-    private var horizontalPipeline: some View {
-        HStack(alignment: .top, spacing: AppSpacing.xs) {
-            ForEach(Array(steps.enumerated()), id: \.element.id) { index, step in
-                PipelineStepView(step: step)
-                    .frame(width: 124)
-                    .accessibilityIdentifier(step.accessibilityIdentifier)
-
-                if index < steps.count - 1 {
-                    pipelineConnector(color: connectorColor(after: index))
-                        .frame(width: AppSize.connector.width, height: AppSize.connector.height)
-                        .accessibilityIdentifier("transmitPipelineConnector\(index)")
-                }
-            }
-        }
-    }
-
-    private var gridPipeline: some View {
-        LazyVGrid(columns: columns, alignment: .leading, spacing: AppSpacing.m) {
-            ForEach(Array(steps.enumerated()), id: \.element.id) { index, step in
-                PipelineStepView(step: step)
-                    .accessibilityIdentifier(step.accessibilityIdentifier)
-                    .overlay(alignment: .topTrailing) {
-                        Text("\(index + 1)")
-                            .font(AppTypography.caption2Mono)
-                            .foregroundStyle(AppColorPalette.textTertiary)
-                    }
-            }
-        }
-    }
-
-    private var steps: [PipelineStep] {
-        [
-            sessionStep,
-            inputStreamStep,
-            mixerBusStep,
-            mixerEffectChainStep,
-            codecStep,
-            rtcStep
-        ]
     }
 
     private var sessionStep: PipelineStep {
@@ -278,85 +240,11 @@ struct LiveTransmitPipelineView: View {
     }
 
     private var transmitEffectStages: [EffectChainStage] {
-        [
-            EffectChainStage(
-                id: "sound-isolation",
-                package: "SoundIsolation",
-                name: "SoundIsolation",
-                shortLabel: isolationEffectShortLabel,
-                detail: isolationEffectDetail,
-                state: isolationEffectState
-            ),
-            EffectChainStage(
-                id: "vad-gate",
-                package: "VADGate",
-                name: "VADGate",
-                shortLabel: vadEffectShortLabel,
-                detail: vadEffectDetail,
-                state: vadEffectState
-            ),
-            EffectChainStage(
-                id: "dynamics-processor",
-                package: "DynamicsProcessor",
-                name: "Dynamics",
-                shortLabel: "Dyn",
-                detail: viewModel.isAudioReady ? "Leveling ready" : "Idle",
-                state: viewModel.isAudioReady ? .passing : .idle
-            ),
-            EffectChainStage(
-                id: "peak-limiter",
-                package: "PeakLimiter",
-                name: "Peak Limit",
-                shortLabel: "Limit",
-                detail: viewModel.isAudioReady ? "Peak guard ready" : "Idle",
-                state: viewModel.isAudioReady ? .passing : .idle
-            )
-        ]
+        viewModel.transmitEffectChainSnapshot.stages.map(EffectChainStage.init(snapshot:))
     }
 
     private var effectChainPipelineDetail: String {
-        let activeStage = transmitEffectStages.first { $0.state == .blocked || $0.state == .waiting }
-            ?? transmitEffectStages.last
-        let focus = activeStage.map { "\($0.shortLabel) \($0.detail)" } ?? "Empty"
-        return "\(transmitEffectStages.count) stages / \(focus)"
-    }
-
-    private var isolationEffectShortLabel: String {
-        if !viewModel.supportsSoundIsolation {
-            return "SI N/A"
-        }
-        return viewModel.isSoundIsolationEnabled ? "SI" : "SI Off"
-    }
-
-    private var isolationEffectDetail: String {
-        if !viewModel.supportsSoundIsolation {
-            return "Unavailable"
-        }
-        return viewModel.isSoundIsolationEnabled ? "Enabled" : "Bypassed"
-    }
-
-    private var isolationEffectState: PipelineStepState {
-        guard viewModel.isAudioReady else { return .idle }
-        if viewModel.isSoundIsolationEnabled && !viewModel.supportsSoundIsolation {
-            return .waiting
-        }
-        return .passing
-    }
-
-    private var vadEffectShortLabel: String {
-        if viewModel.isMuted { return "VAD Muted" }
-        return viewModel.isVoiceActive ? "VAD Speech" : "VAD Silent"
-    }
-
-    private var vadEffectDetail: String {
-        if viewModel.isMuted { return "Input muted" }
-        return "\(viewModel.vadSensitivity.label) / \(viewModel.vadAnalysisSummary)"
-    }
-
-    private var vadEffectState: PipelineStepState {
-        guard viewModel.isAudioReady else { return .idle }
-        if viewModel.isMuted { return .waiting }
-        return viewModel.isVoiceActive ? .passing : .waiting
+        viewModel.transmitEffectChainSnapshot.summary
     }
 
     private func inputStreamDetail(_ prefix: String) -> String {
@@ -383,28 +271,6 @@ struct LiveTransmitPipelineView: View {
         return codec.rawValue
     }
 
-    private func connectorColor(after index: Int) -> Color {
-        let left = steps[index].state
-        let right = steps[index + 1].state
-        if left == .blocked || right == .blocked {
-            return AppColorPalette.danger
-        }
-        if left == .passing && right == .passing {
-            return AppColorPalette.success
-        }
-        if left == .passing || right == .waiting {
-            return AppColorPalette.warning
-        }
-        return AppColorPalette.connectorNeutral
-    }
-
-    private func pipelineConnector(color: Color) -> some View {
-        Text(">")
-            .font(.system(size: 11, weight: .regular, design: .default))
-            .foregroundStyle(color)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-    }
-
     private func aggregateState(_ states: [PipelineStepState]) -> PipelineStepState {
         if states.contains(.blocked) { return .blocked }
         if states.contains(.waiting) { return .waiting }
@@ -420,6 +286,35 @@ struct EffectChainStage: Equatable, Identifiable {
     let shortLabel: String
     let detail: String
     let state: PipelineStepState
+
+    nonisolated init(
+        id: String,
+        package: String,
+        name: String,
+        shortLabel: String,
+        detail: String,
+        state: PipelineStepState
+    ) {
+        self.id = id
+        self.package = package
+        self.name = name
+        self.shortLabel = shortLabel
+        self.detail = detail
+        self.state = state
+    }
+}
+
+extension EffectChainStage {
+    nonisolated init(snapshot: AudioEffectStageSnapshot) {
+        self.init(
+            id: snapshot.id,
+            package: snapshot.package,
+            name: snapshot.name,
+            shortLabel: snapshot.shortLabel,
+            detail: snapshot.detail,
+            state: PipelineStepState(snapshot.state)
+        )
+    }
 }
 
 struct PipelineStep: Equatable, Identifiable {
@@ -452,100 +347,233 @@ enum PipelineStepState: Equatable {
     }
 }
 
-struct EffectChainStagesView: View {
+extension PipelineStepState {
+    nonisolated init(_ effectState: AudioEffectStageRuntimeState) {
+        switch effectState {
+        case .active:
+            self = .passing
+        case .waiting, .unavailable:
+            self = .waiting
+        case .bypassed, .idle:
+            self = .idle
+        }
+    }
+}
+
+struct CompactPipelineHeader: View {
+    let title: String
+    let systemImage: String
+    let detail: String
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: AppSpacing.m) {
+                titleLabel
+
+                Spacer(minLength: AppSpacing.m)
+
+                detailText(lineLimit: 1, fixedHorizontal: true)
+            }
+
+            VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+                titleLabel
+                detailText(lineLimit: 2, fixedHorizontal: false)
+            }
+        }
+    }
+
+    private var titleLabel: some View {
+        Label(title, systemImage: systemImage)
+            .font(AppTypography.sectionTitle)
+    }
+
+    private func detailText(lineLimit: Int, fixedHorizontal: Bool) -> some View {
+        Text(detail)
+            .font(AppTypography.caption2Mono)
+            .foregroundStyle(AppColorPalette.textSecondary)
+            .lineLimit(lineLimit)
+            .fixedSize(horizontal: fixedHorizontal, vertical: true)
+    }
+}
+
+struct CompactPipelineStepRow: View {
+    let step: PipelineStep
+    let accessibilityIdentifier: String
+
+    init(step: PipelineStep, accessibilityIdentifier: String? = nil) {
+        self.step = step
+        self.accessibilityIdentifier = accessibilityIdentifier ?? step.accessibilityIdentifier
+    }
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            wideRow
+            narrowRow
+        }
+        .padding(.vertical, AppSpacing.xs)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(step.package) \(step.title)")
+        .accessibilityValue(step.detail)
+        .accessibilityIdentifier(accessibilityIdentifier)
+    }
+
+    private var wideRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: AppSpacing.m) {
+            statusDot(size: 8, topPadding: 0)
+
+            Image(systemName: step.icon)
+                .font(AppTypography.caption)
+                .foregroundStyle(step.state.color)
+                .frame(width: AppSize.iconS, alignment: .center)
+                .accessibilityHidden(true)
+
+            Text(title)
+                .font(AppTypography.captionStrong)
+                .foregroundStyle(AppColorPalette.textPrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .frame(width: 82, alignment: .leading)
+
+            Text(step.package)
+                .font(AppTypography.caption2)
+                .foregroundStyle(AppColorPalette.textTertiary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .frame(width: 104, alignment: .leading)
+
+            Text(step.detail)
+                .font(AppTypography.caption2Mono)
+                .foregroundStyle(step.state.color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+    }
+
+    private var narrowRow: some View {
+        HStack(alignment: .top, spacing: AppSpacing.s) {
+            statusDot(size: 8, topPadding: 5)
+
+            Image(systemName: step.icon)
+                .font(AppTypography.caption)
+                .foregroundStyle(step.state.color)
+                .frame(width: AppSize.iconS, alignment: .center)
+                .padding(.top, 1)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+                HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
+                    Text(step.title)
+                        .font(AppTypography.captionStrong)
+                        .foregroundStyle(AppColorPalette.textPrimary)
+                        .lineLimit(1)
+
+                    Text(step.package)
+                        .font(AppTypography.caption2)
+                        .foregroundStyle(AppColorPalette.textTertiary)
+                        .lineLimit(1)
+                }
+
+                Text(step.detail)
+                    .font(AppTypography.caption2Mono)
+                    .foregroundStyle(step.state.color)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func statusDot(size: CGFloat, topPadding: CGFloat) -> some View {
+        Circle()
+            .fill(step.state.color)
+            .frame(width: size, height: size)
+            .padding(.top, topPadding)
+            .accessibilityHidden(true)
+    }
+
+    private var title: String {
+        step.title
+    }
+}
+
+struct CompactEffectChainGroup: View {
+    let step: PipelineStep
     let title: String
     let accessibilityIdentifier: String
     let stageIdentifierPrefix: String
     let stages: [EffectChainStage]
 
     private let columns = [
-        GridItem(.adaptive(minimum: 154), spacing: AppSpacing.m, alignment: .top)
+        GridItem(.adaptive(minimum: 124), spacing: AppSpacing.xs, alignment: .top)
     ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.m) {
-            Text(title)
-                .font(AppTypography.captionStrong)
-                .foregroundStyle(AppColorPalette.textSecondary)
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            CompactPipelineStepRow(step: step, accessibilityIdentifier: "\(accessibilityIdentifier)-summary")
 
-            LazyVGrid(columns: columns, alignment: .leading, spacing: AppSpacing.s) {
-                ForEach(Array(stages.enumerated()), id: \.element.id) { index, stage in
-                    EffectChainStageRow(index: index + 1, stage: stage)
-                        .accessibilityIdentifier("\(stageIdentifierPrefix)-\(stage.id)")
+            VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
+                    Text(title)
+                        .font(AppTypography.caption2)
+                        .foregroundStyle(AppColorPalette.textTertiary)
+
+                    Text("\(stages.count) stages")
+                        .font(AppTypography.caption2Mono)
+                        .foregroundStyle(step.state.color)
+                }
+
+                LazyVGrid(columns: columns, alignment: .leading, spacing: AppSpacing.xs) {
+                    ForEach(stages) { stage in
+                        EffectChainStageChip(stage: stage)
+                            .accessibilityIdentifier("\(stageIdentifierPrefix)-\(stage.id)")
+                    }
                 }
             }
+            .padding(.leading, CompactPipelineLayout.childIndent)
         }
+        .padding(.vertical, AppSpacing.xs)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(accessibilityIdentifier)
     }
 }
 
-private struct EffectChainStageRow: View {
-    let index: Int
+enum CompactPipelineLayout {
+    static let childIndent: CGFloat = AppSize.iconS + AppSpacing.l + 8
+}
+
+struct EffectChainStageChip: View {
     let stage: EffectChainStage
 
     var body: some View {
-        HStack(alignment: .top, spacing: AppSpacing.m) {
-            Text("\(index)")
-                .font(AppTypography.caption2Mono)
-                .foregroundStyle(stage.state.color)
-                .frame(width: 18, alignment: .trailing)
+        HStack(alignment: .top, spacing: AppSpacing.s) {
+            Circle()
+                .fill(stage.state.color)
+                .frame(width: 6, height: 6)
+                .padding(.top, 4)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: AppSpacing.xxs) {
                 Text(stage.name)
                     .font(AppTypography.captionStrong)
                     .foregroundStyle(AppColorPalette.textPrimary)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                Text("\(stage.package) / \(stage.detail)")
-                    .font(AppTypography.caption2)
-                    .foregroundStyle(AppColorPalette.textSecondary)
+                    .minimumScaleFactor(0.72)
+
+                Text(stage.detail)
+                    .font(AppTypography.caption2Mono)
+                    .foregroundStyle(stage.state.color)
                     .lineLimit(2)
-                    .minimumScaleFactor(0.75)
+                    .minimumScaleFactor(0.68)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(index) \(stage.name)")
-        .accessibilityValue("\(stage.package), \(stage.detail)")
-    }
-}
-
-struct PipelineStepView: View {
-    let step: PipelineStep
-
-    var body: some View {
-        VStack(spacing: AppSpacing.s) {
-            Text(step.package)
-                .font(AppTypography.caption2)
-                .foregroundStyle(AppColorPalette.textTertiary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-
-            Image(systemName: step.icon)
-                .font(.title3)
-                .frame(width: AppSize.iconL, height: AppSize.iconL)
-                .foregroundStyle(step.state.color)
-
-            Text(step.title)
-                .font(AppTypography.captionStrong)
-                .foregroundStyle(AppColorPalette.textPrimary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-
-            Text(step.detail)
-                .font(AppTypography.caption2Mono)
-                .foregroundStyle(step.state.color)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .minimumScaleFactor(0.7)
-        }
-        .frame(maxWidth: .infinity, minHeight: 104)
-        .padding(AppSpacing.m)
-        .background(AppColorPalette.panelSurface.opacity(0.55))
+        .padding(.horizontal, AppSpacing.s)
+        .padding(.vertical, AppSpacing.xs)
+        .background(AppColorPalette.panelSurface.opacity(0.42))
         .clipShape(RoundedRectangle(cornerRadius: AppCornerRadius.card))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(step.package) \(step.title)")
-        .accessibilityValue(step.detail)
+        .accessibilityLabel(stage.name)
+        .accessibilityValue("\(stage.package), \(stage.detail)")
     }
 }

@@ -11,9 +11,12 @@
 | package 設定 | App から渡す値 | 種別 |
 |---|---|---|
 | `PeakLimiterConfiguration` | package default | 固定 |
-| effect chain 挿入 | App adapter の固定構成で決める | adapter 導出 |
+| TX effect chain 挿入 | App adapter の固定構成で決める | adapter 導出 |
+| RX master effect chain 挿入 | RX master の最後に必ず挿入する | adapter 固定 |
 
 PeakLimiter の attack、decay、pre-gain などは画面設定として提供しない。
+
+RX master 側の PeakLimiter はユーザー設定を持たない安全弁として扱う。peer bus、master volume、master effect chain の処理後、出力 stream へ渡す直前の最終段に置く。
 
 ## App 画面に出さない値
 

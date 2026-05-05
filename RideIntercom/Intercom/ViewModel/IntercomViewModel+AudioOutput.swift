@@ -44,13 +44,15 @@ extension IntercomViewModel {
     }
 
     func scheduleOutputFrame(peerID: String, frame: RTC.AudioFrame, receivedAt: TimeInterval) {
-        guard !isOutputMuted, masterOutputVolume > 0 else {
+        let peerOutputVolume = remoteOutputVolume(for: peerID)
+        guard !isOutputMuted, masterOutputVolume > 0, peerOutputVolume > 0 else {
             lastScheduledOutputRMS = 0
             lastScheduledOutputPeakRMS = playbackOutputPeakWindow.record(0)
             return
         }
 
-        let outputSamples = frame.samples.map { softClip($0 * masterOutputVolume) }
+        let outputGain = masterOutputVolume * peerOutputVolume
+        let outputSamples = applyReceiveMasterPeakLimiter(frame.samples.map { $0 * outputGain })
         let level = AudioLevelMeter.rmsLevel(samples: outputSamples)
         lastScheduledOutputRMS = level
         lastScheduledOutputPeakRMS = playbackOutputPeakWindow.record(level)
@@ -80,8 +82,12 @@ extension IntercomViewModel {
         }
     }
 
-    private func softClip(_ sample: Float) -> Float {
-        max(-1, min(1, sample))
+    private func applyReceiveMasterPeakLimiter(_ samples: [Float]) -> [Float] {
+        samples.map(limitReceiveMasterPeak)
+    }
+
+    private func limitReceiveMasterPeak(_ sample: Float) -> Float {
+        max(-Self.receiveMasterPeakLimiterCeiling, min(Self.receiveMasterPeakLimiterCeiling, sample))
     }
 }
 
