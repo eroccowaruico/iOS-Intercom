@@ -54,7 +54,6 @@ struct LocalMicrophoneHeaderControl: View {
 struct RemoteParticipantRowView: View {
     let index: Int
     let member: GroupMember
-    @Binding var outputVolume: Double
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppSpacing.l) {
@@ -88,14 +87,13 @@ struct RemoteParticipantRowView: View {
 
             VStack(alignment: .leading, spacing: AppSpacing.l) {
                 participantMeter
-                participantOutputControl
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .appCallCardStyle()
         .accessibilityElement(children: .contain)
         .accessibilityLabel(member.displayName)
-        .accessibilityValue("\(statusSummary), \(codecLabel), output \(outputPercentLabel)")
+        .accessibilityValue("\(statusSummary), \(codecLabel)")
     }
 
     private var participantMeter: some View {
@@ -112,29 +110,6 @@ struct RemoteParticipantRowView: View {
             )
         }
         .accessibilityIdentifier("participantVoiceLevel\(index)")
-    }
-
-    private var participantOutputControl: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.xs) {
-            HStack(spacing: AppSpacing.s) {
-                Image(systemName: "speaker.wave.2.fill")
-                    .foregroundStyle(AppColorPalette.textSecondary)
-                Text("Output")
-                    .font(AppTypography.caption)
-                Spacer()
-                Text(outputPercentLabel)
-                    .font(AppTypography.captionStrongMono)
-                    .foregroundStyle(AppColorPalette.textSecondary)
-            }
-            Slider(value: $outputVolume, in: 0...1)
-                .accessibilityLabel("\(member.displayName) Output")
-                .accessibilityValue(outputPercentLabel)
-                .accessibilityIdentifier("participantOutputVolumeSlider\(index)")
-        }
-    }
-
-    private var outputPercentLabel: String {
-        "\(Int((outputVolume * 100).rounded()))%"
     }
 
     private var statusSummary: String {

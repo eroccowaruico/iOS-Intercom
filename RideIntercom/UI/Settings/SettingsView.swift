@@ -88,22 +88,8 @@ struct TransmitCodecPanel: View {
                 Text("Opus").tag(AudioCodecIdentifier.opus)
             }
             .pickerStyle(.segmented)
-            .disabled(true)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("transmitCodecPicker")
-
-            if viewModel.preferredTransmitCodec == .heAACv2 {
-                Picker("HE-AAC v2 Quality", selection: Binding(
-                    get: { viewModel.heAACv2Quality },
-                    set: { viewModel.setHEAACv2Quality($0) }
-                )) {
-                    ForEach(HEAACv2Quality.allCases, id: \.self) { quality in
-                        Text(quality.rawValue).tag(quality)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .accessibilityIdentifier("heAACv2QualityPicker")
-            }
         } header: {
             Label("Transmit Codec", systemImage: "antenna.radiowaves.left.and.right")
         }

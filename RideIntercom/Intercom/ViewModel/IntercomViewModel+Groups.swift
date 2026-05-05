@@ -130,7 +130,6 @@ extension IntercomViewModel {
         authenticatedPeerIDs.removeAll { $0 == memberID }
         remoteVoiceReceivedAt.removeValue(forKey: memberID)
         remoteVoicePeakWindows.removeValue(forKey: memberID)
-        remoteOutputVolumes.removeValue(forKey: memberID)
 
         if selectedGroup?.id == groupID {
             selectedGroup = groups[groupIndex]

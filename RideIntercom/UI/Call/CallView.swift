@@ -29,8 +29,7 @@ struct CallView: View {
                         ForEach(Array(remoteMembers.enumerated()), id: \.element.id) { index, member in
                             RemoteParticipantRowView(
                                 index: index,
-                                member: member,
-                                outputVolume: remoteOutputVolumeBinding(for: member)
+                                member: member
                             )
                             .accessibilityIdentifier("remoteParticipantRow\(index)")
                             .appDeleteActions {
@@ -113,16 +112,10 @@ struct CallView: View {
                         }
                     }
 
-                    Slider(
-                        value: Binding(
-                            get: { Double(viewModel.masterOutputVolume) },
-                            set: { viewModel.setMasterOutputVolume(Float($0)) }
-                        ),
-                        in: 0...Double(IntercomViewModel.maximumMasterOutputVolume)
-                    )
-                    .accessibilityLabel("Output Volume")
-                    .accessibilityValue(outputPercentLabel)
-                    .accessibilityIdentifier("masterOutputVolumeSlider")
+                    Text(outputStateLabel)
+                        .font(AppTypography.caption)
+                        .foregroundStyle(AppColorPalette.textSecondary)
+                        .accessibilityIdentifier("outputStateLabel")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -151,22 +144,17 @@ struct CallView: View {
         Array(viewModel.selectedGroup?.members.dropFirst() ?? [])
     }
 
-    private func remoteOutputVolumeBinding(for member: GroupMember) -> Binding<Double> {
-        Binding(
-            get: { Double(viewModel.remoteOutputVolume(for: member.id)) },
-            set: { viewModel.setRemoteOutputVolume(peerID: member.id, value: Float($0)) }
-        )
-    }
-
     private func removeMember(_ memberID: GroupMember.ID) {
         guard let selectedGroup = viewModel.selectedGroup else { return }
         viewModel.removeMember(memberID, from: selectedGroup.id)
     }
 
     private var outputPercentLabel: String {
-        let percent = Int((viewModel.masterOutputVolume * 100).rounded())
-        let label = viewModel.masterOutputVolume > IntercomViewModel.normalMasterOutputVolume ? "Output Boost" : "Output"
-        return viewModel.isOutputMuted ? "Output Muted" : "\(label) \(percent)%"
+        outputStateLabel
+    }
+
+    private var outputStateLabel: String {
+        viewModel.isOutputMuted ? "Output Muted" : "Output Live"
     }
 
     private var showsDuckingStatusIcon: Bool {

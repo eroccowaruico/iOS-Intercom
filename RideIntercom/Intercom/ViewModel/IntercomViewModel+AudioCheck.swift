@@ -1,11 +1,5 @@
-import AVFoundation
-import Codec
-import CryptoKit
 import Foundation
-import OSLog
-import RTC
 import SessionManager
-import VADGate
 
 extension IntercomViewModel {
     func startAudioCheck(recordDuration: Duration = .seconds(5), playbackDuration: Duration = .seconds(5)) {
@@ -18,21 +12,16 @@ extension IntercomViewModel {
         audioCheckStatusMessage = "Recording microphone for 5 seconds"
         audioCheckOwnsAudioPipeline = !isAudioReady
 
-        do {
-            if audioCheckOwnsAudioPipeline {
-                try audioSessionManager.configureForAudioCheck()
+        if audioCheckOwnsAudioPipeline {
+            guard configureAudioSession(active: true),
+                  startInputCapture(),
+                  startOutputRenderer() else {
+                audioCheckPhase = .failed
+                audioCheckStatusMessage = audioErrorMessage ?? "Audio setup failed"
+                stopAudioCheckOwnedPipeline()
+                return
             }
-            try audioInputMonitor.start()
-            try audioFramePlayer.start()
-        } catch {
-            audioCheckPhase = .failed
-            audioCheckStatusMessage = audioSetupMessage(for: error)
-            if audioCheckOwnsAudioPipeline {
-                audioInputMonitor.stop()
-                audioFramePlayer.stop()
-                try? audioSessionManager.deactivate()
-            }
-            return
+            applyCurrentVoiceProcessingConfiguration()
         }
 
         audioCheckTask = Task { [weak self] in
@@ -64,20 +53,16 @@ extension IntercomViewModel {
             return
         }
 
-        let playbackCodec: AudioCodecIdentifier = .pcm16
-        let playbackSamples = makeAudioCheckPlaybackSamples(from: recordedSamples)
-
-        let outputLevel = AudioLevelMeter.rmsLevel(samples: playbackSamples)
+        let outputLevel = AudioLevelMeter.rmsLevel(samples: recordedSamples)
         audioCheckOutputLevel = min(1, max(0, outputLevel))
         audioCheckOutputPeakLevel = audioCheckOutputPeakWindow.record(audioCheckOutputLevel)
         audioCheckPhase = .playing
-        audioCheckStatusMessage = "Playing recorded audio for 5 seconds (\(audioCodecDisplayName(playbackCodec)))"
-        audioFramePlayer.play(JitterBufferedAudioFrame(
-            peerID: "audio-check",
-            streamID: UUID(),
+        audioCheckStatusMessage = "Playing recorded audio for 5 seconds"
+        _ = audioOutputRenderer.schedule(SessionManager.AudioStreamFrame(
             sequenceNumber: 1,
-            frameID: 1,
-            samples: playbackSamples
+            format: .intercom,
+            capturedAt: Date().timeIntervalSince1970,
+            samples: recordedSamples
         ))
 
         audioCheckTask?.cancel()
@@ -102,9 +87,9 @@ extension IntercomViewModel {
     func stopAudioCheckOwnedPipeline() {
         guard audioCheckOwnsAudioPipeline else { return }
 
-        audioInputMonitor.stop()
-        audioFramePlayer.stop()
-        try? audioSessionManager.deactivate()
+        _ = audioInputCapture.stop()
+        _ = audioOutputRenderer.stop()
+        _ = try? audioSessionManager.setActive(false)
         audioCheckOwnsAudioPipeline = false
     }
 
@@ -115,23 +100,5 @@ extension IntercomViewModel {
         audioCheckOutputPeakLevel = 0
         audioCheckInputPeakWindow = VoicePeakWindow()
         audioCheckOutputPeakWindow = VoicePeakWindow()
-    }
-
-    func makeAudioCheckPlaybackSamples(from samples: [Float]) -> [Float] {
-        guard let packet = try? EncodedVoicePacket.make(frameID: 1, samples: samples) else {
-            return samples
-        }
-
-        guard let decodedSamples = try? packet.decodeSamples(), !decodedSamples.isEmpty else {
-            return samples
-        }
-        return decodedSamples
-    }
-
-    func audioCodecDisplayName(_ codec: AudioCodecIdentifier) -> String {
-        if codec == .pcm16 { return "PCM 16-bit" }
-        if codec == .heAACv2 { return "HE-AAC v2 VBR" }
-        if codec == .opus { return "Opus" }
-        return codec.rawValue
     }
 }

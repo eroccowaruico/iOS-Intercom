@@ -49,9 +49,7 @@ extension IntercomViewModel {
                 lastReceivedAudioAt: lastReceivedAudioAt,
                 droppedAudioPacketCount: droppedAudioPacketCount,
                 jitterQueuedFrameCount: jitterQueuedFrameCount
-            ),
-            transmitFallbackCount: transmitFallbackCount,
-            lastTransmitFallbackSummary: lastTransmitFallbackSummary
+            )
         )
     }
 
@@ -94,17 +92,12 @@ extension IntercomViewModel {
     }
 
     var audioInputProcessingSummary: String {
-        let isolationLabel: String
-        if audioInputMonitor.supportsSoundIsolation {
-            isolationLabel = isSoundIsolationEnabled ? "ON" : "OFF"
-        } else {
-            isolationLabel = "N/A"
-        }
+        let isolationLabel = isSoundIsolationEnabled ? "ON" : "OFF"
         return String(format: "VAD %.4f / ISOLATION %@", voiceActivityDetectionThreshold, isolationLabel)
     }
 
     var supportsSoundIsolation: Bool {
-        audioInputMonitor.supportsSoundIsolation
+        true
     }
 
     var connectedPeerCount: Int {

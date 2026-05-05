@@ -1,30 +1,58 @@
-import AVFoundation
-import Codec
-import CryptoKit
 import Foundation
-import OSLog
-import RTC
 import SessionManager
-import VADGate
 
 extension IntercomViewModel {
-    func handleAvailableAudioPortsChanged() {
-        let previousOutputPort = selectedOutputPort
-        selectedInputPort = audioSessionManager.selectedInputPort
-        selectedOutputPort = audioSessionManager.selectedOutputPort
-        if selectedOutputPort != previousOutputPort {
-            do {
-                try refreshOutputRendererIfNeeded()
-                audioErrorMessage = nil
-            } catch {
-                audioErrorMessage = "Audio output device change failed"
+    func handleAudioSessionRuntimeEvent(_ event: SessionManager.AudioSessionRuntimeEvent) {
+        switch event {
+        case .configuration(let report):
+            if let snapshot = report.snapshot {
+                applyAudioSessionSnapshot(snapshot)
             }
+        case .snapshotChanged(let change):
+            applyAudioSessionSnapshot(change.snapshot)
+        case .operation:
+            break
         }
     }
 
-    func refreshOutputRendererIfNeeded() throws {
+    func applyAudioSessionSnapshot(_ snapshot: SessionManager.AudioSessionSnapshot) {
+        let previousOutputPort = selectedOutputPort
+        audioSessionSnapshot = snapshot
+        selectedInputPort = normalizedInputPort(selectedInputPort, snapshot: snapshot)
+        selectedOutputPort = normalizedOutputPort(selectedOutputPort, snapshot: snapshot)
+        if selectedOutputPort != previousOutputPort {
+            refreshOutputRendererIfNeeded()
+        }
+    }
+
+    func refreshOutputRendererIfNeeded() {
         guard isAudioReady || audioCheckPhase == .playing else { return }
-        audioFramePlayer.stop()
-        try audioFramePlayer.start()
+        _ = audioOutputRenderer.stop()
+        _ = audioOutputRenderer.start()
+    }
+
+    func deduplicatedPorts(_ ports: [AudioPortInfo]) -> [AudioPortInfo] {
+        var seen: Set<AudioPortInfo> = []
+        var result: [AudioPortInfo] = []
+        for port in ports where seen.insert(port).inserted {
+            result.append(port)
+        }
+        return result.isEmpty ? [.systemDefault] : result
+    }
+
+    private func normalizedInputPort(
+        _ port: AudioPortInfo,
+        snapshot: SessionManager.AudioSessionSnapshot
+    ) -> AudioPortInfo {
+        let ports = deduplicatedPorts(snapshot.availableInputs.map(AudioPortInfo.init(device:)))
+        return ports.contains(port) ? port : .systemDefault
+    }
+
+    private func normalizedOutputPort(
+        _ port: AudioPortInfo,
+        snapshot: SessionManager.AudioSessionSnapshot
+    ) -> AudioPortInfo {
+        let ports = deduplicatedPorts(snapshot.availableOutputs.map(AudioPortInfo.init(device:)))
+        return ports.contains(port) ? port : .systemDefault
     }
 }

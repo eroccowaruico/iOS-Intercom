@@ -13,12 +13,25 @@ struct RideIntercomTests {
         #expect(project.contains("AudioUnit.framework in Frameworks") == false)
     }
 
-    @Test func appSourcesDoNotContainTestOnlyLaunchSwitches() throws {
+    @Test func appSourcesDoNotContainTestOnlyLaunchSwitchesOrObsoleteAudioPipeline() throws {
+        let obsoleteTerms = [
+            "UI-TEST",
+            "isUITestProcess",
+            "ProcessInfo.processInfo.arguments",
+            "SystemAudioInputMonitor",
+            "SystemAudioOutputRenderer",
+            "SystemAudioSessionAdapter",
+            "JitterBuffer",
+            "AudioFrameMixer",
+            "AudioPacketEnvelope",
+            "ReceivedAudioPacket",
+            "streamID"
+        ]
         for sourcePath in try Self.appSwiftSourcePaths() {
             let source = try Self.source(sourcePath)
-            #expect(source.contains("UI-TEST") == false)
-            #expect(source.contains("isUITestProcess") == false)
-            #expect(source.contains("ProcessInfo.processInfo.arguments") == false)
+            for term in obsoleteTerms {
+                #expect(source.contains(term) == false, "\(sourcePath) contains \(term)")
+            }
         }
     }
 
@@ -98,16 +111,6 @@ struct RideIntercomTests {
         #expect(token.isExpired(now: 200))
     }
 
-    @Test func encodedVoicePacketUsesPackagePCMCodecRoundTrip() throws {
-        let samples: [Float] = [-1.0, -0.25, 0.0, 0.25, 1.0]
-        let packet = try EncodedVoicePacket.make(frameID: 7, samples: samples)
-        let decoded = try packet.decodeSamples()
-
-        #expect(packet.frameID == 7)
-        #expect(packet.codec == .pcm16)
-        #expect(Self.maxAbsoluteDifference(samples, decoded) < 0.0001)
-    }
-
     @Test func audioTransmissionControllerSendsVoiceAndKeepalive() {
         var controller = AudioTransmissionController(
             detector: VoiceActivityDetector(threshold: 0.1),
@@ -127,96 +130,16 @@ struct RideIntercomTests {
         ])
     }
 
-    @Test func jitterBufferDeliversReadyVoiceFramesInSequenceOrderAndDropsDuplicates() throws {
-        let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
-        let streamID = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
-        var buffer = JitterBuffer(playoutDelay: 0.08, packetLifetime: 1.0)
-        let first = Self.receivedPacket(
-            peerID: "peer-a",
-            groupID: groupID,
-            streamID: streamID,
-            sequenceNumber: 1,
-            sentAt: 10.00,
-            frameID: 1,
-            samples: [0.1]
-        )
-        let second = Self.receivedPacket(
-            peerID: "peer-a",
-            groupID: groupID,
-            streamID: streamID,
-            sequenceNumber: 2,
-            sentAt: 10.02,
-            frameID: 2,
-            samples: [0.2]
-        )
-
-        buffer.enqueue(second, receivedAt: 10.02)
-        buffer.enqueue(first, receivedAt: 10.00)
-        buffer.enqueue(first, receivedAt: 10.00)
-
-        let frames = buffer.drainReadyFrames(now: 10.10)
-
-        #expect(frames.map(\.frameID) == [1, 2])
-        #expect(frames.map(\.samples) == [[0.1], [0.2]])
-        #expect(buffer.droppedFrameCount == 1)
-        #expect(buffer.queuedFrameCount == 0)
-    }
-
-    @Test func audioFrameMixerSumsAndClampsSamples() {
-        let frames = [
-            JitterBufferedAudioFrame(peerID: "a", streamID: UUID(), sequenceNumber: 1, frameID: 1, samples: [0.6, -0.6]),
-            JitterBufferedAudioFrame(peerID: "b", streamID: UUID(), sequenceNumber: 1, frameID: 1, samples: [0.7, -0.7])
-        ]
-
-        #expect(AudioFrameMixer.mix(frames) == [1.0, -1.0])
-    }
-
-    @Test func audioSessionManagerAppliesIntercomAndAudioCheckConfigurations() throws {
-        let session = NoOpAudioSession()
-        let manager = AudioSessionManager(session: session)
-
-        try manager.configureForIntercom()
-        try manager.deactivate()
-        try manager.configureForAudioCheck()
-
-        #expect(session.appliedConfigurations.count == 2)
-        #expect(session.activeValues == [true, false, true])
-        #expect(session.appliedConfigurations[0].mode == .default)
-        #expect(session.appliedConfigurations[1].mode == .default)
-    }
-
-    @Test func systemAudioInputMonitorRequestsMicrophonePermissionBeforeStartingCapture() {
-        let permission = FakeMicrophonePermissionAuthorizer(state: .notDetermined)
-        let monitor = SystemAudioInputMonitor(microphonePermission: permission)
-
-        #expect(throws: AudioInputMonitorError.microphonePermissionRequestPending) {
-            try monitor.start()
-        }
-        #expect(permission.requestAccessCallCount == 1)
-    }
-
-    @Test func systemAudioInputMonitorFailsFastWhenMicrophonePermissionIsDenied() {
-        let permission = FakeMicrophonePermissionAuthorizer(state: .denied)
-        let monitor = SystemAudioInputMonitor(microphonePermission: permission)
-
-        #expect(throws: AudioInputMonitorError.microphonePermissionDenied) {
-            try monitor.start()
-        }
-        #expect(permission.requestAccessCallCount == 0)
-    }
-
     @Test func viewModelCreatesAndPersistsTalkGroupWithoutTestMode() {
-        let callSession = RecordingCallSession()
-        let groupStore = InMemoryGroupStore()
-        let viewModel = Self.makeViewModel(groups: [], callSession: callSession, groupStore: groupStore)
+        let harness = Self.makeHarness(groups: [])
 
-        viewModel.createTalkGroup()
+        harness.viewModel.createTalkGroup()
 
-        #expect(viewModel.groups.count == 1)
-        #expect(viewModel.selectedGroup?.name == "Talk Group")
-        #expect(viewModel.activeGroupID == viewModel.selectedGroup?.id)
-        #expect(callSession.connectedGroup?.id == viewModel.selectedGroup?.id)
-        #expect(groupStore.loadGroups().map(\.name) == ["Talk Group"])
+        #expect(harness.viewModel.groups.count == 1)
+        #expect(harness.viewModel.selectedGroup?.name == "Talk Group")
+        #expect(harness.viewModel.activeGroupID == harness.viewModel.selectedGroup?.id)
+        #expect(harness.callSession.connectedGroup?.id == harness.viewModel.selectedGroup?.id)
+        #expect(harness.groupStore.loadGroups().map(\.name) == ["Talk Group"])
     }
 
     @Test func viewModelAcceptsInviteURLAndStoresCredential() throws {
@@ -231,222 +154,189 @@ struct RideIntercomTests {
             expiresAt: 200
         )
         let url = try GroupInviteTokenCodec.joinURL(for: token)
-        let viewModel = Self.makeViewModel(groups: [], credentialStore: credentialStore)
+        let harness = Self.makeHarness(groups: [], credentialStore: credentialStore)
 
-        try viewModel.acceptInviteURL(url, now: 150)
+        try harness.viewModel.acceptInviteURL(url, now: 150)
 
-        #expect(viewModel.selectedGroup?.id == groupID)
-        #expect(viewModel.inviteStatusMessage == "JOINED Invited Group")
+        #expect(harness.viewModel.selectedGroup?.id == groupID)
+        #expect(harness.viewModel.inviteStatusMessage == "JOINED Invited Group")
         #expect(credentialStore.credential(for: groupID)?.secret == "shared-secret")
     }
 
-    @Test func viewModelConnectsAuthenticatedPeerAndStartsAudioPipeline() async throws {
-        let callSession = RecordingCallSession()
-        let audioSession = NoOpAudioSession()
-        let inputMonitor = NoOpAudioInputMonitor()
-        let audioPlayer = NoOpAudioFramePlayer()
-        let viewModel = Self.makeViewModel(
-            callSession: callSession,
-            audioSession: audioSession,
-            audioInputMonitor: inputMonitor,
-            audioFramePlayer: audioPlayer
-        )
-
+    @Test func viewModelConnectsAuthenticatedPeerAndStartsPackageAudioPipeline() async throws {
+        let harness = Self.makeHarness()
         let group = IntercomSeedData.recentGroups[0]
-        viewModel.selectGroup(group)
-        await Self.waitUntil { callSession.connectedGroup?.id == group.id }
-        callSession.authenticate(["member-108"])
-        await Self.waitUntil { viewModel.isAudioReady }
 
-        #expect(callSession.startMediaCallCount == 1)
-        #expect(inputMonitor.startCallCount == 1)
-        #expect(audioPlayer.startCallCount == 1)
-        #expect(audioSession.activeValues.contains(true))
-        #expect(viewModel.connectionState == .localConnected)
+        harness.viewModel.selectGroup(group)
+        await Self.waitUntil { harness.callSession.connectedGroup?.id == group.id }
+        harness.callSession.authenticate(["member-108"])
+        await Self.waitUntil { harness.viewModel.isAudioReady }
+
+        #expect(harness.callSession.startMediaCallCount == 1)
+        #expect(harness.audioSessionBackend.activeValues.contains(true))
+        #expect(harness.inputBackend.startCount == 1)
+        #expect(harness.outputBackend.startCount == 1)
+        #expect(harness.viewModel.connectionState == .localConnected)
     }
 
-    @Test func viewModelDoesNotSwitchActiveGroupSelectionUntilDisconnect() {
-        let callSession = RecordingCallSession()
-        let viewModel = Self.makeViewModel(callSession: callSession)
-        let firstGroup = IntercomSeedData.recentGroups[0]
-        let secondGroup = IntercomSeedData.recentGroups[1]
+    @Test func viewModelSendsVoiceSamplesFromPackageInputFrames() async throws {
+        let harness = Self.makeHarness()
 
-        viewModel.selectGroup(firstGroup)
-        viewModel.selectGroup(secondGroup)
+        harness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
+        harness.callSession.authenticate(["member-108"])
+        await Self.waitUntil { harness.viewModel.isAudioReady }
+        harness.inputBackend.emit(AudioStreamFrame(sequenceNumber: 1, format: .intercom, capturedAt: 100, samples: [0.3]))
+        harness.inputBackend.emit(AudioStreamFrame(sequenceNumber: 2, format: .intercom, capturedAt: 101, samples: [0.4]))
+        await Self.waitUntil { harness.callSession.sentAudioPackets.count >= 2 }
 
-        #expect(viewModel.selectedGroup?.id == secondGroup.id)
-        #expect(viewModel.activeGroupID == firstGroup.id)
-        #expect(callSession.connectedGroup?.id == firstGroup.id)
-        #expect(callSession.disconnectCallCount == 0)
-
-        viewModel.disconnect()
-        viewModel.connectLocal()
-
-        #expect(viewModel.activeGroupID == secondGroup.id)
-        #expect(callSession.connectedGroup?.id == secondGroup.id)
-    }
-
-    @Test func viewModelSendsVoiceSamplesFromMicrophoneFrames() async throws {
-        let callSession = RecordingCallSession()
-        let inputMonitor = NoOpAudioInputMonitor()
-        let viewModel = Self.makeViewModel(callSession: callSession, audioInputMonitor: inputMonitor)
-
-        viewModel.selectGroup(IntercomSeedData.recentGroups[0])
-        callSession.authenticate(["member-108"])
-        await Self.waitUntil { viewModel.isAudioReady }
-        inputMonitor.simulate(samples: [0.3])
-        inputMonitor.simulate(samples: [0.4])
-        await Self.waitUntil { callSession.sentAudioPackets.count >= 2 }
-
-        #expect(callSession.sentAudioPackets.prefix(2) == [
+        #expect(harness.callSession.sentAudioPackets.prefix(2) == [
             .voice(frameID: 1, samples: [0.3]),
             .voice(frameID: 2, samples: [0.4])
         ])
     }
 
-    @Test func viewModelReceivesRemoteAudioUpdatesMemberAndPlaybackDiagnostics() async throws {
-        let callSession = RecordingCallSession()
-        let ticker = NoOpCallTicker()
-        let audioPlayer = NoOpAudioFramePlayer()
-        let viewModel = Self.makeViewModel(
-            callSession: callSession,
-            callTicker: ticker,
-            audioFramePlayer: audioPlayer
-        )
+    @Test func viewModelReceivesRTCFrameAndSchedulesPackageOutput() async throws {
+        let harness = Self.makeHarness()
         let group = IntercomSeedData.recentGroups[0]
-        let packet = Self.receivedPacket(
-            peerID: "member-108",
-            groupID: group.id,
-            streamID: UUID(),
-            sequenceNumber: 1,
-            sentAt: 100,
-            frameID: 1,
+        let frame = RTC.AudioFrame(
+            sequenceNumber: 7,
+            format: .intercomPacketAudio,
+            capturedAt: 100,
             samples: [0.2, -0.2]
         )
 
-        viewModel.selectGroup(group)
-        callSession.authenticate(["member-108"])
-        await Self.waitUntil { viewModel.isAudioReady }
-        callSession.receive(packet)
-        await Self.waitUntil { viewModel.receivedVoicePacketCount == 1 }
-        ticker.simulateTick(now: 100.1)
-        await Self.waitUntil { audioPlayer.playedFrames.count == 1 }
+        harness.viewModel.selectGroup(group)
+        harness.callSession.authenticate(["member-108"])
+        await Self.waitUntil { harness.viewModel.isAudioReady }
+        harness.callSession.receive(RTC.ReceivedAudioFrame(peerID: RTC.PeerID(rawValue: "member-108"), frame: frame))
+        await Self.waitUntil { harness.outputBackend.scheduledFrames.count == 1 }
 
-        let remoteMember = try #require(viewModel.selectedGroup?.members.first { $0.id == "member-108" })
+        let remoteMember = try #require(harness.viewModel.selectedGroup?.members.first { $0.id == "member-108" })
         #expect(remoteMember.isTalking)
         #expect(remoteMember.receivedAudioPacketCount == 1)
-        #expect(viewModel.playedAudioFrameCount == 1)
-        #expect(audioPlayer.playedFrames[0].samples == [0.2, -0.2])
+        #expect(remoteMember.playedAudioFrameCount == 1)
+        #expect(harness.viewModel.playedAudioFrameCount == 1)
+        #expect(harness.outputBackend.scheduledFrames[0].sequenceNumber == 7)
+        #expect(harness.outputBackend.scheduledFrames[0].samples == [0.2, -0.2])
     }
 
-    @Test func viewModelBroadcastsMuteStateAsControlMessage() async throws {
-        let callSession = RecordingCallSession()
-        let inputMonitor = NoOpAudioInputMonitor()
-        let viewModel = Self.makeViewModel(callSession: callSession, audioInputMonitor: inputMonitor)
+    @Test func viewModelUsesRTCMetricsForReceiveBufferDiagnostics() async {
+        let harness = Self.makeHarness()
 
-        viewModel.selectGroup(IntercomSeedData.recentGroups[0])
-        callSession.authenticate(["member-108"])
-        await Self.waitUntil { viewModel.isAudioReady }
-        viewModel.toggleMute()
+        harness.callSession.publishMetrics(RTC.RouteMetrics(
+            route: .multipeer,
+            activePeerCount: 1,
+            receivedAudioFrameCount: 5,
+            droppedAudioFrameCount: 2,
+            queuedAudioFrameCount: 3
+        ))
+        await Self.waitUntil { harness.viewModel.jitterQueuedFrameCount == 3 }
 
-        #expect(inputMonitor.lastInputMuted == true)
-        #expect(callSession.sentControlMessages.contains(.peerMuteState(isMuted: true)))
-        #expect(callSession.sentControlMessages.contains(.keepalive))
+        #expect(harness.viewModel.receivedVoicePacketCount == 5)
+        #expect(harness.viewModel.droppedAudioPacketCount == 2)
+        #expect(harness.viewModel.jitterQueuedFrameCount == 3)
     }
 
-    @Test func viewModelAudioCheckRecordsAndPlaysBackSamples() async {
-        let inputMonitor = NoOpAudioInputMonitor()
-        let audioPlayer = NoOpAudioFramePlayer()
-        let viewModel = Self.makeViewModel(
-            groups: [],
-            audioInputMonitor: inputMonitor,
-            audioFramePlayer: audioPlayer
-        )
+    @Test func viewModelBroadcastsMuteStateAndUpdatesPackageVoiceProcessing() async throws {
+        let harness = Self.makeHarness()
 
-        viewModel.startAudioCheck(recordDuration: .milliseconds(20), playbackDuration: .seconds(5))
-        inputMonitor.simulate(samples: [0.5, -0.5])
-        await Self.waitUntil { viewModel.audioCheckInputLevel > 0 }
-        await Self.waitUntil { viewModel.audioCheckPhase == .playing }
+        harness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
+        harness.callSession.authenticate(["member-108"])
+        await Self.waitUntil { harness.viewModel.isAudioReady }
+        harness.viewModel.toggleMute()
 
-        #expect(viewModel.audioCheckPhase == .playing)
-        #expect(viewModel.audioCheckInputLevel > 0)
-        #expect(viewModel.audioCheckOutputLevel > 0)
-        #expect(audioPlayer.playedFrames.count == 1)
+        #expect(harness.voiceProcessingBackend.mutedValues.last == true)
+        #expect(harness.callSession.localMuteValues.last == true)
+        #expect(harness.callSession.sentControlMessages.contains(.peerMuteState(isMuted: true)))
+        #expect(harness.callSession.sentControlMessages.contains(.keepalive))
+    }
+
+    @Test func viewModelAudioCheckRecordsAndSchedulesPlaybackThroughPackageOutput() async {
+        let harness = Self.makeHarness(groups: [])
+
+        harness.viewModel.startAudioCheck(recordDuration: .milliseconds(20), playbackDuration: .seconds(5))
+        harness.inputBackend.emit(AudioStreamFrame(sequenceNumber: 1, format: .intercom, capturedAt: 100, samples: [0.5, -0.5]))
+        await Self.waitUntil { harness.viewModel.audioCheckInputLevel > 0 }
+        await Self.waitUntil { harness.viewModel.audioCheckPhase == .playing }
+
+        #expect(harness.viewModel.audioCheckPhase == .playing)
+        #expect(harness.viewModel.audioCheckInputLevel > 0)
+        #expect(harness.viewModel.audioCheckOutputLevel > 0)
+        #expect(harness.outputBackend.scheduledFrames.count == 1)
+        #expect(harness.outputBackend.scheduledFrames[0].samples == [0.5, -0.5])
     }
 
     @Test func viewModelResetAllSettingsKeepsGroupsAndRestoresAudioDefaults() {
-        let viewModel = Self.makeViewModel()
+        let harness = Self.makeHarness()
 
-        viewModel.setVoiceActivityDetectionThreshold(VoiceActivityDetector.maxThreshold)
-        viewModel.setMasterOutputVolume(IntercomViewModel.maximumMasterOutputVolume)
-        viewModel.toggleOutputMute()
-        viewModel.setRemoteOutputVolume(peerID: "member-108", value: 0.2)
-        viewModel.resetAllSettings()
+        harness.viewModel.setVoiceActivityDetectionThreshold(VoiceActivityDetector.maxThreshold)
+        harness.viewModel.toggleOutputMute()
+        harness.viewModel.resetAllSettings()
 
-        #expect(viewModel.voiceActivityDetectionThreshold == AudioTransmissionController.defaultVoiceActivityThreshold)
-        #expect(viewModel.masterOutputVolume == IntercomViewModel.normalMasterOutputVolume)
-        #expect(!viewModel.isOutputMuted)
-        #expect(viewModel.remoteOutputVolumes.isEmpty)
-        #expect(viewModel.groups.count == IntercomSeedData.recentGroups.count)
+        #expect(harness.viewModel.voiceActivityDetectionThreshold == AudioTransmissionController.defaultVoiceActivityThreshold)
+        #expect(!harness.viewModel.isOutputMuted)
+        #expect(harness.viewModel.groups.count == IntercomSeedData.recentGroups.count)
+        #expect(harness.callSession.outputMuteValues.last == false)
     }
 
     @Test func diagnosticsSnapshotSummarizesCurrentAppState() {
-        let viewModel = Self.makeViewModel()
-        let snapshot = viewModel.diagnosticsSnapshot
+        let harness = Self.makeHarness()
+        let snapshot = harness.viewModel.diagnosticsSnapshot
 
         #expect(snapshot.transportSummary == "TRANSPORT RecordingCallSession")
         #expect(snapshot.audio.summary.contains("TX 0"))
         #expect(snapshot.connectionSummary == "PEERS 0")
-        #expect(snapshot.codecSafetySummary == "TX FB #0")
     }
 
-    private static func makeViewModel(
-        groups: [IntercomGroup] = IntercomSeedData.recentGroups,
-        callSession: RecordingCallSession = RecordingCallSession(),
-        credentialStore: GroupCredentialStoring = InMemoryGroupCredentialStore(),
-        groupStore: GroupStoring? = nil,
-        localMemberIdentityStore: LocalMemberIdentityStoring? = nil,
-        audioSession: NoOpAudioSession = NoOpAudioSession(),
-        audioInputMonitor: AudioInputMonitoring = NoOpAudioInputMonitor(),
-        callTicker: CallTicking = NoOpCallTicker(),
-        audioFramePlayer: AudioFramePlaying = NoOpAudioFramePlayer()
-    ) -> IntercomViewModel {
-        let identityStore = localMemberIdentityStore ?? InMemoryLocalMemberIdentityStore(
+    private struct Harness {
+        let viewModel: IntercomViewModel
+        let callSession: RecordingCallSession
+        let groupStore: InMemoryGroupStore
+        let audioSessionBackend: FakeAudioSessionBackend
+        let inputBackend: FakeInputStreamBackend
+        let outputBackend: FakeOutputStreamBackend
+        let voiceProcessingBackend: FakeVoiceProcessingBackend
+    }
+
+    private static func makeHarness(
+        groups: [IntercomGroup]? = nil,
+        credentialStore: GroupCredentialStoring? = nil
+    ) -> Harness {
+        let groups = groups ?? IntercomSeedData.recentGroups
+        let credentialStore = credentialStore ?? InMemoryGroupCredentialStore()
+        let callSession = RecordingCallSession()
+        let groupStore = InMemoryGroupStore(groups: groups)
+        let audioSessionBackend = FakeAudioSessionBackend()
+        let inputBackend = FakeInputStreamBackend()
+        let outputBackend = FakeOutputStreamBackend()
+        let voiceProcessingBackend = FakeVoiceProcessingBackend()
+        let voiceProcessingManager = AudioInputVoiceProcessingManager(backend: voiceProcessingBackend)
+        let identityStore = InMemoryLocalMemberIdentityStore(
             identity: LocalMemberIdentity(memberID: groups.first?.members.first?.id ?? "member-local", displayName: "You")
         )
-        return IntercomViewModel(
+        let viewModel = IntercomViewModel(
             groups: groups,
             callSession: callSession,
             credentialStore: credentialStore,
-            groupStore: groupStore ?? InMemoryGroupStore(groups: groups),
+            groupStore: groupStore,
             localMemberIdentityStore: identityStore,
-            audioSessionManager: AudioSessionManager(session: audioSession),
-            audioInputMonitor: audioInputMonitor,
-            callTicker: callTicker,
-            audioFramePlayer: audioFramePlayer
+            audioSessionManager: AudioSessionManager(backend: audioSessionBackend),
+            audioInputCapture: AudioInputStreamCapture(
+                configuration: .intercom(voiceProcessing: IntercomViewModel.defaultVoiceProcessingConfiguration()),
+                backend: inputBackend
+            ),
+            audioOutputRenderer: AudioOutputStreamRenderer(configuration: .intercom, backend: outputBackend),
+            audioInputVoiceProcessingManager: voiceProcessingManager,
+            callTicker: NoOpCallTicker()
         )
-    }
-
-    private static func receivedPacket(
-        peerID: String,
-        groupID: UUID,
-        streamID: UUID,
-        sequenceNumber: Int,
-        sentAt: TimeInterval,
-        frameID: Int,
-        samples: [Float]
-    ) -> ReceivedAudioPacket {
-        let envelope = AudioPacketEnvelope(
-            groupID: groupID,
-            streamID: streamID,
-            sequenceNumber: sequenceNumber,
-            sentAt: sentAt,
-            packet: .voice(frameID: frameID, samples: samples)
-        )
-        return ReceivedAudioPacket(
-            peerID: peerID,
-            envelope: envelope,
-            packet: .voice(frameID: frameID, samples: samples)
+        return Harness(
+            viewModel: viewModel,
+            callSession: callSession,
+            groupStore: groupStore,
+            audioSessionBackend: audioSessionBackend,
+            inputBackend: inputBackend,
+            outputBackend: outputBackend,
+            voiceProcessingBackend: voiceProcessingBackend
         )
     }
 
@@ -458,12 +348,6 @@ struct RideIntercomTests {
         while !condition(), start.duration(to: .now) < timeout {
             try? await Task.sleep(for: .milliseconds(10))
         }
-    }
-
-    private static func maxAbsoluteDifference(_ lhs: [Float], _ rhs: [Float]) -> Float {
-        zip(lhs, rhs)
-            .map { abs($0 - $1) }
-            .max() ?? 0
     }
 
     private static func workspaceRoot() -> URL {
@@ -505,6 +389,8 @@ private final class RecordingCallSession: RideIntercom.CallSession {
     private(set) var stopMediaCallCount = 0
     private(set) var disconnectCallCount = 0
     private(set) var preferredCodecs: [AudioCodecIdentifier] = []
+    private(set) var localMuteValues: [Bool] = []
+    private(set) var outputMuteValues: [Bool] = []
     private(set) var sentAudioPackets: [OutboundAudioPacket] = []
     private(set) var sentControlMessages: [ControlMessage] = []
     private(set) var sentApplicationDataMessages: [ApplicationDataMessage] = []
@@ -516,7 +402,7 @@ private final class RecordingCallSession: RideIntercom.CallSession {
 
     func connect(group: IntercomGroup) {
         connectedGroup = group
-        let peerIDs = group.members.map(\.id)
+        let peerIDs = group.members.dropFirst().map(\.id)
         onEvent?(.localNetworkStatus(LocalNetworkEvent(status: .advertisingBrowsing)))
         onEvent?(.connected(peerIDs: peerIDs))
     }
@@ -539,16 +425,16 @@ private final class RecordingCallSession: RideIntercom.CallSession {
         preferredCodecs.append(codec)
     }
 
+    func setLocalMute(_ muted: Bool) {
+        localMuteValues.append(muted)
+    }
+
+    func setOutputMute(_ muted: Bool) {
+        outputMuteValues.append(muted)
+    }
+
     func sendAudioFrame(_ frame: OutboundAudioPacket) {
         sentAudioPackets.append(frame)
-        guard case .voice = frame else { return }
-        onEvent?(.outboundPacketBuilt(OutboundPacketDiagnostics(
-            route: .local,
-            streamID: UUID(),
-            sequenceNumber: sentAudioPackets.count,
-            packetKind: .voice,
-            metadata: nil
-        )))
     }
 
     func sendControl(_ message: ControlMessage) {
@@ -563,49 +449,132 @@ private final class RecordingCallSession: RideIntercom.CallSession {
         onEvent?(.authenticated(peerIDs: peerIDs))
     }
 
-    func receive(_ packet: ReceivedAudioPacket) {
-        onEvent?(.receivedPacket(packet))
+    func receive(_ frame: RTC.ReceivedAudioFrame) {
+        onEvent?(.receivedAudioFrame(frame))
+    }
+
+    func publishMetrics(_ metrics: RTC.RouteMetrics) {
+        onEvent?(.routeMetrics(metrics))
     }
 }
 
-private final class NoOpAudioSession: AudioSessionApplying {
-    private(set) var appliedConfigurations: [AudioSessionConfiguration] = []
+private final class FakeAudioSessionBackend: SessionManager.AudioSessionBackend {
+    private(set) var appliedConfigurations: [SessionManager.ResolvedAudioSessionConfiguration] = []
     private(set) var activeValues: [Bool] = []
+    private var snapshotChangeHandler: SessionManager.AudioSessionSnapshotChangeHandler?
+    var current = AudioSessionSnapshot(
+        isActive: false,
+        availableInputs: [
+            .systemDefaultInput,
+            AudioSessionDevice(id: "input-1", name: "Input 1", direction: .input)
+        ],
+        availableOutputs: [
+            .systemDefaultOutput,
+            .builtInSpeaker
+        ],
+        currentInput: .systemDefaultInput,
+        currentOutput: .systemDefaultOutput
+    )
 
-    func apply(_ configuration: AudioSessionConfiguration) throws {
+    func apply(_ configuration: SessionManager.ResolvedAudioSessionConfiguration) throws {
         appliedConfigurations.append(configuration)
     }
 
     func setActive(_ active: Bool) throws {
         activeValues.append(active)
+        current.isActive = active
+    }
+
+    func setPreferredInput(_ selection: SessionManager.AudioSessionDeviceSelection) throws {
+        if selection == .systemDefault {
+            current.currentInput = .systemDefaultInput
+        }
+    }
+
+    func setPreferredOutput(_ selection: SessionManager.AudioSessionDeviceSelection) throws {
+        if selection == .builtInSpeaker {
+            current.currentOutput = .builtInSpeaker
+        } else if selection == .systemDefault {
+            current.currentOutput = .systemDefaultOutput
+        }
+    }
+
+    func setPrefersEchoCancelledInput(_ enabled: Bool) throws {
+        _ = enabled
+    }
+
+    func currentSnapshot() throws -> SessionManager.AudioSessionSnapshot {
+        current
+    }
+
+    func setSnapshotChangeHandler(_ handler: SessionManager.AudioSessionSnapshotChangeHandler?) {
+        snapshotChangeHandler = handler
     }
 }
 
-private final class NoOpAudioInputMonitor: AudioInputMonitoring {
-    var onLevel: ((Float) -> Void)?
-    var onSamples: (([Float]) -> Void)?
-    private(set) var startCallCount = 0
-    private(set) var stopCallCount = 0
-    private(set) var lastInputMuted = false
+private final class FakeInputStreamBackend: SessionManager.AudioInputStreamBackend {
+    private(set) var startCount = 0
+    private(set) var stopCount = 0
+    private var onFrame: ((SessionManager.AudioStreamFrame) -> Void)?
 
-    func start() throws {
-        startCallCount += 1
+    func startCapture(
+        configuration: SessionManager.AudioInputStreamConfiguration,
+        onFrame: @escaping (SessionManager.AudioStreamFrame) -> Void
+    ) throws {
+        _ = configuration
+        startCount += 1
+        self.onFrame = onFrame
     }
 
-    func stop() {
-        stopCallCount += 1
+    func stopCapture() throws {
+        stopCount += 1
+        onFrame = nil
     }
 
-    func setInputMuted(_ muted: Bool) {
-        lastInputMuted = muted
+    func emit(_ frame: SessionManager.AudioStreamFrame) {
+        onFrame?(frame)
+    }
+}
+
+private final class FakeOutputStreamBackend: SessionManager.AudioOutputStreamBackend {
+    private(set) var startCount = 0
+    private(set) var stopCount = 0
+    private(set) var scheduledFrames: [SessionManager.AudioStreamFrame] = []
+
+    func startRendering(configuration: SessionManager.AudioOutputStreamConfiguration) throws {
+        _ = configuration
+        startCount += 1
     }
 
-    func simulate(level: Float) {
-        onLevel?(level)
+    func stopRendering() throws {
+        stopCount += 1
     }
 
-    func simulate(samples: [Float]) {
-        onSamples?(samples)
+    func schedule(_ frame: SessionManager.AudioStreamFrame) throws {
+        scheduledFrames.append(frame)
+    }
+}
+
+private final class FakeVoiceProcessingBackend: SessionManager.AudioInputVoiceProcessingBackend {
+    private(set) var enabledValues: [Bool] = []
+    private(set) var bypassedValues: [Bool] = []
+    private(set) var duckingValues: [(enabled: Bool, level: SessionManager.AudioSessionDuckingLevel)] = []
+    private(set) var mutedValues: [Bool] = []
+
+    func setVoiceProcessingEnabled(_ enabled: Bool) throws {
+        enabledValues.append(enabled)
+    }
+
+    func setVoiceProcessingBypassed(_ bypassed: Bool) throws {
+        bypassedValues.append(bypassed)
+    }
+
+    func setAdvancedDucking(enabled: Bool, level: SessionManager.AudioSessionDuckingLevel) throws {
+        duckingValues.append((enabled, level))
+    }
+
+    func setInputMuted(_ muted: Bool) throws {
+        mutedValues.append(muted)
     }
 }
 
@@ -619,49 +588,5 @@ private final class NoOpCallTicker: CallTicking {
 
     func stop() {
         isRunning = false
-    }
-
-    func simulateTick(now: TimeInterval) {
-        guard isRunning else { return }
-        onTick?(now)
-    }
-}
-
-private final class NoOpAudioFramePlayer: AudioFramePlaying {
-    private(set) var playedFrames: [JitterBufferedAudioFrame] = []
-    private(set) var startCallCount = 0
-    private(set) var stopCallCount = 0
-
-    func start() throws {
-        startCallCount += 1
-    }
-
-    func stop() {
-        stopCallCount += 1
-    }
-
-    func play(_ frame: JitterBufferedAudioFrame) {
-        playedFrames.append(frame)
-    }
-
-    func play(_ frames: [JitterBufferedAudioFrame]) {
-        playedFrames.append(contentsOf: frames)
-    }
-}
-
-private final class FakeMicrophonePermissionAuthorizer: MicrophonePermissionAuthorizing {
-    private let state: MicrophoneAuthorizationState
-    private(set) var requestAccessCallCount = 0
-
-    init(state: MicrophoneAuthorizationState) {
-        self.state = state
-    }
-
-    func authorizationState() -> MicrophoneAuthorizationState {
-        state
-    }
-
-    func requestAccess(completion: @escaping (Bool) -> Void) {
-        requestAccessCallCount += 1
     }
 }

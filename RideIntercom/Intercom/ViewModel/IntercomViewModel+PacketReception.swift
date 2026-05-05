@@ -1,43 +1,29 @@
-import AVFoundation
-import Codec
-import CryptoKit
 import Foundation
-import OSLog
 import RTC
-import SessionManager
-import VADGate
 
 extension IntercomViewModel {
-    func handleReceivedPacket(_ packet: ReceivedAudioPacket) {
-        guard authenticatedPeerIDs.isEmpty || authenticatedPeerIDs.contains(packet.peerID) else {
+    func handleReceivedAudioFrame(_ received: RTC.ReceivedAudioFrame) {
+        let peerID = received.peerID.rawValue
+        guard authenticatedPeerIDs.isEmpty || authenticatedPeerIDs.contains(peerID) else {
             return
         }
-        let receivedAt = packet.envelope.sentAt < 1_000_000
-            ? packet.envelope.sentAt
-            : Date().timeIntervalSince1970
-        if let codec = packet.envelope.encodedVoice?.codec {
-            setRemotePeerCodec(packet.peerID, codec: codec)
-        }
-        switch packet.packet {
-        case .voice(_, let samples):
-            jitterBuffer.enqueue(packet, receivedAt: receivedAt)
-            receivedVoicePacketCount += 1
-            lastReceivedAudioAt = receivedAt
-            remoteVoiceReceivedAt[packet.peerID] = receivedAt
-            refreshOtherAudioDuckingState(now: receivedAt)
-            droppedAudioPacketCount = jitterBuffer.droppedFrameCount
-            jitterQueuedFrameCount = jitterBuffer.queuedFrameCount
-            applyReceivedVoiceMemberState(peerID: packet.peerID, voiceLevel: AudioLevelMeter.rmsLevel(samples: samples))
-        case .keepalive:
-            droppedAudioPacketCount = jitterBuffer.droppedFrameCount
-            jitterQueuedFrameCount = jitterBuffer.queuedFrameCount
-        }
 
-        // In production, received packets can arrive in bursts on the main actor.
-        // Draining here prevents playback from waiting for the next ticker cycle.
-        if receivedAt >= 1_000_000 {
-            drainJitterBuffer(now: receivedAt)
-        }
+        let frame = received.frame
+        let receivedAt = frame.capturedAt < 1_000_000
+            ? Date().timeIntervalSince1970
+            : frame.capturedAt
+        receivedVoicePacketCount += 1
+        lastReceivedAudioAt = receivedAt
+        remoteVoiceReceivedAt[peerID] = receivedAt
+        applyReceivedVoiceMemberState(peerID: peerID, voiceLevel: AudioLevelMeter.rmsLevel(samples: frame.samples))
+        scheduleOutputFrame(peerID: peerID, frame: frame, receivedAt: receivedAt)
+        refreshOtherAudioDuckingState(now: receivedAt)
+    }
+
+    func handleRouteMetrics(_ metrics: RTC.RouteMetrics) {
+        droppedAudioPacketCount = metrics.droppedAudioFrameCount
+        jitterQueuedFrameCount = metrics.queuedAudioFrameCount
+        receivedVoicePacketCount = max(receivedVoicePacketCount, metrics.receivedAudioFrameCount)
     }
 
     func applyReceivedVoiceMemberState(peerID: String, voiceLevel: Float) {

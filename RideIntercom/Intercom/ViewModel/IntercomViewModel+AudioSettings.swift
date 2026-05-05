@@ -10,7 +10,8 @@ import VADGate
 extension IntercomViewModel {
     func toggleMute() {
         isMuted.toggle()
-        audioInputMonitor.setInputMuted(isMuted)
+        applyCurrentVoiceProcessingConfiguration()
+        callSession.setLocalMute(isMuted)
 
         withActiveGroup { group in
             guard !group.members.isEmpty else { return }
@@ -35,11 +36,6 @@ extension IntercomViewModel {
         broadcastMetadataKeepalive()
     }
 
-    func setHEAACv2Quality(_ quality: HEAACv2Quality) {
-        heAACv2Quality = .medium
-        broadcastMetadataKeepalive()
-    }
-
     func setVoiceActivityDetectionThreshold(_ value: Float) {
         let clamped = min(VoiceActivityDetector.maxThreshold, max(VoiceActivityDetector.minThreshold, value))
         voiceActivityDetectionThreshold = clamped
@@ -47,63 +43,35 @@ extension IntercomViewModel {
     }
 
     func setSoundIsolationEnabled(_ enabled: Bool) {
-        guard audioInputMonitor.supportsSoundIsolation else {
-            isSoundIsolationEnabled = false
-            return
-        }
-        audioInputMonitor.setSoundIsolationEnabled(enabled)
-        isSoundIsolationEnabled = audioInputMonitor.isSoundIsolationEnabled
+        isSoundIsolationEnabled = enabled
+        applyCurrentVoiceProcessingConfiguration()
     }
 
     func setInputPort(_ port: AudioPortInfo) {
-        do {
-            try audioSessionManager.setInputPort(port)
-            selectedInputPort = audioSessionManager.selectedInputPort
-            audioErrorMessage = nil
-        } catch {
-            audioErrorMessage = "Audio input device change failed"
-        }
+        selectedInputPort = port
+        guard configureAudioSession(active: isAudioReady) else { return }
+        audioErrorMessage = nil
     }
 
     func setOutputPort(_ port: AudioPortInfo) {
-        do {
-            let previousOutputPort = selectedOutputPort
-            try audioSessionManager.setOutputPort(port)
-            selectedOutputPort = audioSessionManager.selectedOutputPort
-            if selectedOutputPort != previousOutputPort {
-                try refreshOutputRendererIfNeeded()
-            }
-            audioErrorMessage = nil
-        } catch {
-            audioErrorMessage = "Audio output device change failed"
+        let previousOutputPort = selectedOutputPort
+        selectedOutputPort = port
+        guard configureAudioSession(active: isAudioReady) else { return }
+        if selectedOutputPort != previousOutputPort {
+            refreshOutputRendererIfNeeded()
         }
+        audioErrorMessage = nil
     }
 
     func setDuckOthersEnabled(_ enabled: Bool) {
-        do {
-            try audioSessionManager.setDuckOthersEnabled(enabled)
-            isDuckOthersEnabled = audioSessionManager.isDuckOthersEnabled
-            refreshOtherAudioDuckingState()
-            audioErrorMessage = nil
-        } catch {
-            audioErrorMessage = "Audio session ducking change failed"
-        }
-    }
-
-    func setMasterOutputVolume(_ value: Float) {
-        masterOutputVolume = clampedMasterOutputVolume(value)
+        isDuckOthersEnabled = enabled
+        refreshOtherAudioDuckingState()
+        audioErrorMessage = nil
     }
 
     func toggleOutputMute() {
         isOutputMuted.toggle()
-    }
-
-    func setRemoteOutputVolume(peerID: String, value: Float) {
-        remoteOutputVolumes[peerID] = clampedAudioGain(value)
-    }
-
-    func remoteOutputVolume(for peerID: String) -> Float {
-        remoteOutputVolumes[peerID] ?? 1
+        callSession.setOutputMute(isOutputMuted)
     }
 
     func resetAllSettings() {
@@ -113,9 +81,7 @@ extension IntercomViewModel {
         setVoiceActivityDetectionThreshold(AudioTransmissionController.defaultVoiceActivityThreshold)
         setSoundIsolationEnabled(Self.defaultSoundIsolationEnabled)
         setPreferredTransmitCodec(Self.defaultTransmitCodec)
-        setHEAACv2Quality(Self.defaultHEAACv2Quality)
-        setMasterOutputVolume(Self.normalMasterOutputVolume)
         isOutputMuted = false
-        remoteOutputVolumes = [:]
+        callSession.setOutputMute(false)
     }
 }

@@ -1,11 +1,6 @@
-import AVFoundation
-import Codec
-import CryptoKit
 import Foundation
-import OSLog
 import RTC
 import SessionManager
-import VADGate
 
 extension IntercomViewModel {
     func resetAudioDebugCounters() {
@@ -21,8 +16,6 @@ extension IntercomViewModel {
         droppedAudioPacketCount = 0
         jitterQueuedFrameCount = 0
         playbackOutputPeakWindow = VoicePeakWindow()
-        transmitFallbackCount = 0
-        lastTransmitFallbackSummary = nil
     }
 
     func refreshOtherAudioDuckingState(now: TimeInterval = Date().timeIntervalSince1970) {
@@ -42,43 +35,31 @@ extension IntercomViewModel {
     func setOtherAudioDuckingActive(_ isActive: Bool) {
         guard isOtherAudioDuckingActiveInternal != isActive else { return }
         isOtherAudioDuckingActiveInternal = isActive
-        audioInputMonitor.setOtherAudioDuckingEnabled(isActive)
+        applyCurrentVoiceProcessingConfiguration()
     }
 
-    func hasAudibleScheduledOutput(for frames: [JitterBufferedAudioFrame]) -> Bool {
-        frames.contains { frame in
-            guard !frame.samples.isEmpty else { return false }
-            return AudioLevelMeter.rmsLevel(samples: frame.samples) > VoiceActivityDetector.minThreshold
+    func scheduleOutputFrame(peerID: String, frame: RTC.AudioFrame, receivedAt: TimeInterval) {
+        guard !isOutputMuted else {
+            lastScheduledOutputRMS = 0
+            lastScheduledOutputPeakRMS = playbackOutputPeakWindow.record(0)
+            return
         }
-    }
 
-    func applyOutputGain(to frames: [JitterBufferedAudioFrame]) -> [JitterBufferedAudioFrame] {
-        frames.map { frame in
-            let gain = isOutputMuted ? 0 : masterOutputVolume * remoteOutputVolume(for: frame.peerID)
-            return JitterBufferedAudioFrame(
-                peerID: frame.peerID,
-                streamID: frame.streamID,
-                sequenceNumber: frame.sequenceNumber,
-                frameID: frame.frameID,
-                samples: frame.samples.map { softClippedAudioSample($0 * gain) }
-            )
+        let level = AudioLevelMeter.rmsLevel(samples: frame.samples)
+        lastScheduledOutputRMS = level
+        lastScheduledOutputPeakRMS = playbackOutputPeakWindow.record(level)
+        scheduledOutputBatchCount += 1
+        scheduledOutputFrameCount += 1
+        playedAudioFrameCount += 1
+        markPlayedAudioFrame(peerID: peerID)
+        _ = audioOutputRenderer.schedule(SessionManager.AudioStreamFrame(
+            sequenceNumber: frame.sequenceNumber,
+            format: .intercom,
+            capturedAt: receivedAt,
+            samples: frame.samples
+        ))
+        if level > VoiceActivityDetector.minThreshold {
+            lastAudibleReceivedAudioAt = receivedAt
         }
-    }
-
-    func clampedMasterOutputVolume(_ value: Float) -> Float {
-        min(Self.maximumMasterOutputVolume, max(0, value))
-    }
-
-    func clampedAudioGain(_ value: Float) -> Float {
-        min(1, max(0, value))
-    }
-
-    func softClippedAudioSample(_ value: Float) -> Float {
-        let threshold: Float = 0.9
-        let absVal = fabsf(value)
-        if absVal <= threshold { return value }
-        let headroom: Float = 1 - threshold
-        let overshoot = (absVal - threshold) / headroom
-        return copysignf(threshold + headroom * (1 - expf(-overshoot)), value)
     }
 }

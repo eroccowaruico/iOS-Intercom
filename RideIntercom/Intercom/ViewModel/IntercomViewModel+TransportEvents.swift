@@ -80,24 +80,10 @@ extension IntercomViewModel {
             localNetworkStatus = .unavailable
             connectionState = .reconnectingOffline
             markMembers(.connecting)
-        case .receivedPacket(let packet):
-            handleReceivedPacket(packet)
-        case .outboundPacketBuilt(let diagnostics):
-            handleOutboundPacketDiagnostics(diagnostics)
+        case .receivedAudioFrame(let received):
+            handleReceivedAudioFrame(received)
+        case .routeMetrics(let metrics):
+            handleRouteMetrics(metrics)
         }
-    }
-
-    func handleOutboundPacketDiagnostics(_ diagnostics: OutboundPacketDiagnostics) {
-        guard let rawMetadata = diagnostics.metadata else { return }
-        let metadata = AudioTransmitMetadata(
-            requestedCodec: preferredTransmitCodec,
-            mediaCodec: rawMetadata.mediaCodec
-        )
-        setLocalActiveCodec(metadata.mediaCodec)
-
-        transmitFallbackCount += 1
-        let summary = "TX FB #\(transmitFallbackCount) / \(metadata.requestedCodec.rawValue)->\(metadata.mediaCodec.rawValue) "
-        lastTransmitFallbackSummary = summary
-        diagnosticsLogger.error("tx fallback route=\(diagnostics.route.rawValue, privacy: .public) stream=\(diagnostics.streamID.uuidString, privacy: .public) seq=\(diagnostics.sequenceNumber) req=\(metadata.requestedCodec.rawValue, privacy: .public) media=\(metadata.mediaCodec.rawValue, privacy: .public) ")
     }
 }

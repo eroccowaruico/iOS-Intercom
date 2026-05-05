@@ -1,11 +1,5 @@
-import AVFoundation
-import Codec
-import CryptoKit
 import Foundation
-import OSLog
-import RTC
 import SessionManager
-import VADGate
 
 extension IntercomViewModel {
     func connectLocal() {
@@ -57,34 +51,31 @@ extension IntercomViewModel {
             return true
         }
 
-        do {
-            callSession.startMedia()
-            try audioSessionManager.configureForIntercom()
-            refreshOtherAudioDuckingState()
-            try audioInputMonitor.start()
-            audioInputMonitor.setInputMuted(isMuted)
-            try audioFramePlayer.start()
-            callTicker.start()
-            isAudioReady = true
-            refreshOtherAudioDuckingState()
-            audioErrorMessage = nil
-            return true
-        } catch {
+        callSession.startMedia()
+        guard configureAudioSession(active: true),
+              startInputCapture(),
+              startOutputRenderer() else {
             callSession.stopMedia()
             isAudioReady = false
-            audioErrorMessage = audioSetupMessage(for: error)
             return false
         }
+
+        applyCurrentVoiceProcessingConfiguration()
+        callTicker.start()
+        isAudioReady = true
+        refreshOtherAudioDuckingState()
+        audioErrorMessage = nil
+        return true
     }
 
     func stopAudioPipeline(deactivateSession: Bool = false) {
         setOtherAudioDuckingActive(false)
         callSession.stopMedia()
-        audioInputMonitor.stop()
-        audioFramePlayer.stop()
+        _ = audioInputCapture.stop()
+        _ = audioOutputRenderer.stop()
         callTicker.stop()
         if deactivateSession {
-            try? audioSessionManager.deactivate()
+            _ = try? audioSessionManager.setActive(false)
         }
         isAudioReady = false
     }
@@ -102,19 +93,6 @@ extension IntercomViewModel {
         }
         callSession.setPreferredAudioCodec(preferredTransmitCodec)
         callSession.startStandby(group: group)
-    }
-
-    func audioSetupMessage(for error: Error) -> String {
-        guard let audioInputError = error as? AudioInputMonitorError else {
-            return "Audio setup failed"
-        }
-
-        switch audioInputError {
-        case .microphonePermissionRequestPending:
-            return "Microphone permission requested. Allow access, then connect again."
-        case .microphonePermissionDenied:
-            return "Microphone access is off. Enable it in Privacy & Security, then connect again."
-        }
     }
 
     func disconnect() {
@@ -139,5 +117,90 @@ extension IntercomViewModel {
         activeGroupID = disconnectingGroupID
         markMembers(.offline)
         activeGroupID = nil
+    }
+
+    func configureAudioSession(active: Bool) -> Bool {
+        do {
+            let report = try audioSessionManager.configure(makeAudioSessionConfiguration())
+            if let snapshot = report.snapshot {
+                applyAudioSessionSnapshot(snapshot)
+            }
+            if active {
+                let activeReport = try audioSessionManager.setActive(true)
+                guard activeReport.result.isContinuable else {
+                    audioErrorMessage = "Audio session activation failed"
+                    return false
+                }
+            }
+            guard report.operations.allSatisfy(\.result.isContinuable) else {
+                audioErrorMessage = "Audio session configuration failed"
+                return false
+            }
+            return true
+        } catch {
+            audioErrorMessage = "Audio session configuration failed"
+            return false
+        }
+    }
+
+    func makeAudioSessionConfiguration() -> SessionManager.AudioSessionConfiguration {
+        .intercom(
+            prefersSpeakerOutput: selectedOutputPort == .speaker,
+            preferredInput: selectedInputPort.sessionManagerInputSelection,
+            preferredOutput: selectedOutputPort.sessionManagerOutputSelection
+        )
+    }
+
+    func startInputCapture() -> Bool {
+        let report = audioInputCapture.start()
+        guard report.result.isContinuable else {
+            audioErrorMessage = "Microphone capture failed"
+            return false
+        }
+        return true
+    }
+
+    func startOutputRenderer() -> Bool {
+        let report = audioOutputRenderer.start()
+        guard report.result.isContinuable else {
+            audioErrorMessage = "Audio output failed"
+            return false
+        }
+        return true
+    }
+
+    func currentVoiceProcessingConfiguration() -> SessionManager.AudioInputVoiceProcessingConfiguration {
+        SessionManager.AudioInputVoiceProcessingConfiguration(
+            soundIsolationEnabled: isSoundIsolationEnabled,
+            otherAudioDuckingEnabled: isOtherAudioDuckingActiveInternal,
+            duckingLevel: .minimum,
+            inputMuted: isMuted
+        )
+    }
+
+    func applyCurrentVoiceProcessingConfiguration() {
+        try? audioInputVoiceProcessingManager?.configure(currentVoiceProcessingConfiguration())
+    }
+}
+
+private extension SessionManager.AudioSessionOperationResult {
+    var isContinuable: Bool {
+        switch self {
+        case .applied, .ignored:
+            true
+        case .failed:
+            false
+        }
+    }
+}
+
+private extension SessionManager.AudioStreamOperationResult {
+    var isContinuable: Bool {
+        switch self {
+        case .applied, .ignored(.alreadyRunning):
+            true
+        case .ignored, .failed:
+            false
+        }
     }
 }

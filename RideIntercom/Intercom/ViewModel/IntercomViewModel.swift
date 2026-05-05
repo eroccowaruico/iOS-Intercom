@@ -1,5 +1,6 @@
 import CryptoKit
 import AVFoundation
+import AVFAudio
 import Codec
 import Foundation
 import Observation
@@ -13,11 +14,8 @@ import VADGate
 final class IntercomViewModel {
     static let pendingMemberPrefix = "pending-"
     static let pendingInviteMemberPrefix = "invite-pending-"
-    nonisolated static let normalMasterOutputVolume: Float = 1
-    nonisolated static let maximumMasterOutputVolume: Float = 2
     nonisolated static let defaultSoundIsolationEnabled = true
     nonisolated static let defaultTransmitCodec: AudioCodecIdentifier = .pcm16
-    nonisolated static let defaultHEAACv2Quality: HEAACv2Quality = .medium
     nonisolated static let otherAudioDuckingHoldDuration: TimeInterval = 1.0
 
     var groups: [IntercomGroup]
@@ -34,18 +32,19 @@ final class IntercomViewModel {
     var voiceActivityDetectionThreshold: Float = AudioTransmissionController.defaultVoiceActivityThreshold
     var isSoundIsolationEnabled = IntercomViewModel.defaultSoundIsolationEnabled
     var preferredTransmitCodec: AudioCodecIdentifier = IntercomViewModel.defaultTransmitCodec
-    var heAACv2Quality: HEAACv2Quality = IntercomViewModel.defaultHEAACv2Quality
-    var masterOutputVolume: Float = IntercomViewModel.normalMasterOutputVolume
     var isOutputMuted = false
-    var remoteOutputVolumes: [String: Float] = [:]
     var isMicrophoneCaptureRunning: Bool {
-        isAudioReady && !isMuted
+        isAudioReady
     }
 
-    var availableInputPorts: [AudioPortInfo] { audioSessionManager.availableInputPorts }
-    var availableOutputPorts: [AudioPortInfo] { audioSessionManager.availableOutputPorts }
-    var isAudioDeviceSelectionLive: Bool { audioSessionManager.isConfigured }
-    var supportsAdvancedMixingOptions: Bool { audioSessionManager.supportsAdvancedMixingOptions }
+    var availableInputPorts: [AudioPortInfo] {
+        deduplicatedPorts(audioSessionSnapshot.availableInputs.map(AudioPortInfo.init(device:)))
+    }
+    var availableOutputPorts: [AudioPortInfo] {
+        deduplicatedPorts(audioSessionSnapshot.availableOutputs.map(AudioPortInfo.init(device:)))
+    }
+    var isAudioDeviceSelectionLive: Bool { isAudioReady || audioSessionSnapshot.isActive }
+    var supportsAdvancedMixingOptions: Bool { true }
     var isOtherAudioDuckingActive: Bool { isOtherAudioDuckingActiveInternal }
     var diagnosticsInputLevel: Float {
         if audioCheckPhase == .recording {
@@ -96,21 +95,20 @@ final class IntercomViewModel {
     var droppedAudioPacketCount = 0
     var jitterQueuedFrameCount = 0
     var inviteStatusMessage: String?
-    var transmitFallbackCount = 0
-    var lastTransmitFallbackSummary: String?
     var uiEventRevision = 0
     let callSession: CallSession
-    let audioSessionManager: AudioSessionManager
-    let audioInputMonitor: AudioInputMonitoring
+    let audioSessionManager: SessionManager.AudioSessionManager
+    let audioInputCapture: SessionManager.AudioInputStreamCapture
+    let audioOutputRenderer: SessionManager.AudioOutputStreamRenderer
+    let audioInputVoiceProcessingManager: SessionManager.AudioInputVoiceProcessingManager?
     let callTicker: CallTicking
-    let audioFramePlayer: AudioFramePlaying
     let credentialStore: GroupCredentialStoring
     let credentialProvider: any GroupCredentialProviding
     let groupStore: GroupStoring
     let localMemberIdentity: LocalMemberIdentity
     let remoteTalkerTimeout: TimeInterval
     var audioTransmissionController: AudioTransmissionController
-    var jitterBuffer: JitterBuffer
+    var audioSessionSnapshot: SessionManager.AudioSessionSnapshot
     var remoteVoiceReceivedAt: [String: TimeInterval] = [:]
     var localVoicePeakWindow = VoicePeakWindow()
     var remoteVoicePeakWindows: [String: VoicePeakWindow] = [:]
@@ -123,7 +121,6 @@ final class IntercomViewModel {
     var isLocalStandbyOnly = false
     var nextAudioFrameID = 1
     var isOtherAudioDuckingActiveInternal = false
-    let diagnosticsLogger = Logger(subsystem: "com.yowamushi-inc.RideIntercom", category: "codec-diagnostics")
 
     init(
         groups: [IntercomGroup]? = nil,
@@ -131,12 +128,12 @@ final class IntercomViewModel {
         credentialStore: GroupCredentialStoring? = nil,
         groupStore: GroupStoring? = nil,
         localMemberIdentityStore: LocalMemberIdentityStoring? = nil,
-        audioSessionManager: AudioSessionManager? = nil,
-        audioInputMonitor: AudioInputMonitoring? = nil,
+        audioSessionManager: SessionManager.AudioSessionManager? = nil,
+        audioInputCapture: SessionManager.AudioInputStreamCapture? = nil,
+        audioOutputRenderer: SessionManager.AudioOutputStreamRenderer? = nil,
+        audioInputVoiceProcessingManager: SessionManager.AudioInputVoiceProcessingManager? = nil,
         audioTransmissionController: AudioTransmissionController? = nil,
         callTicker: CallTicking? = nil,
-        audioFramePlayer: AudioFramePlaying? = nil,
-        jitterBuffer: JitterBuffer? = nil,
         remoteTalkerTimeout: TimeInterval = 0.6
     ) {
         let localMemberIdentityStore = localMemberIdentityStore ?? InMemoryLocalMemberIdentityStore()
@@ -145,40 +142,39 @@ final class IntercomViewModel {
         let storedGroups = groupStore.loadGroups()
         self.groups = groups ?? storedGroups
         self.callSession = callSession ?? RideIntercomCallSessionAdapter(memberID: localMemberIdentity.memberID)
-        self.audioSessionManager = audioSessionManager ?? AudioSessionManager()
-        self.audioInputMonitor = audioInputMonitor ?? SystemAudioInputMonitor()
+        let sessionManager = audioSessionManager ?? SessionManager.AudioSessionManager()
+        self.audioSessionManager = sessionManager
+        let audioInputPipeline = audioInputCapture.map {
+            AudioInputPipeline(capture: $0, voiceProcessingManager: audioInputVoiceProcessingManager)
+        } ?? Self.makeDefaultAudioInputPipeline()
+        self.audioInputCapture = audioInputPipeline.capture
+        self.audioInputVoiceProcessingManager = audioInputVoiceProcessingManager ?? audioInputPipeline.voiceProcessingManager
+        self.audioOutputRenderer = audioOutputRenderer ?? Self.makeDefaultAudioOutputRenderer()
         let initialVoiceActivityDetectionThreshold = AudioTransmissionController.defaultVoiceActivityThreshold
         self.voiceActivityDetectionThreshold = initialVoiceActivityDetectionThreshold
         self.audioTransmissionController = audioTransmissionController ?? AudioTransmissionController()
         self.callTicker = callTicker ?? RepeatingCallTicker()
-        self.audioFramePlayer = audioFramePlayer ?? Self.makeDefaultAudioFramePlayer()
         self.credentialStore = credentialStore ?? InMemoryGroupCredentialStore()
         self.credentialProvider = DefaultGroupCredentialProvider()
         self.groupStore = groupStore
         self.localMemberIdentity = localMemberIdentity
-        self.jitterBuffer = jitterBuffer ?? JitterBuffer()
+        self.audioSessionSnapshot = (try? sessionManager.snapshot()) ?? Self.defaultAudioSessionSnapshot()
         self.remoteTalkerTimeout = remoteTalkerTimeout
         self.audioTransmissionController.setVoiceActivityThreshold(initialVoiceActivityDetectionThreshold)
-        self.selectedInputPort = self.audioSessionManager.selectedInputPort
-        self.selectedOutputPort = self.audioSessionManager.selectedOutputPort
-        self.isDuckOthersEnabled = self.audioSessionManager.isDuckOthersEnabled
-        self.audioInputMonitor.setOtherAudioDuckingEnabled(false)
+        self.selectedInputPort = AudioPortInfo(device: audioSessionSnapshot.currentInput)
+        self.selectedOutputPort = AudioPortInfo(device: audioSessionSnapshot.currentOutput)
 
         self.callSession.onEvent = { [weak self] event in
             DispatchQueue.main.async { self?.handleTransportEvent(event) }
         }
-        self.audioSessionManager.onAvailablePortsChanged = { [weak self] in
-            self?.handleAvailableAudioPortsChanged()
+        self.audioSessionManager.setRuntimeEventHandler { [weak self] event in
+            DispatchQueue.main.async { self?.handleAudioSessionRuntimeEvent(event) }
         }
-        self.audioInputMonitor.onLevel = { [weak self] level in
-            DispatchQueue.main.async { self?.handleMicrophoneLevel(level) }
-        }
-        self.audioInputMonitor.onSamples = { [weak self] samples in
-            DispatchQueue.main.async { self?.handleMicrophoneSamples(samples) }
+        self.audioInputCapture.setRuntimeEventHandler { [weak self] event in
+            DispatchQueue.main.async { self?.handleAudioStreamRuntimeEvent(event) }
         }
         self.callTicker.onTick = { [weak self] now in
             self?.handleCallTick(now: now)
         }
-        self.isSoundIsolationEnabled = self.audioInputMonitor.isSoundIsolationEnabled
     }
 }

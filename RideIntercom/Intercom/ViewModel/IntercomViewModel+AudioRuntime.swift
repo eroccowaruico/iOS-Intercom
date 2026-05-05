@@ -1,11 +1,5 @@
-import AVFoundation
-import Codec
-import CryptoKit
 import Foundation
-import OSLog
-import RTC
 import SessionManager
-import VADGate
 
 extension IntercomViewModel {
     func expireRemoteTalkers(now: TimeInterval = Date().timeIntervalSince1970) {
@@ -17,42 +11,26 @@ extension IntercomViewModel {
 
     func handleCallTick(now: TimeInterval) {
         expireRemoteTalkers(now: now)
-        drainJitterBuffer(now: now)
         refreshOtherAudioDuckingState(now: now)
     }
 
-    func drainJitterBuffer(now: TimeInterval) {
-        let readyFrames = jitterBuffer.drainReadyFrames(now: now)
-        playedAudioFrameCount += readyFrames.count
-        droppedAudioPacketCount = jitterBuffer.droppedFrameCount
-        jitterQueuedFrameCount = jitterBuffer.queuedFrameCount
-        markPlayedAudioFrames(readyFrames)
-        let outputFrames = applyOutputGain(to: readyFrames)
-        let mixedOutput = AudioFrameMixer.mix(outputFrames)
-        let outputLevel = AudioLevelMeter.rmsLevel(samples: mixedOutput)
-        lastScheduledOutputRMS = outputLevel
-        lastScheduledOutputPeakRMS = playbackOutputPeakWindow.record(outputLevel)
-        if !outputFrames.isEmpty {
-            scheduledOutputBatchCount += 1
-            scheduledOutputFrameCount += outputFrames.count
-        }
-        audioFramePlayer.play(outputFrames)
-        if hasAudibleScheduledOutput(for: outputFrames) {
-            lastAudibleReceivedAudioAt = now
-            refreshOtherAudioDuckingState(now: now)
+    func handleAudioStreamRuntimeEvent(_ event: SessionManager.AudioStreamRuntimeEvent) {
+        switch event {
+        case .inputFrame(let frame):
+            handleMicrophoneFrame(frame)
+        case .operation, .outputFrameScheduled:
+            break
         }
     }
 
-    func handleMicrophoneLevel(_ level: Float) {
-        processMicrophoneFrame(level: level, samples: [])
-    }
-
-    func handleMicrophoneSamples(_ samples: [Float]) {
-        processMicrophoneFrame(level: AudioLevelMeter.rmsLevel(samples: samples), samples: samples)
+    func handleMicrophoneFrame(_ frame: SessionManager.AudioStreamFrame) {
+        processMicrophoneFrame(level: frame.level.rms, samples: frame.samples)
     }
 
     func processMicrophoneFrame(level: Float, samples: [Float]) {
         processAudioCheckInput(level: level, samples: samples)
+
+        guard isAudioReady else { return }
 
         guard !isMuted else {
             setLocalVoiceLevel(0)

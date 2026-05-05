@@ -1,20 +1,30 @@
-# App 側に暫定で残る package 不足実装
+# App 側に残る package 要求
 
 ## 目的
 
-本書は、App 本体から package へ寄せたいが、現時点では package 側の公開 API が不足しているため App 側に暫定で残す実装を記録する。
+本書は、App 側で見つかった package の不足責務を記録する。
 
-`docs/spec/packages` は変更せず、今後 package 側を拡張する時の入力として扱う。
+解決済みの棚卸しや、App 側暫定実装の正当化はここに残さない。`docs/spec/packages` の仕様で吸収すべき不足が見つかった場合だけ、package 要求として追記する。
 
-## 不足している実装
+## 現在の package 要求
 
-| package | 不足している実装 | 現在の暫定場所 | App から消す条件 |
+| package | 不足している責務 | App に暫定実装しない理由 | App から消す条件 |
 |---|---|---|---|
-| SessionManager | iOS / macOS の入出力デバイス変更通知を package イベントとして受け取る API | `RideIntercom/Platform/Audio/SystemAudioSessionAdapter.swift` | App が OS 別の route change / CoreAudio listener を持たず、SessionManager の snapshot 更新通知だけを見る |
-| Audio package | マイク入力 capture とスピーカー出力 renderer の共通抽象 | `RideIntercom/Platform/Audio/SystemAudioInputMonitor.swift`、`RideIntercom/Platform/Audio/SystemAudioOutputRenderer.swift` | App が AVAudioEngine の入力 tap / 出力 player node を直接扱わない |
-| RTC | 受信音声 frame の jitter、重複排除、順序制御を App から使える公開 API | `RideIntercom/Intercom/Audio/AudioPackets.swift` の `JitterBuffer` | RTC が受信済み音声を再生可能な順序とタイミングで渡す |
-| AudioMixer | decode 済み PCM frame を peer 別音量と master 音量でまとめる軽量 API | `RideIntercom/Intercom/Audio/AudioPackets.swift` の `AudioFrameMixer`、`IntercomViewModel+AudioOutput.swift` | App が sample 配列を直接 mix / clamp しない |
+| SessionManager | `AudioInputStreamCapture` が入力 stream 実行中の `AudioInputVoiceProcessingConfiguration` 更新を受け取り、適用結果を report / runtime event として通知できること | voice processing は `AudioInputStreamConfiguration` に含まれる入力 stream の設定であり、App が同じ `AVAudioEngine.inputNode` に対して `AudioInputStreamCapture` と `AudioInputVoiceProcessingManager` を別々に握るのは抽象境界が割れている。App はサウンド分離、ducking、ducking level、input mute の変更時に OS / 環境差異を見ず、同じ stream API へ設定を渡せるべき | `AudioInputStreamCapture` に、未開始時も実行中も同じ呼び出しで使える voice processing 更新 API がある。適用、非対応 no-op、継続可能失敗を `AudioStreamOperationResult` 相当で返し、同じ内容を `AudioStreamRuntimeEvent` でも購読できる。iOS / macOS 差異は package 内で吸収され、App 側に OS 分岐や `AVAudioInputNode` 直操作が残らない |
 
-## 方針
+## 現在 App 側に残っている回避
 
-App 側の暫定実装は UI 状態へつなぐための薄い境界に留める。package 側に同等の公開 API が追加されたら、App 側の重複実装を削除する。
+| 場所 | 内容 | 消す理由 |
+|---|---|---|
+| `RideIntercom/Intercom/ViewModel/IntercomViewModel+Factory.swift` | `AVAudioEngine`、`SystemAudioInputStreamBackend`、`AudioInputVoiceProcessingManager` を同じ input node に対して組み立てている | input stream capture の利用者が runtime voice processing 更新のために backend / manager 構成を知る必要がある |
+| `RideIntercom/Intercom/ViewModel/IntercomViewModel+CallLifecycle.swift` | 通話開始時に `applyCurrentVoiceProcessingConfiguration()` を呼ぶ | stream 開始と voice processing 適用の責務が App 側で分離している |
+| `RideIntercom/Intercom/ViewModel/IntercomViewModel+AudioSettings.swift` | mute、sound isolation、ducking 設定変更時に `applyCurrentVoiceProcessingConfiguration()` を呼ぶ | App が stream 抽象ではなく voice processing manager の存在を前提にしている |
+
+## 追記ルール
+
+| 記録する項目 | 内容 |
+|---|---|
+| package | 変更対象 package |
+| 不足している責務 | App ではなく package が持つべき責務 |
+| App に暫定実装しない理由 | package 独立性、OS差分吸収、準異常系処理、runtime 情報通知、設定受け取りのどれに関わるか |
+| App から消す条件 | どの package API / runtime event / report があれば App が同一呼び出しで使えるか |

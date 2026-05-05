@@ -79,15 +79,11 @@ extension IntercomViewModel {
         }
     }
 
-    func markPlayedAudioFrames(_ frames: [JitterBufferedAudioFrame]) {
-        let playedByPeer = Dictionary(grouping: frames, by: \.peerID).mapValues(\.count)
+    func markPlayedAudioFrame(peerID: String) {
         withActiveGroup { group in
-            guard !frames.isEmpty else { return }
-            for (peerID, count) in playedByPeer {
-                guard let memberIndex = group.members.firstIndex(where: { $0.id == peerID }) else { continue }
-                group.members[memberIndex].playedAudioFrameCount += count
-                group.members[memberIndex].queuedAudioFrameCount = max(0, group.members[memberIndex].queuedAudioFrameCount - count)
-            }
+            guard let memberIndex = group.members.firstIndex(where: { $0.id == peerID }) else { return }
+            group.members[memberIndex].playedAudioFrameCount += 1
+            group.members[memberIndex].queuedAudioFrameCount = max(0, group.members[memberIndex].queuedAudioFrameCount - 1)
         }
     }
 

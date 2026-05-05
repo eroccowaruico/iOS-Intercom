@@ -72,8 +72,6 @@ struct DiagnosticsSnapshot: Equatable {
     let hasInviteURL: Bool
     let localNetwork: LocalNetworkDebugSnapshot
     let reception: ReceptionDebugSnapshot
-    let transmitFallbackCount: Int
-    let lastTransmitFallbackSummary: String?
 
     var connectionSummary: String {
         "PEERS \(connectedPeerCount)"
@@ -112,10 +110,6 @@ struct DiagnosticsSnapshot: Equatable {
         return hasInviteURL ? "INVITE READY" : "INVITE NONE"
     }
 
-    var codecSafetySummary: String {
-        lastTransmitFallbackSummary ?? "TX FB #0"
-    }
-
     func realDeviceCallSummary(connectionLabel: String, isAudioReady: Bool, now: TimeInterval) -> String {
         let audioReadiness = isAudioReady ? "AUDIO READY" : "AUDIO IDLE"
         return "CALL \(connectionLabel) / \(audioReadiness) / \(audio.summary) / \(authenticationSummary) / \(reception.summary(now: now))"
@@ -144,9 +138,7 @@ enum DiagnosticsSnapshotBuilder {
         lastLocalNetworkEventAt: TimeInterval?,
         lastReceivedAudioAt: TimeInterval?,
         droppedAudioPacketCount: Int,
-        jitterQueuedFrameCount: Int,
-        transmitFallbackCount: Int,
-        lastTransmitFallbackSummary: String?
+        jitterQueuedFrameCount: Int
     ) -> DiagnosticsSnapshot {
         DiagnosticsSnapshot(
             audio: AudioDebugSnapshot(
@@ -177,9 +169,7 @@ enum DiagnosticsSnapshotBuilder {
                 lastReceivedAudioAt: lastReceivedAudioAt,
                 droppedAudioPacketCount: droppedAudioPacketCount,
                 jitterQueuedFrameCount: jitterQueuedFrameCount
-            ),
-            transmitFallbackCount: transmitFallbackCount,
-            lastTransmitFallbackSummary: lastTransmitFallbackSummary
+            )
         )
     }
 }

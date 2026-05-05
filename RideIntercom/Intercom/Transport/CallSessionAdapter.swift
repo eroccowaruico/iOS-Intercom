@@ -71,16 +71,8 @@ enum TransportEvent: Equatable {
     case receivedApplicationData(peerID: String, message: ApplicationDataMessage)
     case disconnected
     case linkFailed(internetAvailable: Bool)
-    case receivedPacket(ReceivedAudioPacket)
-    case outboundPacketBuilt(OutboundPacketDiagnostics)
-}
-
-struct OutboundPacketDiagnostics: Equatable {
-    let route: TransportRoute
-    let streamID: UUID
-    let sequenceNumber: Int
-    let packetKind: AudioPacketEnvelope.PacketKind
-    let metadata: AudioTransmitMetadata?
+    case receivedAudioFrame(RTC.ReceivedAudioFrame)
+    case routeMetrics(RTC.RouteMetrics)
 }
 
 protocol CallSession: AnyObject {
@@ -93,6 +85,8 @@ protocol CallSession: AnyObject {
     func stopMedia()
     func disconnect()
     func setPreferredAudioCodec(_ codec: AudioCodecIdentifier)
+    func setLocalMute(_ muted: Bool)
+    func setOutputMute(_ muted: Bool)
     func sendAudioFrame(_ frame: OutboundAudioPacket)
     func sendControl(_ message: ControlMessage)
     func sendApplicationData(_ message: ApplicationDataMessage)
@@ -111,8 +105,6 @@ final class RideIntercomCallSessionAdapter: CallSession {
     private let memberID: String
     private let rtcSession: RTC.CallSession
     private var eventTask: Task<Void, Never>?
-    private var currentGroupID: UUID?
-    private var streamIDByPeerID: [String: UUID] = [:]
     private var preferredAudioCodec: AudioCodecIdentifier = .pcm16
 
     init(memberID: String) {
@@ -150,14 +142,12 @@ final class RideIntercomCallSessionAdapter: CallSession {
     }
 
     func startStandby(group: IntercomGroup) {
-        currentGroupID = group.id
         Task { [rtcSession, request = makeRTCRequest(from: group)] in
             await rtcSession.prepare(request)
         }
     }
 
     func connect(group: IntercomGroup) {
-        currentGroupID = group.id
         Task { [rtcSession, request = makeRTCRequest(from: group)] in
             await rtcSession.prepare(request)
             await rtcSession.startConnection()
@@ -184,6 +174,18 @@ final class RideIntercomCallSessionAdapter: CallSession {
 
     func setPreferredAudioCodec(_ codec: AudioCodecIdentifier) {
         preferredAudioCodec = AppAudioCodecBridge.resolvedPreferredCodec(codec, format: .intercomPacketAudio)
+    }
+
+    func setLocalMute(_ muted: Bool) {
+        Task { [rtcSession] in
+            await rtcSession.setLocalMute(muted)
+        }
+    }
+
+    func setOutputMute(_ muted: Bool) {
+        Task { [rtcSession] in
+            await rtcSession.setOutputMute(muted)
+        }
     }
 
     func sendAudioFrame(_ frame: OutboundAudioPacket) {
@@ -247,8 +249,10 @@ final class RideIntercomCallSessionAdapter: CallSession {
         case .receivedApplicationData(let received):
             onEvent?(Self.makeAppEvent(peerID: received.peerID.rawValue, applicationData: received.message))
         case .receivedAudioFrame(let received):
-            onEvent?(.receivedPacket(makeAppReceivedPacket(from: received)))
-        case .localAudioLevelChanged, .remoteAudioLevelChanged, .metricsChanged:
+            onEvent?(.receivedAudioFrame(received))
+        case .metricsChanged(let metrics):
+            onEvent?(.routeMetrics(metrics))
+        case .localAudioLevelChanged, .remoteAudioLevelChanged:
             break
         case .error:
             onEvent?(.linkFailed(internetAvailable: false))
@@ -288,38 +292,6 @@ final class RideIntercomCallSessionAdapter: CallSession {
         }
 
         return .receivedApplicationData(peerID: peerID, message: message)
-    }
-
-    private func makeAppReceivedPacket(from received: RTC.ReceivedAudioFrame) -> ReceivedAudioPacket {
-        let peerID = received.peerID.rawValue
-        let frame = received.frame
-        let sequenceNumber = Int(min(frame.sequenceNumber, UInt64(Int.max)))
-        let streamID = streamID(for: peerID)
-        let packet = OutboundAudioPacket.voice(frameID: sequenceNumber, samples: frame.samples)
-        let envelope = AudioPacketEnvelope(
-            groupID: currentGroupID ?? UUID(),
-            streamID: streamID,
-            sequenceNumber: sequenceNumber,
-            sentAt: frame.capturedAt,
-            kind: .voice,
-            frameID: sequenceNumber,
-            samples: frame.samples,
-            encodedVoice: nil
-        )
-        return ReceivedAudioPacket(
-            peerID: peerID,
-            envelope: envelope,
-            packet: packet
-        )
-    }
-
-    private func streamID(for peerID: String) -> UUID {
-        if let streamID = streamIDByPeerID[peerID] {
-            return streamID
-        }
-        let streamID = UUID()
-        streamIDByPeerID[peerID] = streamID
-        return streamID
     }
 
     private func makeRTCRequest(from group: IntercomGroup) -> RTC.CallStartRequest {
@@ -364,4 +336,3 @@ final class RideIntercomCallSessionAdapter: CallSession {
         }
     }
 }
-
