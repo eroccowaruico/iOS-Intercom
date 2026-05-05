@@ -10,7 +10,7 @@ enum OutboundAudioPacket: Equatable {
 typealias AudioCodecIdentifier = RTC.AudioCodecIdentifier
 
 extension RTC.AudioFormatDescriptor {
-    static let intercomPacketAudio = RTC.AudioFormatDescriptor(sampleRate: 16_000, channelCount: 1)
+    nonisolated static let intercomPacketAudio = RTC.AudioFormatDescriptor(sampleRate: 16_000, channelCount: 1)
 
     init(codecFormat: Codec.CodecAudioFormat) {
         self.init(sampleRate: codecFormat.sampleRate, channelCount: codecFormat.channelCount)
@@ -122,7 +122,7 @@ enum AppAudioCodecBridge {
     ) -> RTC.AudioCodecRegistry {
         var codecs: [any RTC.AudioFrameCodec] = [RTC.PCM16AudioCodec()]
         for codecIdentifier in [Codec.CodecIdentifier.mpeg4AACELDv2, .opus]
-        where isAvailable(codecIdentifier, format: format) {
+        where runtimeReport(for: codecIdentifier, format: format).availableCodecs.contains(codecIdentifier) {
             codecs.append(PackageAudioFrameCodec(codecIdentifier: codecIdentifier, options: options))
         }
         return RTC.AudioCodecRegistry(codecs: codecs)
@@ -140,17 +140,16 @@ enum AppAudioCodecBridge {
         _ preferred: RTC.AudioCodecIdentifier,
         format: RTC.AudioFormatDescriptor
     ) -> RTC.AudioCodecIdentifier {
-        guard let codecIdentifier = Codec.CodecIdentifier(rawValue: preferred.rawValue),
-              isAvailable(codecIdentifier, format: format) else {
-            return .pcm16
-        }
-        return codecIdentifier.rtcIdentifier
+        let codecIdentifier = Codec.CodecIdentifier(rawValue: preferred.rawValue) ?? .pcm16
+        return runtimeReport(for: codecIdentifier, format: format).selectedCodec.rtcIdentifier
     }
 
-    private static func isAvailable(_ codecIdentifier: Codec.CodecIdentifier, format: RTC.AudioFormatDescriptor) -> Bool {
+    private static func runtimeReport(
+        for codecIdentifier: Codec.CodecIdentifier,
+        format: RTC.AudioFormatDescriptor
+    ) -> CodecRuntimeReport {
         let codecFormat = Codec.CodecAudioFormat(rtcFormat: format)
         let configuration = Codec.CodecEncodingConfiguration(codec: codecIdentifier, format: codecFormat)
-        return Codec.CodecSupport.isEncodingAvailable(for: configuration)
-            && Codec.CodecSupport.isDecodingAvailable(for: codecIdentifier, format: codecFormat)
+        return CodecRuntimeReport.resolving(configuration)
     }
 }

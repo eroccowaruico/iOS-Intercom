@@ -1,4 +1,5 @@
 import SwiftUI
+import AudioMixer
 import RTC
 import SessionManager
 
@@ -159,7 +160,7 @@ struct LiveReceivePipelineView: View {
             id: "receive-mix",
             package: "AudioMixer",
             title: "Mix Down",
-            detail: "\(sourceCount) buses -> master",
+            detail: "\(sourceCount) routes -> \(viewModel.audioMixerSnapshot.outputBusID ?? "rx-master")",
             icon: "arrow.triangle.merge",
             state: viewModel.receivedVoicePacketCount > 0 ? .passing : .waiting,
             accessibilityIdentifier: "receive-pipeline-mix-step"
@@ -178,11 +179,13 @@ struct LiveReceivePipelineView: View {
                 accessibilityIdentifier: "receive-pipeline-master-bus-step"
             )
         }
+        let bus = viewModel.mixerBusSnapshot(id: "rx-master")
         return PipelineStep(
             id: "master-bus",
             package: "AudioMixer",
             title: "RX Master",
-            detail: "\(receivePeerBusCount) in / OUT \(Int(viewModel.masterOutputVolume * 100))%",
+            detail: bus.map { "\($0.sourceCount) in / \($0.effectCount) FX / OUT \(Int($0.volume * 100))%" }
+                ?? "\(receivePeerBusCount) in / OUT \(Int(viewModel.masterOutputVolume * 100))%",
             icon: "waveform.path.ecg",
             state: viewModel.playedAudioFrameCount > 0 ? .passing : .waiting,
             accessibilityIdentifier: "receive-pipeline-master-bus-step"
@@ -309,7 +312,11 @@ struct LiveReceivePipelineView: View {
     }
 
     private var receivePeerBusCount: Int {
-        max(receivePeerBuses.count, viewModel.authenticatedPeerCount)
+        max(receivePeerBuses.count, receiveMixerRouteCount, viewModel.authenticatedPeerCount)
+    }
+
+    private var receiveMixerRouteCount: Int {
+        viewModel.audioMixerSnapshot.routes.filter { $0.destinationBusID == "rx-master" }.count
     }
 
     private var receiveMasterMix: ReceiveMasterMixSnapshot {

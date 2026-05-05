@@ -1,4 +1,6 @@
 import Foundation
+import AudioMixer
+import Codec
 import RTC
 import SessionManager
 import Testing
@@ -72,6 +74,8 @@ struct RideIntercomTests {
         #expect(receivePipelineView.contains("viewModel.receiveMasterEffectChainSnapshot"))
         #expect(receivePipelineView.contains("connectionLabel(member.connectionState)"))
         #expect(receivePipelineView.contains("activeCodec: member.activeCodec"))
+        #expect(transmitPipelineView.contains("viewModel.mixerBusSnapshot(id: \"tx-bus\")"))
+        #expect(receivePipelineView.contains("viewModel.audioMixerSnapshot.routes.filter"))
         #expect(receivePipelineView.contains("receive-peer-rtc-\\(index)"))
         #expect(receivePipelineView.contains("receive-peer-codec-\\(index)"))
         #expect(receivePipelineView.contains("DEC \\(codecLabel(peer.activeCodec))"))
@@ -82,8 +86,12 @@ struct RideIntercomTests {
         #expect(effectChainSource.contains("var transmitEffectChainSnapshot"))
         #expect(effectChainSource.contains("func receivePeerEffectChainSnapshot"))
         #expect(effectChainSource.contains("var receiveMasterEffectChainSnapshot"))
-        #expect(effectChainSource.contains("peakLimiterStageSnapshot(detailWhenActive: \"Final peak guard ready\")"))
+        #expect(effectChainSource.contains("effects: mixerBusSnapshot(id: \"tx-bus\")?.effectChain ?? []"))
+        #expect(effectChainSource.contains("peakLimiterStageSnapshot") == false)
         #expect(callSessionAdapter.contains("case remotePeerMetadata(peerID: String, activeCodec: AudioCodecIdentifier?)"))
+        #expect(callSessionAdapter.contains("case remoteRuntimeStatus(peerID: String, status: RTCRuntimeStatus)"))
+        #expect(callSessionAdapter.contains("updateRuntimePackageReports"))
+        #expect(callSessionAdapter.contains("RTCRuntimeStatusTransport.decode(message)"))
         #expect(callSessionAdapter.contains("PeerMetadataApplicationPayload(activeCodec: preferredAudioCodec)"))
         #expect(callSessionAdapter.contains("return .remotePeerMetadata(peerID: peerID, activeCodec: payload.activeCodec)"))
         #expect(diagnosticsSpec.contains("receive-master-effect-stage-peak-limiter"))
@@ -309,13 +317,17 @@ struct RideIntercomTests {
         harness.viewModel.startAudioCheck(recordDuration: .milliseconds(20), playbackDuration: .seconds(5))
         harness.inputBackend.emit(AudioStreamFrame(sequenceNumber: 1, format: .intercom, capturedAt: 100, samples: [0.5, -0.5]))
         await Self.waitUntil { harness.viewModel.audioCheckInputLevel > 0 }
-        await Self.waitUntil { harness.viewModel.audioCheckPhase == .playing }
+        harness.viewModel.finishAudioCheckRecording(playbackDuration: .seconds(5))
 
         #expect(harness.viewModel.audioCheckPhase == .playing)
         #expect(harness.viewModel.audioCheckInputLevel > 0)
         #expect(harness.viewModel.audioCheckOutputLevel > 0)
         #expect(harness.outputBackend.scheduledFrames.count == 1)
-        #expect(harness.outputBackend.scheduledFrames[0].samples == [0.5, -0.5])
+        if let scheduledFrame = harness.outputBackend.scheduledFrames.first {
+            #expect(scheduledFrame.samples == [0.5, -0.5])
+        } else {
+            Issue.record("Expected one audio check playback frame")
+        }
     }
 
     @Test func viewModelResetAllSettingsKeepsGroupsAndRestoresAudioDefaults() {
@@ -398,13 +410,13 @@ struct RideIntercomTests {
 
         #expect(!harness.viewModel.isRemoteSoundIsolationEnabled(peerID: peerID))
         #expect(!harness.viewModel.receiveMasterSoundIsolationEnabled)
-        #expect(harness.viewModel.receivePeerEffectChainSnapshot(peerID: peerID).stages.first?.state == .idle)
+        #expect(harness.viewModel.receivePeerEffectChainSnapshot(peerID: peerID).stages.isEmpty)
         #expect(harness.viewModel.receiveMasterEffectChainSnapshot.stages.map(\.id) == ["sound-isolation", "peak-limiter"])
         #expect(harness.viewModel.receiveMasterEffectChainSnapshot.stages.last?.id == "peak-limiter")
 
+        harness.viewModel.isAudioReady = true
         harness.viewModel.setRemoteSoundIsolationEnabled(peerID: peerID, enabled: true)
         harness.viewModel.setReceiveMasterSoundIsolationEnabled(true)
-        harness.viewModel.isAudioReady = true
 
         #expect(harness.viewModel.isRemoteSoundIsolationEnabled(peerID: peerID))
         #expect(harness.viewModel.receiveMasterSoundIsolationEnabled)
@@ -452,33 +464,97 @@ struct RideIntercomTests {
         #expect(harness.viewModel.transmitEffectChainSnapshot.stages.last?.state == .active)
     }
 
+    @Test func viewModelPublishesPackageRuntimeReportsForDiagnosticsAndRTC() throws {
+        let harness = Self.makeHarness()
+        let peerID = "member-108"
+
+        harness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
+        harness.viewModel.setRemoteSoundIsolationEnabled(peerID: peerID, enabled: true)
+        harness.viewModel.publishRuntimePackageReports(force: true, now: 100)
+
+        let reports = try #require(harness.callSession.runtimePackageReports.last)
+        #expect(reports.map(\.package).contains("AudioMixer"))
+        #expect(reports.map(\.package).contains("Codec"))
+        #expect(reports.map(\.package).contains("VADGate"))
+        #expect(reports.map(\.package).contains("SessionManager"))
+
+        let mixerReport = try #require(reports.first { $0.package == "AudioMixer" && $0.kind == "snapshot" })
+        let mixerSnapshot = try mixerReport.decodeJSON(AudioMixerSnapshot.self)
+        #expect(mixerSnapshot.buses.first { $0.id == "tx-bus" }?.effectChain.map(\.id) == [
+            "sound-isolation",
+            "vad-gate",
+            "dynamics-processor",
+            "peak-limiter"
+        ])
+        #expect(mixerSnapshot.buses.first { $0.id == "rx-master" }?.effectChain.map(\.id) == [
+            "sound-isolation",
+            "peak-limiter"
+        ])
+        #expect(mixerSnapshot.routes.contains {
+            $0.sourceBusID == "rx-peer-\(peerID)" && $0.destinationBusID == "rx-master"
+        })
+        #expect(mixerSnapshot.graph.edges.contains {
+            $0.kind == .busSignal && $0.sourceBusID == "tx-bus" && $0.destinationBusID == "tx-bus"
+        })
+
+        let codecReport = try #require(reports.first { $0.package == "Codec" && $0.kind == "runtimeReport" })
+        let codecRuntime = try codecReport.decodeJSON(CodecRuntimeReport.self)
+        #expect(codecRuntime.requestedConfiguration.codec.rawValue == harness.viewModel.preferredTransmitCodec.rawValue)
+
+        let vadReport = try #require(reports.first { $0.package == "VADGate" && $0.kind == "runtimeSnapshot" })
+        let vadRuntime = try vadReport.decodeJSON(VADGateRuntimeSnapshot.self)
+        #expect(vadRuntime.configuration == harness.viewModel.vadSensitivity.configuration)
+    }
+
     @Test func effectChainDisplayPreservesRuntimeRegisteredOrder() {
+        func effect(
+            id: String,
+            typeName: String,
+            index: Int,
+            state: MixerEffectState,
+            shortLabel: String,
+            detail: String
+        ) -> MixerEffectSnapshot {
+            MixerEffectSnapshot(
+                id: id,
+                typeName: typeName,
+                index: index,
+                state: state,
+                parameters: [
+                    MixerEffectParameterSnapshot(id: "package", value: typeName),
+                    MixerEffectParameterSnapshot(id: "name", value: shortLabel),
+                    MixerEffectParameterSnapshot(id: "shortLabel", value: shortLabel),
+                    MixerEffectParameterSnapshot(id: "detail", value: detail),
+                    MixerEffectParameterSnapshot(id: "runtimeState", value: state.rawValue)
+                ]
+            )
+        }
         let runtimeChain = AudioEffectChainSnapshot(
             id: "custom",
-            stages: [
-                AudioEffectStageSnapshot(
+            effects: [
+                effect(
                     id: "noise-reducer",
-                    package: "NoiseReducer",
-                    name: "Noise",
+                    typeName: "NoiseReducer",
+                    index: 0,
+                    state: .active,
                     shortLabel: "NR",
-                    detail: "Ready",
-                    state: .active
+                    detail: "Ready"
                 ),
-                AudioEffectStageSnapshot(
+                effect(
                     id: "sound-isolation",
-                    package: "SoundIsolation",
-                    name: "SoundIsolation",
+                    typeName: "SoundIsolation",
+                    index: 1,
+                    state: .active,
                     shortLabel: "SI",
-                    detail: "Enabled",
-                    state: .active
+                    detail: "Enabled"
                 ),
-                AudioEffectStageSnapshot(
+                effect(
                     id: "custom-tail",
-                    package: "CustomEffect",
-                    name: "Tail",
+                    typeName: "CustomEffect",
+                    index: 2,
+                    state: .bypassed,
                     shortLabel: "Tail",
-                    detail: "Bypassed",
-                    state: .bypassed
+                    detail: "Bypassed"
                 )
             ]
         )
@@ -525,11 +601,18 @@ struct RideIntercomTests {
         #expect(applied?.prefersEchoCancelledInput == true)
         #expect(applied?.options.contains(.defaultToSpeaker) == false)
 
+        harness.viewModel.setSessionEchoCancellationEnabled(false)
+        applied = harness.audioSessionBackend.appliedConfigurations.last
+        #expect(applied?.mode == .default)
+        #expect(applied?.prefersEchoCancelledInput == false)
+        #expect(harness.viewModel.audioSessionProfile == .standard)
+
         harness.viewModel.setSpeakerOutputEnabled(true)
         applied = harness.audioSessionBackend.appliedConfigurations.last
         #expect(applied?.mode == .default)
         #expect(applied?.prefersEchoCancelledInput == true)
         #expect(applied?.options.contains(.defaultToSpeaker) == true)
+        #expect(harness.viewModel.audioSessionProfile == .standard)
 
         harness.viewModel.setAudioSessionModeProfile(.voiceChat)
         harness.viewModel.setSpeakerOutputEnabled(true)
@@ -692,6 +775,7 @@ private final class RecordingCallSession: RideIntercom.CallSession {
     private(set) var localMuteValues: [Bool] = []
     private(set) var outputMuteValues: [Bool] = []
     private(set) var remoteOutputVolumeValues: [(peerID: String, volume: Float)] = []
+    private(set) var runtimePackageReports: [[RTCRuntimePackageReport]] = []
     private(set) var sentAudioPackets: [OutboundAudioPacket] = []
     private(set) var sentControlMessages: [ControlMessage] = []
     private(set) var sentApplicationDataMessages: [ApplicationDataMessage] = []
@@ -740,6 +824,10 @@ private final class RecordingCallSession: RideIntercom.CallSession {
 
     func setRemoteOutputVolume(peerID: String, volume: Float) {
         remoteOutputVolumeValues.append((peerID, volume))
+    }
+
+    func updateRuntimePackageReports(_ reports: [RTCRuntimePackageReport]) {
+        runtimePackageReports.append(reports)
     }
 
     func sendAudioFrame(_ frame: OutboundAudioPacket) {

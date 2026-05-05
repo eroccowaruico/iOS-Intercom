@@ -94,15 +94,15 @@ extension IntercomViewModel {
     }
 
     var supportsSoundIsolation: Bool {
-        VoiceIsolationSupport.isAvailable
+        VoiceIsolationSupport.snapshot.isAvailable
     }
 
     var selectedTransmitCodec: AudioCodecIdentifier {
-        AppAudioCodecBridge.resolvedPreferredCodec(preferredTransmitCodec, format: .intercomPacketAudio)
+        AudioCodecIdentifier(rawValue: codecRuntimeReport.selectedCodec.rawValue)
     }
 
     var vadAnalysisSummary: String {
-        guard let latestVADAnalysis else {
+        guard let latestVADAnalysis = vadGateRuntimeSnapshot.lastAnalysis else {
             return "Analysis waiting"
         }
         return String(

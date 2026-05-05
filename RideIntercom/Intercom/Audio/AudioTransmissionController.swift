@@ -17,6 +17,10 @@ struct AudioTransmissionController {
     private var wasSendingVoice = false
     private(set) var lastAnalysis: VADGateAnalysis?
 
+    var runtimeSnapshot: VADGateRuntimeSnapshot {
+        vadGate.runtimeSnapshot
+    }
+
     init(
         vadGate: VADGate = VADGate(configuration: Self.defaultVADSensitivity.configuration),
         preRollLimit: Int = 20,

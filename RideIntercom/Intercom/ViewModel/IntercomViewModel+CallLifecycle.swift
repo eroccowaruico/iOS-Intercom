@@ -32,6 +32,7 @@ extension IntercomViewModel {
                 group.accessSecret = credential.secret
             }
             callSession.setPreferredAudioCodec(preferredTransmitCodec)
+            publishRuntimePackageReports(force: true)
             callSession.connect(group: group)
         }
         if !authenticatedPeerIDs.isEmpty {
@@ -66,6 +67,7 @@ extension IntercomViewModel {
         callTicker.start()
         isAudioReady = true
         refreshOtherAudioDuckingState()
+        publishRuntimePackageReports(force: true)
         audioErrorMessage = nil
         AppLoggers.audio.info(
             "audio.media.started",
@@ -88,6 +90,7 @@ extension IntercomViewModel {
             _ = try? audioSessionManager.setActive(false)
         }
         isAudioReady = false
+        publishRuntimePackageReports(force: true)
         if wasAudioReady {
             AppLoggers.audio.info(
                 "audio.media.stopped",
@@ -110,6 +113,7 @@ extension IntercomViewModel {
             group.accessSecret = credential.secret
         }
         callSession.setPreferredAudioCodec(preferredTransmitCodec)
+        publishRuntimePackageReports(force: true)
         callSession.startStandby(group: group)
     }
 
@@ -131,10 +135,12 @@ extension IntercomViewModel {
         lastReceivedAudioAt = nil
         droppedAudioPacketCount = 0
         jitterQueuedFrameCount = 0
+        remoteRuntimeStatuses.removeAll()
         resetAudioDebugCounters()
         activeGroupID = disconnectingGroupID
         markMembers(.offline)
         activeGroupID = nil
+        publishRuntimePackageReports(force: true)
     }
 
     func configureAudioSession(active: Bool) -> Bool {
@@ -149,6 +155,7 @@ extension IntercomViewModel {
                 lastAudioSessionActivationReport = activeReport
                 guard activeReport.result.isContinuable else {
                     audioErrorMessage = "Audio session activation failed"
+                    publishRuntimePackageReports(force: true)
                     AppLoggers.audio.error(
                         "audio.session.failed",
                         metadata: .event("audio.session.failed", [
@@ -161,6 +168,7 @@ extension IntercomViewModel {
             }
             guard report.operations.allSatisfy(\.result.isContinuable) else {
                 audioErrorMessage = "Audio session configuration failed"
+                publishRuntimePackageReports(force: true)
                 AppLoggers.audio.error(
                     "audio.session.failed",
                     metadata: .event("audio.session.failed", [
@@ -170,9 +178,11 @@ extension IntercomViewModel {
                 )
                 return false
             }
+            publishRuntimePackageReports(force: true)
             return true
         } catch {
             audioErrorMessage = "Audio session configuration failed"
+            publishRuntimePackageReports(force: true)
             AppLoggers.audio.error(
                 "audio.session.failed",
                 metadata: .event("audio.session.failed", [

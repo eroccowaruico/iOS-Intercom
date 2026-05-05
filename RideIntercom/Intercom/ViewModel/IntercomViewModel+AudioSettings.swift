@@ -18,8 +18,11 @@ extension IntercomViewModel {
     }
 
     var isSessionEchoCancellationEnabled: Bool {
+        if let resolvedValue = lastAudioSessionConfigurationReport?.resolvedConfiguration.prefersEchoCancelledInput {
+            return resolvedValue
+        }
         guard audioSessionModeProfile == .standard else { return false }
-        return audioSessionProfile.prefersEchoCancelledInput || isSpeakerOutputEnabled
+        return audioSessionProfile.prefersEchoCancelledInput
     }
 
     var canToggleSessionEchoCancellation: Bool {
@@ -41,11 +44,11 @@ extension IntercomViewModel {
 
     func setAudioSessionModeProfile(_ profile: AudioSessionProfile) {
         let previousOutputPort = selectedOutputPort
-        let keepsEchoCancellation = isSessionEchoCancellationEnabled
+        let keepsEchoCancellation = audioSessionProfile.prefersEchoCancelledInput
         let keepsSpeakerOutput = isSpeakerOutputEnabled
         switch profile.settingsModeProfile {
         case .standard:
-            audioSessionProfile = (keepsEchoCancellation || keepsSpeakerOutput) ? .echoCancelledInput : .standard
+            audioSessionProfile = keepsEchoCancellation ? .echoCancelledInput : .standard
         case .voiceChat:
             audioSessionProfile = .voiceChat
         case .speakerDefault, .echoCancelledInput:
@@ -71,10 +74,8 @@ extension IntercomViewModel {
 
     func setSpeakerOutputEnabled(_ enabled: Bool) {
         let previousOutputPort = selectedOutputPort
-        if audioSessionModeProfile == .standard && enabled {
-            audioSessionProfile = .echoCancelledInput
-        } else if audioSessionProfile == .speakerDefault {
-            audioSessionProfile = .echoCancelledInput
+        if audioSessionProfile == .speakerDefault {
+            audioSessionProfile = .standard
         }
         selectedOutputPort = enabled ? .speaker : .systemDefault
         saveAppSettings()
@@ -93,8 +94,8 @@ extension IntercomViewModel {
     }
 
     func setSessionEchoCancellationEnabled(_ enabled: Bool) {
-        guard audioSessionModeProfile == .standard else { return }
-        audioSessionProfile = enabled || isSpeakerOutputEnabled ? .echoCancelledInput : .standard
+        guard canToggleSessionEchoCancellation else { return }
+        audioSessionProfile = enabled ? .echoCancelledInput : .standard
         saveAppSettings()
         guard configureAudioSession(active: isAudioReady) else { return }
         audioErrorMessage = nil
@@ -126,10 +127,12 @@ extension IntercomViewModel {
         }
         broadcastControl(.peerMuteState(isMuted: isMuted))
         broadcastMetadataKeepalive()
+        publishRuntimePackageReports(force: true)
     }
 
     func setPreferredTransmitCodec(_ codec: AudioCodecIdentifier) {
         preferredTransmitCodec = codec
+        refreshPackageRuntimeSnapshots()
         callSession.setPreferredAudioCodec(codec)
         setLocalActiveCodec(selectedTransmitCodec)
         saveAppSettings()
@@ -142,10 +145,13 @@ extension IntercomViewModel {
         )
         logCodecFallbackIfNeeded()
         broadcastMetadataKeepalive()
+        publishRuntimePackageReports(force: true)
     }
 
     func setAACELDv2BitRate(_ bitRate: Int) {
         aacELDv2BitRate = Codec.AACELDv2Options(bitRate: bitRate).bitRate
+        refreshPackageRuntimeSnapshots()
+        setLocalActiveCodec(selectedTransmitCodec)
         callSession.setAudioCodecOptions(aacELDv2BitRate: aacELDv2BitRate, opusBitRate: opusBitRate)
         saveAppSettings()
         AppLoggers.settings.info(
@@ -155,10 +161,13 @@ extension IntercomViewModel {
                 "bitRate": "\(aacELDv2BitRate)"
             ])
         )
+        publishRuntimePackageReports(force: true)
     }
 
     func setOpusBitRate(_ bitRate: Int) {
         opusBitRate = Codec.OpusOptions(bitRate: bitRate).bitRate
+        refreshPackageRuntimeSnapshots()
+        setLocalActiveCodec(selectedTransmitCodec)
         callSession.setAudioCodecOptions(aacELDv2BitRate: aacELDv2BitRate, opusBitRate: opusBitRate)
         saveAppSettings()
         AppLoggers.settings.info(
@@ -168,21 +177,25 @@ extension IntercomViewModel {
                 "bitRate": "\(opusBitRate)"
             ])
         )
+        publishRuntimePackageReports(force: true)
     }
 
     func setVADSensitivity(_ sensitivity: VoiceActivitySensitivity) {
         vadSensitivity = sensitivity
         audioTransmissionController.applyVADSensitivity(sensitivity)
         latestVADAnalysis = nil
+        refreshPackageRuntimeSnapshots()
         saveAppSettings()
         AppLoggers.settings.info(
             "settings.vad.changed",
             metadata: .event("settings.vad.changed", ["preset": "\(sensitivity.rawValue)"])
         )
+        publishRuntimePackageReports(force: true)
     }
 
     func setMasterOutputVolume(_ volume: Float) {
         masterOutputVolume = min(2, max(0, volume))
+        publishRuntimePackageReports(force: true)
     }
 
     func remoteOutputVolume(for peerID: String) -> Float {
@@ -204,6 +217,7 @@ extension IntercomViewModel {
                 "volume": "\(normalizedVolume)"
             ])
         )
+        publishRuntimePackageReports(force: true)
     }
 
     func setSoundIsolationEnabled(_ enabled: Bool) {
@@ -214,6 +228,7 @@ extension IntercomViewModel {
                 "enabled": "\(enabled)"
             ])
         )
+        publishRuntimePackageReports(force: true)
     }
 
     func isRemoteSoundIsolationEnabled(peerID: String) -> Bool {
@@ -233,6 +248,7 @@ extension IntercomViewModel {
                 "enabled": "\(enabled)"
             ])
         )
+        publishRuntimePackageReports(force: true)
     }
 
     func setReceiveMasterSoundIsolationEnabled(_ enabled: Bool) {
@@ -243,6 +259,7 @@ extension IntercomViewModel {
                 "enabled": "\(enabled)"
             ])
         )
+        publishRuntimePackageReports(force: true)
     }
 
     func setInputPort(_ port: AudioPortInfo) {
@@ -278,6 +295,7 @@ extension IntercomViewModel {
     func setDuckOthersEnabled(_ enabled: Bool) {
         isDuckOthersEnabled = enabled
         refreshOtherAudioDuckingState()
+        publishRuntimePackageReports(force: true)
         audioErrorMessage = nil
         AppLoggers.settings.info(
             "settings.ducking.changed",
@@ -290,6 +308,7 @@ extension IntercomViewModel {
     func toggleOutputMute() {
         isOutputMuted.toggle()
         callSession.setOutputMute(isOutputMuted)
+        publishRuntimePackageReports(force: true)
     }
 
     func resetAllSettings() {
@@ -312,6 +331,7 @@ extension IntercomViewModel {
         remoteSoundIsolationEnabled.removeAll()
         isOutputMuted = false
         callSession.setOutputMute(false)
+        publishRuntimePackageReports(force: true)
         let operationID = UUID().uuidString
         AppLoggers.settings.notice(
             "settings.reset",

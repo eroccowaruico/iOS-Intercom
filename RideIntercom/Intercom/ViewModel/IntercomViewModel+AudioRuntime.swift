@@ -12,6 +12,7 @@ extension IntercomViewModel {
     func handleCallTick(now: TimeInterval) {
         expireRemoteTalkers(now: now)
         refreshOtherAudioDuckingState(now: now)
+        publishRuntimePackageReports(now: now)
     }
 
     func handleAudioStreamRuntimeEvent(_ event: SessionManager.AudioStreamRuntimeEvent) {
@@ -36,6 +37,7 @@ extension IntercomViewModel {
         case .output:
             lastOutputStreamOperationReport = report
         }
+        publishRuntimePackageReports(force: true)
     }
 
     func handleMicrophoneFrame(_ frame: SessionManager.AudioStreamFrame) {
@@ -59,6 +61,7 @@ extension IntercomViewModel {
         setLocalVoiceLevel(level)
         let packets = audioTransmissionController.process(frameID: frameID, level: level, samples: samples)
         latestVADAnalysis = audioTransmissionController.lastAnalysis
+        vadGateRuntimeSnapshot = audioTransmissionController.runtimeSnapshot
         for packet in packets {
             send(packet)
         }
@@ -69,5 +72,6 @@ extension IntercomViewModel {
             }
             return false
         })
+        publishRuntimePackageReports(now: Date().timeIntervalSince1970)
     }
 }

@@ -1,6 +1,7 @@
 import CryptoKit
 import AVFoundation
 import AVFAudio
+import AudioMixer
 import Codec
 import Foundation
 import Observation
@@ -27,6 +28,7 @@ final class IntercomViewModel {
     nonisolated static let receiveMasterPeakLimiterCeiling: Float = 1
     nonisolated static let otherAudioDuckingHoldDuration: TimeInterval = 1.0
     nonisolated static let audibleOutputLevelThreshold: Float = 0.00025
+    nonisolated static let runtimePackageReportPublishInterval: TimeInterval = 0.5
 
     var groups: [IntercomGroup]
     var selectedGroup: IntercomGroup?
@@ -145,6 +147,18 @@ final class IntercomViewModel {
     var lastOutputStreamOperationReport: SessionManager.AudioStreamOperationReport?
     var lastVoiceProcessingOperationReport: SessionManager.AudioStreamOperationReport?
     var lastRouteMetrics: RTC.RouteMetrics?
+    var audioMixerSnapshot: AudioMixerSnapshot = IntercomViewModel.emptyAudioMixerSnapshot()
+    var codecRuntimeReport: CodecRuntimeReport = IntercomViewModel.makeCodecRuntimeReport(
+        preferredCodec: IntercomViewModel.defaultTransmitCodec,
+        aacELDv2BitRate: IntercomViewModel.defaultAACELDv2BitRate,
+        opusBitRate: IntercomViewModel.defaultOpusBitRate
+    )
+    var vadGateRuntimeSnapshot: VADGateRuntimeSnapshot = VADGate(
+        configuration: IntercomViewModel.defaultVADSensitivity.configuration
+    ).runtimeSnapshot
+    var remoteRuntimeStatuses: [String: RTCRuntimeStatus] = [:]
+    var lastRuntimePackageReports: [RTCRuntimePackageReport] = []
+    var lastRuntimePackageReportPublishedAt: TimeInterval?
 
     init(
         groups: [IntercomGroup]? = nil,
@@ -189,6 +203,7 @@ final class IntercomViewModel {
         self.selectedInputPort = AudioPortInfo(device: audioSessionSnapshot.currentInput)
         self.selectedOutputPort = AudioPortInfo(device: audioSessionSnapshot.currentOutput)
         self.audioTransmissionController.applyVADSensitivity(vadSensitivity)
+        self.refreshPackageRuntimeSnapshots()
         self.callSession.setPreferredAudioCodec(preferredTransmitCodec)
         self.callSession.setAudioCodecOptions(aacELDv2BitRate: aacELDv2BitRate, opusBitRate: opusBitRate)
 

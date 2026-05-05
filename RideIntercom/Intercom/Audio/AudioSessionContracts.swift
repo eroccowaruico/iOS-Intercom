@@ -110,7 +110,7 @@ extension SessionManager.AudioSessionConfiguration {
     ) -> SessionManager.AudioSessionConfiguration {
         let mode = profile.mode
         let defaultToSpeaker = profile.defaultToSpeaker || prefersSpeakerOutput
-        let prefersEchoCancelledInput = mode == .default && (profile.prefersEchoCancelledInput || defaultToSpeaker)
+        let prefersEchoCancelledInput = mode == .default && profile.prefersEchoCancelledInput
         return SessionManager.AudioSessionConfiguration(
             mode: mode,
             defaultToSpeaker: defaultToSpeaker,

@@ -1,4 +1,5 @@
 import SwiftUI
+import AudioMixer
 import RTC
 import SessionManager
 
@@ -127,11 +128,12 @@ struct LiveTransmitPipelineView: View {
                 accessibilityIdentifier: "pipeline-mixer-step"
             )
         }
+        let bus = viewModel.mixerBusSnapshot(id: "tx-bus")
         return PipelineStep(
             id: "mixer",
             package: "AudioMixer",
             title: "TX Bus",
-            detail: "Mic -> FX",
+            detail: bus.map { "\($0.sourceCount) in / \($0.effectCount) FX" } ?? "Snapshot waiting",
             icon: "slider.horizontal.3",
             state: .passing,
             accessibilityIdentifier: "pipeline-mixer-step"

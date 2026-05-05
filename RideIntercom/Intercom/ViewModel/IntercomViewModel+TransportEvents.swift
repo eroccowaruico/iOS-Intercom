@@ -57,6 +57,7 @@ extension IntercomViewModel {
                 connectionState = .localConnected
             }
             markConnectedMembers(peerIDs: peerIDs)
+            publishRuntimePackageReports(force: true)
         case .authenticated(let peerIDs):
             let authenticatedPeerIDSet = Set(peerIDs)
             authenticatedPeerIDs = Array(authenticatedPeerIDSet).sorted()
@@ -68,12 +69,15 @@ extension IntercomViewModel {
             markConnectedMembers(peerIDs: connectedPeerIDs)
             startActiveCallAfterAuthenticatedPeer()
             sendStateMetadataSnapshot()
+            publishRuntimePackageReports(force: true)
         case .remotePeerMuteState(let peerID, let isMuted):
             setRemotePeerMuteState(peerID: peerID, isMuted: isMuted)
         case .remotePeerMetadata(let peerID, let activeCodec):
             if let activeCodec {
                 setRemotePeerCodec(peerID, codec: activeCodec)
             }
+        case .remoteRuntimeStatus(let peerID, let status):
+            remoteRuntimeStatuses[peerID] = status
         case .receivedApplicationData:
             break
         case .disconnected:
@@ -84,6 +88,7 @@ extension IntercomViewModel {
             connectionState = .idle
             isVoiceActive = false
             markMembers(.offline)
+            publishRuntimePackageReports(force: true)
         case .linkFailed(let internetAvailable):
             _ = internetAvailable
             AppLoggers.rtc.error(
@@ -99,6 +104,7 @@ extension IntercomViewModel {
             localNetworkStatus = .unavailable
             connectionState = .reconnectingOffline
             markMembers(.connecting)
+            publishRuntimePackageReports(force: true)
         case .receivedAudioFrame(let received):
             handleReceivedAudioFrame(received)
         case .routeMetrics(let metrics):

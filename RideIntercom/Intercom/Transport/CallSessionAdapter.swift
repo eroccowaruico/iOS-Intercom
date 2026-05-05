@@ -69,6 +69,7 @@ enum TransportEvent: Equatable {
     case authenticated(peerIDs: [String])
     case remotePeerMuteState(peerID: String, isMuted: Bool)
     case remotePeerMetadata(peerID: String, activeCodec: AudioCodecIdentifier?)
+    case remoteRuntimeStatus(peerID: String, status: RTCRuntimeStatus)
     case receivedApplicationData(peerID: String, message: ApplicationDataMessage)
     case disconnected
     case linkFailed(internetAvailable: Bool)
@@ -90,6 +91,7 @@ protocol CallSession: AnyObject {
     func setLocalMute(_ muted: Bool)
     func setOutputMute(_ muted: Bool)
     func setRemoteOutputVolume(peerID: String, volume: Float)
+    func updateRuntimePackageReports(_ reports: [RTCRuntimePackageReport])
     func sendAudioFrame(_ frame: OutboundAudioPacket)
     func sendControl(_ message: ControlMessage)
     func sendApplicationData(_ message: ApplicationDataMessage)
@@ -212,6 +214,12 @@ final class RideIntercomCallSessionAdapter: CallSession {
         }
     }
 
+    func updateRuntimePackageReports(_ reports: [RTCRuntimePackageReport]) {
+        Task { [rtcSession] in
+            await rtcSession.updateRuntimePackageReports(reports)
+        }
+    }
+
     func sendAudioFrame(_ frame: OutboundAudioPacket) {
         guard case .voice(let frameID, let samples) = frame else {
             sendControl(.keepalive)
@@ -311,6 +319,9 @@ final class RideIntercomCallSessionAdapter: CallSession {
     }
 
     private static func makeAppEvent(peerID: String, applicationData message: RTC.ApplicationDataMessage) -> TransportEvent {
+        if let status = try? RTCRuntimeStatusTransport.decode(message) {
+            return .remoteRuntimeStatus(peerID: peerID, status: status)
+        }
         if message.namespace == peerMuteStateNamespace,
            let payload = try? JSONDecoder().decode(PeerMuteStateApplicationPayload.self, from: message.payload) {
             return .remotePeerMuteState(peerID: peerID, isMuted: payload.isMuted)
