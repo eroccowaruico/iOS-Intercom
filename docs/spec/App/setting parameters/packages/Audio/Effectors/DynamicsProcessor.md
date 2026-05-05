@@ -12,6 +12,7 @@
 |---|---|---|
 | `DynamicsProcessorConfiguration` | package default | 固定 |
 | effect chain 挿入 | App adapter の固定構成で決める | adapter 導出 |
+| runtime snapshot | `DynamicsProcessorRuntimeSnapshot` を `RTCRuntimePackageReport(kind: transmitRuntimeSnapshot)` に載せる | runtime report |
 
 DynamicsProcessor の threshold、head room、attack、release などは画面設定として提供しない。
 

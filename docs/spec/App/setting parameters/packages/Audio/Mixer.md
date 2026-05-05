@@ -11,15 +11,26 @@
 | package 設定 | App から渡す値 | 種別 |
 |---|---|---|
 | format | package default、または capture / output adapter が要求する format | adapter 導出 |
-| TX bus effect chain | `transmitEffectChainSnapshot.stages`。初期構成は SoundIsolation、VADGate、DynamicsProcessor、PeakLimiter | adapter 導出 |
-| RX peer bus effect chain | `receivePeerEffectChainSnapshot(peerID:).stages`。peer 単位で `remoteSoundIsolationEnabled[peerID, default: false]` を反映する | 画面設定から導出 |
-| RX master bus effect chain | `receiveMasterEffectChainSnapshot.stages`。`receiveMasterSoundIsolationEnabled` に応じた SoundIsolation と、最後に必ず挿入する PeakLimiter | 画面設定 + adapter 固定 |
+| TX bus effect chain | `AudioMixerSnapshot.buses[id == "tx-bus"].effectChain`。初期構成は SoundIsolation、VADGate、DynamicsProcessor、PeakLimiter | adapter 導出 |
+| RX peer bus effect chain | `AudioMixerSnapshot.buses[id == "rx-peer-{peerID}"].effectChain`。peer 単位で `remoteSoundIsolationEnabled[peerID, default: false]` を反映する | 画面設定から導出 |
+| RX master bus effect chain | `AudioMixerSnapshot.buses[id == "rx-master"].effectChain`。`receiveMasterSoundIsolationEnabled` に応じた SoundIsolation と、最後に必ず挿入する PeakLimiter | 画面設定 + adapter 固定 |
 | master bus volume | `isOutputMuted ? 0 : masterOutputVolume` | 画面設定から導出 |
 | peer bus volume | `remoteOutputVolumes[peerID]`。未設定 peer は `1.0` | 画面設定から導出 |
 
 受信側は peer ごとに RX peer bus を作り、全 RX peer bus を receive master bus へ route して mix down する。相手が複数いる場合は peer bus も複数になり、master bus は mix 後の 1 本だけを表す。
 
-TX bus、RX peer bus、RX master bus の effect chain は App adapter が順序を決める。Diagnostics は App runtime の chain snapshot を表示するだけで、effect の default 値や stage 配列を持たない。
+TX bus、RX peer bus、RX master bus の effect chain は AudioMixer package の `MixerBusSnapshot.effectChain` を正とする。App の `transmitEffectChainSnapshot`、`receivePeerEffectChainSnapshot(peerID:)`、`receiveMasterEffectChainSnapshot` は `AudioMixerSnapshot` から表示用 stage metadata へ薄く写すだけで、effect の default 値や stage 配列を持たない。
+
+## Snapshot / graph の扱い
+
+| snapshot | App での扱い |
+|---|---|
+| `AudioMixerSnapshot.busIDs` | TX bus、RX peer bus、RX master bus の存在確認に使う |
+| `MixerBusSnapshot.sources` | マイク入力、RTC peer audio source、master 入力数の表示に使う |
+| `MixerBusSnapshot.effectChain` | Diagnostics の effect chip の順序、状態、詳細に使う |
+| `AudioMixerSnapshot.routes` | RX peer bus から `rx-master` への mix down 表示に使う |
+| `AudioMixerSnapshot.outputBusID` | 最終出力へ接続された bus の確認に使う |
+| `MixerGraphSnapshot.nodes` / `edges` | グラフ描画が必要な UI では node / edge をそのまま使う。App 固有の推測で経路を補完しない |
 
 ## App 画面に出さない値
 

@@ -10,13 +10,16 @@
 
 | package 設定 | App から渡す値 | 種別 | Diagnostics で確認する値 |
 |---|---|---|---|
-| `enabledRoutes` | 初期は `[.multipeer]`。Cloudflare signaling が揃ったら `[.multipeer, .internet]` | adapter policy | route capabilities |
+| `enabledRoutes` | `[.multipeer]` | adapter policy | route capabilities |
 | `preferredRoute` | `.multipeer` | 固定 | active / preferred route |
-| `selectionMode` | WebRTC 未構成時は `.singleRoute`。WebRTC 構成済みなら `.automaticFallbackAndRestore` | adapter policy | selection mode / handover state |
-| `startsStandbyConnections` | WebRTC 構成済みなら `true`、未構成なら `false` | adapter policy | standby route state |
-| `keepsPreviousRouteWarmDuringHandover` | WebRTC 構成済みなら `true` | adapter policy | handover state |
+| `selectionMode` | `.singleRoute` | adapter policy | selection mode / handover state |
+| `fallbackDelay` | package default | package default | runtime status の route configuration |
+| `restoreProbeDuration` | package default | package default | runtime status の route configuration |
+| `handoverFadeDuration` | package default | package default | runtime status の route configuration |
+| `keepsPreferredRouteInStandby` | `false` | adapter policy | standby route state |
+| `keepsFallbackRouteWarm` | `false` | adapter policy | handover / fallback state |
 
-WebRTC の credential、Cloudflare signaling、native adapter が揃うまでは UI から route を選ばせない。App は package が返す route availability と failure reason を Diagnostics に表示する。
+WebRTC の credential、Cloudflare signaling、native adapter が揃うまでは UI から route を選ばせない。App は package が返す route availability、failure reason、media ownership を Diagnostics または runtime status の入力として扱う。WebRTC を有効化するときは App UI ではなく adapter policy と `docs/spec/packages/RTC.md` を更新する。
 
 ## CallStartRequest / RTC 入力
 
@@ -26,7 +29,7 @@ WebRTC の credential、Cloudflare signaling、native adapter が揃うまでは
 | `PeerDescriptor` | local member ID と display name から生成する | App 状態から導出 | peer ID hash / display name |
 | `expectedPeers` | selected group の保存 member から生成する | App 状態から導出 | expected / connected / authenticated count |
 | `AudioFormatDescriptor` | `16_000` / mono / Float PCM を packet audio 用に変換する | adapter 導出 | audio format |
-| `AudioCodecConfiguration.preferredCodecs` | `preferredTransmitCodec` を先頭に置き、残り候補と `.pcm16` fallback を続ける | 画面設定から導出 | requested / selected codec |
+| `AudioCodecConfiguration.preferredCodecs` | `CodecRuntimeReport.resolving` で選ばれた codec を先頭に置き、必要なら `.pcm16` fallback を続ける | 画面設定 + package runtime から導出 | requested / selected codec |
 | `PacketAudioReceiveConfiguration` | package default | 固定 | playout delay / queue / drop metrics |
 
 group secret は group list へ保存せず、Keychain から取得して credential 生成にだけ使う。ログと Diagnostics には secret、token、認証 MAC、鍵材料を出さない。
@@ -35,11 +38,25 @@ group secret は group list へ保存せず、Keychain から取得して creden
 
 | package 設定 | App から渡す値 | 種別 |
 |---|---|---|
+| `namespace` | `rideintercom.keepalive` | 固定 |
+| `delivery` | `.unreliable` | 固定 |
+| `payload` | `{ "activeCodec": AudioCodecIdentifier? }` | App 状態から導出 |
 | `namespace` | `rideintercom.peerMuteState` | 固定 |
 | `delivery` | `.reliable` | 固定 |
 | `payload` | `{ "isMuted": Bool }` | App 状態から導出 |
 
-Application Data の namespace と payload schema は App が所有する。RTC package は payload の意味を解釈しない。
+Application Data の App-owned namespace と payload schema は App が所有する。RTC package は payload の意味を解釈しない。`rideintercom.rtc.runtimeStatus` は RTC package-owned namespace であり、App-owned payload として扱わない。
+
+## Runtime status / package report
+
+| 設定 / API | App から渡す値 | 種別 | Diagnostics で確認する値 |
+|---|---|---|---|
+| `RTCRuntimeStatusPolicy.isAutomaticBroadcastEnabled` | `RouteManager` default の `true` | package default | runtime status 受信有無 |
+| `RTCRuntimeStatusPolicy.periodicInterval` | `RouteManager` default の `5` 秒 | package default | remote status `generatedAt` |
+| `CallSession.updateRuntimePackageReports(_:)` | App が集約した `RTCRuntimePackageReport` 配列 | runtime report | status `packageReports` |
+| `RTCRuntimeStatusTransport.namespace` | `rideintercom.rtc.runtimeStatus` | package-owned | remote runtime status |
+
+App 側の report 更新間隔は 0.5 秒を下限とする。RTC は package report 更新を受けたときに `reason == .packageReportsChanged` の runtime status を送信できるため、接続中の peer には package 設定や操作状態が変更時と定期周期の両方で届く。
 
 ## Runtime event / metrics の App 側処理
 
@@ -50,6 +67,7 @@ Application Data の namespace と payload schema は App が所有する。RTC 
 | handover | media 所有と出力を同期 | Call / Diagnostics | `rtc.route.handover.started`、`rtc.route.handover.completed` |
 | member update | participant 表示へ反映 | Call Participants | debug |
 | `RouteMetrics` | RTT、jitter、packet loss、queue、drop を要約 | Diagnostics の Quality 行 | warning threshold 超過時だけ |
+| `RTCRuntimeStatus` | peer ごとの runtime status と package report を保持 | Diagnostics の package runtime 入力 | 通常ログ禁止 |
 | received audio frame | app-managed packet audio の decode へ渡す | 参加者 level / Reception | 高頻度通常ログは禁止 |
 | application data | namespace ごとに App が decode | participant mute state | decode 失敗のみ debug |
 | error | 復旧可能性で分類する | Call エラー / Diagnostics | warning / error |

@@ -12,19 +12,20 @@
 |---|---|---|---|
 | `mode` | Settings の `Mode` から導出。`Burst mode` は `.default`、`Stream mode` は `.voiceChat` | 画面設定から導出 | resolved mode |
 | `defaultToSpeaker` | `Use Speaker == true` または `selectedOutputDevice == .builtInSpeaker` | 画面設定から導出 | requested / resolved output |
-| `prefersEchoCancelledInput` | `mode == .default && (Echo Cancellation == true || defaultToSpeaker == true)` | 画面設定から導出 | echo cancellation operation result |
+| `prefersEchoCancelledInput` | `mode == .default && Echo Cancellation == true`。`Use Speaker` からは App で派生させない | 画面設定から導出 | requested / resolved echo cancellation |
 | `preferredInput` | `selectedInputDevice` | 画面設定 | requested / current input |
 | `preferredOutput` | `selectedOutputDevice` | 画面設定 | requested / current output |
 
-既定は `Burst mode` + `Use Speaker = false` + `Echo Cancellation = true` とし、Duck Other Audio も opt-in ON から開始する。`voiceChat + prefersEchoCancelledInput` は不正な組み合わせのため UI に出さない。`defaultToSpeaker = true` は speaker 出力向けのため、`mode == .default` では `prefersEchoCancelledInput = true` も同時に要求する。`mode == .voiceChat` では明示的な `prefersEchoCancelledInput` を使わない。
+既定は `Burst mode` + `Use Speaker = false` + `Echo Cancellation = true` とし、Duck Other Audio も opt-in ON から開始する。`voiceChat + prefersEchoCancelledInput` は不正な組み合わせのため UI に出さない。`defaultToSpeaker = true` は speaker 出力希望としてだけ App から渡し、`mode == .default` で speaker 向け echo cancellation を有効化するかは `SessionManager` の resolved configuration / report を正とする。`mode == .voiceChat` では明示的な `prefersEchoCancelledInput` を使わない。
 
-| UI 状態 | `mode` | `defaultToSpeaker` | `prefersEchoCancelledInput` |
-|---|---|---:|---:|
-| `Burst mode` + `Use Speaker = false` + `Echo Cancellation = false` | `.default` | `false` | `false` |
-| `Burst mode` + `Use Speaker = false` + `Echo Cancellation = true` | `.default` | `false` | `true` |
-| `Burst mode` + `Use Speaker = true` | `.default` | `true` | `true` |
-| `Stream mode` + `Use Speaker = false` | `.voiceChat` | `false` | `false` |
-| `Stream mode` + `Use Speaker = true` | `.voiceChat` | `true` | `false` |
+| UI 状態 | `mode` | App が渡す `defaultToSpeaker` | App が渡す `prefersEchoCancelledInput` | SessionManager resolved |
+|---|---|---:|---:|---|
+| `Burst mode` + `Use Speaker = false` + `Echo Cancellation = false` | `.default` | `false` | `false` | echo cancellation は要求しない |
+| `Burst mode` + `Use Speaker = false` + `Echo Cancellation = true` | `.default` | `false` | `true` | echo cancellation を要求する |
+| `Burst mode` + `Use Speaker = true` + 明示 Echo Cancellation 希望なし | `.default` | `true` | `false` | speaker 出力として echo cancellation を package 側で解決する |
+| `Burst mode` + `Use Speaker = true` + 明示 Echo Cancellation 希望あり | `.default` | `true` | `true` | echo cancellation を要求し、speaker 出力としても同じ resolved 値になる |
+| `Stream mode` + `Use Speaker = false` | `.voiceChat` | `false` | `false` | voiceChat mode の route/processing に任せる |
+| `Stream mode` + `Use Speaker = true` | `.voiceChat` | `true` | `false` | voiceChat mode のまま speaker 出力を要求する |
 
 ## AudioInputStreamConfiguration
 

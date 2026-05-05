@@ -14,6 +14,7 @@
 | attack / release | package default | 固定 |
 | noise floor | package default | 固定 |
 | gate gain / ramp | package default | 固定 |
+| runtime snapshot | `VADGateRuntimeSnapshot` を `RTCRuntimePackageReport(kind: runtimeSnapshot)` と AudioMixer effect metadata に載せる | runtime report |
 
 `vadSensitivity` は App 画面から選ぶが、package の細かい VAD parameter を画面へ直接出さない。
 
