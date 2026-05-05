@@ -17,7 +17,7 @@ public final class WebRTCInternetRoute: RTCCallRoute {
     public var events: AsyncStream<RouteEvent> { eventSource.stream }
 
     private let eventSource = EventSource<RouteEvent>()
-    private let cloudflareConfiguration: CloudflareRealtimeConfiguration
+    private let cloudflareConfigurationProvider: @Sendable (CallStartRequest) -> CloudflareRealtimeConfiguration?
     private let signalingClient: WebRTCSignalingClient
     private let engine: NativeWebRTCEngine
     private var signalingTask: Task<Void, Never>?
@@ -30,7 +30,30 @@ public final class WebRTCInternetRoute: RTCCallRoute {
         signalingClient: WebRTCSignalingClient = CloudflareRealtimeSignalingClient(),
         engine: NativeWebRTCEngine = NativeWebRTCEngine()
     ) {
-        self.cloudflareConfiguration = cloudflareConfiguration
+        self.cloudflareConfigurationProvider = { _ in cloudflareConfiguration }
+        self.signalingClient = signalingClient
+        self.engine = engine
+        bindSignalingEvents()
+        bindEngineEvents()
+    }
+
+    public init(
+        cloudflareConfigurationProvider: @escaping @Sendable (CallStartRequest) -> CloudflareRealtimeConfiguration?,
+        signalingClient: WebRTCSignalingClient = CloudflareRealtimeSignalingClient(),
+        engine: NativeWebRTCEngine = NativeWebRTCEngine()
+    ) {
+        self.cloudflareConfigurationProvider = cloudflareConfigurationProvider
+        self.signalingClient = signalingClient
+        self.engine = engine
+        bindSignalingEvents()
+        bindEngineEvents()
+    }
+
+    public init(
+        signalingClient: WebRTCSignalingClient = CloudflareRealtimeSignalingClient(),
+        engine: NativeWebRTCEngine = NativeWebRTCEngine()
+    ) {
+        self.cloudflareConfigurationProvider = { _ in nil }
         self.signalingClient = signalingClient
         self.engine = engine
         bindSignalingEvents()
@@ -46,7 +69,7 @@ public final class WebRTCInternetRoute: RTCCallRoute {
         self.request = request
         guard engine.isAvailable else {
             eventSource.yield(.availabilityChanged(RouteAvailability(route: kind, isAvailable: false, reason: "Native WebRTC SDK is unavailable")))
-            eventSource.yield(.error(kind, .routeUnavailable(kind)))
+            eventSource.yield(.stateChanged(kind, .failed))
             return
         }
         await engine.prepareLocalAudio(peer: request.localPeer, format: request.audioFormat)
@@ -61,7 +84,12 @@ public final class WebRTCInternetRoute: RTCCallRoute {
         }
         guard engine.isAvailable else {
             eventSource.yield(.stateChanged(kind, .failed))
-            eventSource.yield(.error(kind, .routeUnavailable(kind)))
+            eventSource.yield(.availabilityChanged(RouteAvailability(route: kind, isAvailable: false, reason: "Native WebRTC SDK is unavailable")))
+            return
+        }
+        guard let cloudflareConfiguration = cloudflareConfigurationProvider(request) else {
+            eventSource.yield(.availabilityChanged(RouteAvailability(route: kind, isAvailable: false, reason: "WebRTC route configuration is unavailable")))
+            eventSource.yield(.stateChanged(kind, .failed))
             return
         }
         eventSource.yield(.stateChanged(kind, .connecting))

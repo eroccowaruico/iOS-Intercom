@@ -27,7 +27,7 @@
 | パス | 役割 | 代表型 |
 |---|---|---|
 | `Sources/RTC/Core` | アプリ向けの共通 contract | `CallSession`, `CallStartRequest`, `PeerDescriptor`, `RTCCredential`, `ApplicationDataMessage`, `AudioFrame`, `AudioFrameCodec`, `AudioCodecRegistry` |
-| `Sources/RTC/Routing` | 経路 plugin 境界と自動切替 | `RTCCallRoute`, `RouteManager`, `AnyRouteFactory`, `UnavailableCallSession` |
+| `Sources/RTC/Routing` | 経路 plugin 境界、session factory、自動切替 | `CallSessionFactory`, `CallSessionFactoryConfiguration`, `RTCCallRoute`, `RouteManager`, `AnyRouteFactory`, `UnavailableCallSession` |
 | `Sources/RTC/PacketAudio` | Multipeer 用 packet audio と wire payload | `PCM16AudioCodec`, `PCMAudioCodec`, `PacketAudioEnvelope`, `PacketCrypto`, `MultipeerWireMessage` |
 | `Sources/RTC/Multipeer` | 近距離 route 実装 | `MultipeerLocalRoute`, `MultipeerConnectionTransport`, `MultipeerPacketMediaSession` |
 | `Sources/RTC/WebRTC` | WebRTC 共通 contract と Cloudflare signaling 境界 | `WebRTCInternetRoute`, `NativeWebRTCEngine`, `CloudflareRealtimeConfiguration`, `WebRTCSignalingClient` |
@@ -79,6 +79,9 @@ flowchart TB
 | 型 | 説明 |
 |---|---|
 | `CallSession` | アプリが保持する単一の通話 facade。接続とmedia lifecycleを分けて操作する |
+| `CallSessionFactory` | `CallSessionFactoryConfiguration` から package-owned route set を構築し、`CallSession` を返す |
+| `CallSessionFactoryConfiguration` | local display name、route設定、packet audio codec registry、WebRTC route factory設定を渡す |
+| `WebRTCRouteFactoryConfiguration` | WebRTC route の signaling client、engine、Cloudflare configuration provider を差し替える |
 | `CallStartRequest` | local peer、期待peer、credential、audio format、route設定を渡す |
 | `CallRouteConfiguration` | 有効route、優先route、fallback、自動復帰、standby/warm設定を定義する |
 | `CallSessionEvent` | 接続状態、route状態、member、metrics、application data、errorを通知する |
@@ -144,7 +147,7 @@ flowchart TB
 | Audio/Codecとの対応 | `pcm16`、`mpeg4AACELDv2`、`opus` は `Audio/Codec.CodecIdentifier.rawValue` と同じ文字列にする |
 | codec設定 | `CallStartRequest.audioCodecConfiguration.preferredCodecs` に優先順を渡す。既定は `pcm16` とする |
 | codec実装 | `AudioFrameCodec` が `AudioFrame` から `EncodedAudioFrame` へのencodeと、逆方向のdecodeを提供する |
-| app bridge | アプリは `Audio/Codec.AudioCodec` のencode/decodeを `AnyAudioFrameCodec` または独自 `AudioFrameCodec` に包み、`AudioCodecRegistry` として `MultipeerLocalRoute` に渡す |
+| app bridge | アプリは `Audio/Codec.AudioCodec` のencode/decodeを `AnyAudioFrameCodec` または独自 `AudioFrameCodec` に包み、`AudioCodecRegistry` として `CallSessionFactoryConfiguration.packetAudioCodecRegistry` に渡す |
 | codec登録 | `AudioCodecRegistry` に複数の `AudioFrameCodec` を登録する。登録済みcodecだけがpacket audio routeで選択可能になる |
 | built-in codec | `PCM16AudioCodec` を標準提供する。既存の `PCMAudioCodec.encode/decode` はAudio/CodecのPCM16と同じsigned little-endian変換に揃える |
 | 未対応codec | 優先codecとroute対応codecが一致しない場合は `unsupportedAudioCodec` を通知し、routeをavailableにしない |
@@ -163,7 +166,7 @@ flowchart TB
 | package import | App -> RTC / App -> Audio/Codec | アプリtargetが `RTC` と `Codec` をimportする | `RTC` package manifestにAudio package dependencyを追加しない |
 | format変換 | App内 | `AudioFormatDescriptor` と `CodecAudioFormat` を同じsampleRate/channelCountで相互変換する | アプリがOSやroute別にformat差分を持ち込まない |
 | codec変換 | App内 | `EncodedAudioFrame` と `EncodedCodecFrame` を同じsequence/capturedAt/sampleCount/payloadで相互変換する | packet audio envelopeがAudio/Codecのdecodeに必要なmetadataを失わない |
-| registry注入 | App -> RTC | `AudioCodecRegistry(codecs:)` を作り `MultipeerLocalRoute(displayName:codecRegistry:packetAudioReceiveConfiguration:)` に渡す | `CallStartRequest.audioCodecConfiguration.preferredCodecs` の優先順でcodecが選ばれる |
+| registry注入 | App -> RTC | `AudioCodecRegistry(codecs:)` を作り `CallSessionFactoryConfiguration.packetAudioCodecRegistry` に渡す。RTC package が必要な route に registry を配る | `CallStartRequest.audioCodecConfiguration.preferredCodecs` の優先順でcodecが選ばれる |
 | built-in fallback | RTCのみ | `PCM16AudioCodec` を使用する | Audio/Codecをまだ接続しなくてもRTC単体テストとMultipeer packet audioが動作する |
 
 ## 音声責務
@@ -186,6 +189,8 @@ flowchart TB
 | `selectionMode.automaticFallbackAndRestore` | fallback後も優先routeを監視し、復帰可能なら戻す |
 | `startsStandbyConnections` | fallback候補routeを接続standbyまで進める |
 | `keepsPreviousRouteWarmDuringHandover` | handover中に旧routeを即切断せず、media fade後に停止する |
+
+アプリは route 実体を組み立てない。アプリは `CallSessionFactoryConfiguration` に `CallRouteConfiguration` と bridge 済みの `AudioCodecRegistry` を渡し、RTC package が `.multipeer` と `.webRTC` の route set を構築する。これにより route 追加、WebRTC engine 差し替え、signaling 差し替え、fallback policy は RTC package の責務として閉じる。
 
 ```mermaid
 sequenceDiagram

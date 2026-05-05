@@ -234,6 +234,53 @@ import Testing
     #expect(webRTC.sentApplicationData.isEmpty)
 }
 
+@Test func callSessionFactoryBuildsRoutesFromEnabledConfiguration() {
+    let configuration = CallSessionFactoryConfiguration(
+        localDisplayName: "local",
+        routeConfiguration: CallRouteConfiguration(
+            enabledRoutes: [.multipeer, .webRTC],
+            preferredRoute: .multipeer
+        )
+    )
+
+    let routeKinds = Set(CallSessionFactory.makeRoutes(configuration).map(\.kind))
+
+    #if canImport(MultipeerConnectivity)
+    #expect(routeKinds == [.multipeer, .webRTC])
+    #else
+    #expect(routeKinds == [.webRTC])
+    #endif
+}
+
+@Test func webRTCRouteWithoutConfigurationReportsUnavailableWithoutGlobalError() async {
+    let route = WebRTCInternetRoute(engine: FakeWebRTCEngine())
+    var iterator = route.events.makeAsyncIterator()
+
+    await route.prepare(makeRequest())
+    await route.startConnection()
+
+    var observedAvailability: RouteAvailability?
+    var observedError: CallSessionError?
+    for _ in 0..<5 {
+        guard let event = await iterator.next() else { break }
+        switch event {
+        case .availabilityChanged(let availability) where availability.isAvailable == false:
+            observedAvailability = availability
+        case .error(_, let error):
+            observedError = error
+        default:
+            break
+        }
+        if observedAvailability != nil {
+            break
+        }
+    }
+
+    #expect(observedAvailability?.route == .webRTC)
+    #expect(observedAvailability?.reason == "WebRTC route configuration is unavailable")
+    #expect(observedError == nil)
+}
+
 @Test func routeManagerBroadcastsRuntimeStatusWhenConnectionStarts() async throws {
     let multipeer = FakeRoute(kind: .multipeer, supportsPacketAudio: true)
     let configuration = CallRouteConfiguration(enabledRoutes: [.multipeer], preferredRoute: .multipeer)
