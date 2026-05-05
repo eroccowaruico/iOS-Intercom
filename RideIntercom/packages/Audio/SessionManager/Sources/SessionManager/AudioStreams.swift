@@ -96,23 +96,27 @@ public struct AudioStreamSnapshot: Equatable, Sendable {
     public var isRunning: Bool
     public var format: AudioStreamFormat
     public var processedFrameCount: UInt64
+    public var inputVoiceProcessing: AudioInputVoiceProcessingConfiguration?
 
     public init(
         direction: AudioStreamDirection,
         isRunning: Bool,
         format: AudioStreamFormat,
-        processedFrameCount: UInt64
+        processedFrameCount: UInt64,
+        inputVoiceProcessing: AudioInputVoiceProcessingConfiguration? = nil
     ) {
         self.direction = direction
         self.isRunning = isRunning
         self.format = format
         self.processedFrameCount = processedFrameCount
+        self.inputVoiceProcessing = inputVoiceProcessing
     }
 }
 
 public enum AudioStreamOperation: Equatable, Sendable {
     case startInputCapture
     case stopInputCapture
+    case updateInputVoiceProcessing(AudioInputVoiceProcessingConfiguration)
     case startOutputRenderer
     case stopOutputRenderer
     case scheduleOutputFrame
@@ -171,7 +175,15 @@ public protocol AudioInputStreamBackend: AnyObject {
         configuration: AudioInputStreamConfiguration,
         onFrame: @escaping (AudioStreamFrame) -> Void
     ) throws
+    func updateVoiceProcessing(_ configuration: AudioInputVoiceProcessingConfiguration) throws
     func stopCapture() throws
+}
+
+public extension AudioInputStreamBackend {
+    func updateVoiceProcessing(_ configuration: AudioInputVoiceProcessingConfiguration) throws {
+        _ = configuration
+        throw AudioStreamError.unsupportedOnCurrentPlatform
+    }
 }
 
 public protocol AudioOutputStreamBackend: AnyObject {
@@ -216,6 +228,7 @@ public final class AudioInputStreamCapture {
         guard !isRunning else {
             return emitReport(.startInputCapture, .ignored(.alreadyRunning))
         }
+        applyVoiceProcessing(configuration.voiceProcessing)
         do {
             try backend.startCapture(configuration: configuration) { [weak self] frame in
                 self?.handleCapturedFrame(frame)
@@ -241,6 +254,26 @@ public final class AudioInputStreamCapture {
         }
     }
 
+    @discardableResult
+    public func updateVoiceProcessing(
+        _ voiceProcessing: AudioInputVoiceProcessingConfiguration
+    ) -> AudioStreamOperationReport {
+        configuration.voiceProcessing = voiceProcessing
+        return applyVoiceProcessing(voiceProcessing)
+    }
+
+    @discardableResult
+    private func applyVoiceProcessing(
+        _ voiceProcessing: AudioInputVoiceProcessingConfiguration
+    ) -> AudioStreamOperationReport {
+        do {
+            try backend.updateVoiceProcessing(voiceProcessing)
+            return emitReport(.updateInputVoiceProcessing(voiceProcessing), .applied)
+        } catch {
+            return emitReport(.updateInputVoiceProcessing(voiceProcessing), Self.operationResult(for: error))
+        }
+    }
+
     private func handleCapturedFrame(_ frame: AudioStreamFrame) {
         capturedFrameCount += 1
         runtimeEventHandler?(.inputFrame(frame))
@@ -251,7 +284,8 @@ public final class AudioInputStreamCapture {
             direction: .input,
             isRunning: isRunning,
             format: configuration.format,
-            processedFrameCount: capturedFrameCount
+            processedFrameCount: capturedFrameCount,
+            inputVoiceProcessing: configuration.voiceProcessing
         )
     }
 
@@ -373,16 +407,29 @@ public final class AudioOutputStreamRenderer {
 
 private extension AudioInputStreamCapture {
     static func operationResult(for error: Error) -> AudioStreamOperationResult {
-        switch error as? AudioStreamError {
-        case .unsupportedOnCurrentPlatform:
-            .ignored(.unsupportedOnCurrentPlatform)
-        case .invalidFrame(let message):
-            .failed(.invalidFrame(message))
-        case .engineOperationFailed(let message):
-            .failed(.engineOperationFailed(message))
-        case nil:
-            .failed(.unexpected(String(describing: error)))
+        if let error = error as? AudioStreamError {
+            switch error {
+            case .unsupportedOnCurrentPlatform:
+                return .ignored(.unsupportedOnCurrentPlatform)
+            case .invalidFrame(let message):
+                return .failed(.invalidFrame(message))
+            case .engineOperationFailed(let message):
+                return .failed(.engineOperationFailed(message))
+            }
         }
+        if let error = error as? AudioSessionManagerError {
+            switch error {
+            case .operationUnsupportedOnCurrentPlatform:
+                return .ignored(.unsupportedOnCurrentPlatform)
+            case .coreAudioOperationFailed(let message):
+                return .failed(.engineOperationFailed(message))
+            case .echoCancelledInputRequiresDefaultMode:
+                return .failed(.invalidFrame("echo cancelled input requires default mode"))
+            case .inputSelectionUnsupported, .outputSelectionUnsupported, .deviceNotFound:
+                return .failed(.unexpected(String(describing: error)))
+            }
+        }
+        return .failed(.unexpected(String(describing: error)))
     }
 }
 
@@ -409,7 +456,6 @@ public final class SystemAudioInputStreamBackend: AudioInputStreamBackend {
         configuration: AudioInputStreamConfiguration,
         onFrame: @escaping (AudioStreamFrame) -> Void
     ) throws {
-        try voiceProcessingManager.configure(configuration.voiceProcessing)
         let inputNode = engine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: bus)
         inputNode.removeTap(onBus: bus)
@@ -436,6 +482,15 @@ public final class SystemAudioInputStreamBackend: AudioInputStreamBackend {
             inputNode.removeTap(onBus: bus)
             throw AudioStreamError.engineOperationFailed(error.localizedDescription)
         }
+    }
+
+    public func updateVoiceProcessing(_ configuration: AudioInputVoiceProcessingConfiguration) throws {
+        #if os(iOS)
+        try voiceProcessingManager.configure(configuration)
+        #else
+        _ = configuration
+        throw AudioStreamError.unsupportedOnCurrentPlatform
+        #endif
     }
 
     public func stopCapture() throws {

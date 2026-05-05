@@ -55,6 +55,114 @@ import AVFAudio
     ))))
 }
 
+@Test func inputCaptureUpdatesVoiceProcessingThroughStreamFacade() {
+    let backend = FakeInputStreamBackend()
+    let capture = AudioInputStreamCapture(backend: backend)
+    let updated = AudioInputVoiceProcessingConfiguration(
+        soundIsolationEnabled: false,
+        otherAudioDuckingEnabled: true,
+        duckingLevel: .normal,
+        inputMuted: true
+    )
+    var events: [AudioStreamRuntimeEvent] = []
+    capture.setRuntimeEventHandler { event in
+        events.append(event)
+    }
+
+    let report = capture.updateVoiceProcessing(updated)
+
+    #expect(capture.configuration.voiceProcessing == updated)
+    #expect(report.operation == .updateInputVoiceProcessing(updated))
+    #expect(report.result == .applied)
+    #expect(report.snapshot.isRunning == false)
+    #expect(report.snapshot.inputVoiceProcessing == updated)
+    #expect(backend.events == [.updateVoiceProcessing(updated)])
+    #expect(events == [.operation(report)])
+}
+
+@Test func inputCaptureAppliesInitialVoiceProcessingBeforeStarting() {
+    let backend = FakeInputStreamBackend()
+    let voiceProcessing = AudioInputVoiceProcessingConfiguration(
+        soundIsolationEnabled: true,
+        otherAudioDuckingEnabled: true,
+        duckingLevel: .normal,
+        inputMuted: false
+    )
+    let configuration = AudioInputStreamConfiguration(voiceProcessing: voiceProcessing)
+    let capture = AudioInputStreamCapture(configuration: configuration, backend: backend)
+    var reports: [AudioStreamOperationReport] = []
+    capture.setRuntimeEventHandler { event in
+        if case .operation(let report) = event {
+            reports.append(report)
+        }
+    }
+
+    let start = capture.start()
+
+    #expect(start.result == .applied)
+    #expect(backend.events == [
+        .updateVoiceProcessing(voiceProcessing),
+        .startCapture,
+    ])
+    #expect(reports.map(\.operation) == [
+        .updateInputVoiceProcessing(voiceProcessing),
+        .startInputCapture,
+    ])
+    #expect(reports.first?.snapshot.inputVoiceProcessing == voiceProcessing)
+}
+
+@Test func inputCaptureUpdatesVoiceProcessingWhileRunningWithoutRestarting() {
+    let backend = FakeInputStreamBackend()
+    let initial = AudioInputVoiceProcessingConfiguration(soundIsolationEnabled: true)
+    let updated = AudioInputVoiceProcessingConfiguration(
+        soundIsolationEnabled: false,
+        otherAudioDuckingEnabled: true,
+        duckingLevel: .normal,
+        inputMuted: true
+    )
+    let capture = AudioInputStreamCapture(
+        configuration: AudioInputStreamConfiguration(voiceProcessing: initial),
+        backend: backend
+    )
+
+    _ = capture.start()
+    let report = capture.updateVoiceProcessing(updated)
+
+    #expect(report.result == .applied)
+    #expect(report.snapshot.isRunning)
+    #expect(report.snapshot.inputVoiceProcessing == updated)
+    #expect(backend.startCount == 1)
+    #expect(backend.stopCount == 0)
+    #expect(backend.events == [
+        .updateVoiceProcessing(initial),
+        .startCapture,
+        .updateVoiceProcessing(updated),
+    ])
+}
+
+@Test func inputCaptureContinuesStartingWhenVoiceProcessingIsUnsupported() {
+    let backend = FakeInputStreamBackend()
+    let voiceProcessing = AudioInputVoiceProcessingConfiguration(inputMuted: true)
+    backend.updateVoiceProcessingError = AudioStreamError.unsupportedOnCurrentPlatform
+    let capture = AudioInputStreamCapture(
+        configuration: AudioInputStreamConfiguration(voiceProcessing: voiceProcessing),
+        backend: backend
+    )
+    var reports: [AudioStreamOperationReport] = []
+    capture.setRuntimeEventHandler { event in
+        if case .operation(let report) = event {
+            reports.append(report)
+        }
+    }
+
+    let start = capture.start()
+
+    #expect(start.result == .applied)
+    #expect(backend.startCount == 1)
+    #expect(reports.first?.operation == .updateInputVoiceProcessing(voiceProcessing))
+    #expect(reports.first?.result == .ignored(.unsupportedOnCurrentPlatform))
+}
+
 @Test func inputCaptureMapsUnsupportedBackendToIgnoredReport() {
     let backend = FakeInputStreamBackend()
     backend.startError = AudioStreamError.unsupportedOnCurrentPlatform
@@ -127,9 +235,17 @@ import AVFAudio
 #endif
 
 private final class FakeInputStreamBackend: AudioInputStreamBackend {
+    enum Event: Equatable {
+        case updateVoiceProcessing(AudioInputVoiceProcessingConfiguration)
+        case startCapture
+        case stopCapture
+    }
+
+    var events: [Event] = []
     var startCount = 0
     var stopCount = 0
     var startError: Error?
+    var updateVoiceProcessingError: Error?
     var stopError: Error?
     var onFrame: ((AudioStreamFrame) -> Void)?
 
@@ -137,6 +253,7 @@ private final class FakeInputStreamBackend: AudioInputStreamBackend {
         configuration: AudioInputStreamConfiguration,
         onFrame: @escaping (AudioStreamFrame) -> Void
     ) throws {
+        events.append(.startCapture)
         startCount += 1
         if let startError {
             throw startError
@@ -144,7 +261,15 @@ private final class FakeInputStreamBackend: AudioInputStreamBackend {
         self.onFrame = onFrame
     }
 
+    func updateVoiceProcessing(_ configuration: AudioInputVoiceProcessingConfiguration) throws {
+        events.append(.updateVoiceProcessing(configuration))
+        if let updateVoiceProcessingError {
+            throw updateVoiceProcessingError
+        }
+    }
+
     func stopCapture() throws {
+        events.append(.stopCapture)
         stopCount += 1
         if let stopError {
             throw stopError

@@ -17,11 +17,11 @@
 | session mode | 標準は `default`。アプリが明示した場合のみ `voiceChat` を使う |
 | category options | iOSで利用可能な通話向けoptionを標準で有効にする |
 | echo cancellation | `mode == default` の場合のみ `setPrefersEchoCancelledInput` を適用する |
-| advanced ducking | `AVAudioInputNode.voiceProcessingOtherAudioDuckingConfiguration` を `AudioInputVoiceProcessingManager` から制御する |
+| advanced ducking | `AudioInputStreamCapture.updateVoiceProcessing(_:)` から `AVAudioInputNode.voiceProcessingOtherAudioDuckingConfiguration` を制御する |
 | マイクミュート | 入力エンジンを止めず `isVoiceProcessingInputMuted` でミュートする |
 | device selection | アプリからは入力/出力とも `AudioSessionDeviceSelection` で指定する |
-| stream I/O | `AudioInputStreamCapture` と `AudioOutputStreamRenderer` で AVAudioEngine input tap / player node を隠す |
-| OS差分 | `SystemAudioSessionBackend` と `SystemAudioInputVoiceProcessingBackend` に閉じ込め、非対応OSで呼ばれたOS固有操作は throw で止めず `ignored` report として扱う |
+| stream I/O | `AudioInputStreamCapture` と `AudioOutputStreamRenderer` で AVAudioEngine input tap / player node / runtime voice processing更新を隠す |
+| OS差分 | `SystemAudioSessionBackend` と `SystemAudioInputStreamBackend` に閉じ込め、非対応OSで呼ばれたOS固有操作は throw で止めず `ignored` report として扱う |
 | テスト | fake backendで設定解決、呼び出し順序、advanced ducking、ミュート、stream I/O report/eventを検証し、実マイク/実スピーカーへ依存しない |
 
 ## 公開API
@@ -29,8 +29,8 @@
 | 型 | 役割 |
 |---|---|
 | `AudioSessionManager` | category / mode / options、入力/出力選択、active切替、snapshot取得を行う facade |
-| `AudioInputVoiceProcessingManager` | input node の voice processing、advanced ducking、入力ミュートを行う facade |
-| `AudioInputStreamCapture` | input tap を開始停止し、captureした PCM frame を runtime event として渡す facade |
+| `AudioInputVoiceProcessingManager` | input node の voice processing、advanced ducking、入力ミュートを行う低レベルhelper。アプリ向けの主入口にはしない |
+| `AudioInputStreamCapture` | input tap の開始停止、初期voice processing適用、実行中voice processing更新、captureした PCM frame の runtime event 通知を行う facade |
 | `AudioOutputStreamRenderer` | PCM frame を output renderer へ schedule し、出力開始停止と schedule 結果を report する facade |
 | `AudioSessionConfiguration` | アプリから渡すsession希望設定。mode、speaker既定、echo cancellation、入力/出力選択を持つ |
 | `AudioInputVoiceProcessingConfiguration` | アプリから渡すinput node希望設定。sound isolation、other audio ducking、ducking level、入力ミュートを持つ |
@@ -42,9 +42,9 @@
 | `AudioSessionSnapshot` | 利用可能な入力/出力、現在の入力/出力、active状態を返す |
 | `AudioStreamFormat` | stream PCM のsample rateとchannel countを表す。範囲外入力は安全域へ丸める |
 | `AudioStreamFrame` | sequence、format、timestamp、interleaved Float PCM samples、levelを持つ |
-| `AudioStreamSnapshot` | input/output stream のrunning状態、format、処理済みframe数を返す |
-| `AudioStreamOperationReport` | stream開始停止、output scheduleの結果と確認snapshotを返す |
-| `AudioStreamRuntimeEvent` | stream operation、input frame、output scheduleを realtime に通知する |
+| `AudioStreamSnapshot` | input/output stream のrunning状態、format、処理済みframe数、input streamの現在要求voice processing設定を返す |
+| `AudioStreamOperationReport` | stream開始停止、input voice processing更新、output scheduleの結果と確認snapshotを返す |
+| `AudioStreamRuntimeEvent` | stream operation、input voice processing更新、input frame、output scheduleを realtime に通知する |
 | `AudioSessionSnapshotChange` | 入出力 device / route 変更理由と変更後snapshotを返す |
 | `AudioSessionSnapshotChangeReason` | route変更、device一覧変更、default input/output変更、不明変更を表す |
 | `AudioSessionRouteChangeReason` | iOS route change の new/old device、category変更、override、sleep復帰、route構成変更などをOS型なしで表す |
@@ -55,10 +55,10 @@
 | `AudioInputStreamBackend` | input capture のテスト/OS差し替え用backend境界 |
 | `AudioOutputStreamBackend` | output renderer のテスト/OS差し替え用backend境界 |
 | `AudioSessionBackend` | session制御のテスト/OS差し替え用backend境界 |
-| `AudioInputVoiceProcessingBackend` | input node制御のテスト/OS差し替え用backend境界 |
+| `AudioInputVoiceProcessingBackend` | input node制御のテスト/OS差し替え用backend境界。標準のアプリ利用では `AudioInputStreamBackend.updateVoiceProcessing(_:)` の内側に隠す |
 | `SystemAudioSessionBackend` | iOSでは `AVAudioSession`、macOSではCoreAudio default deviceを扱う標準backend |
 | `SystemAudioInputVoiceProcessingBackend` | 全OSで同じ初期化と操作を持つ標準backend。iOSでは `AVAudioInputNode` 注入時だけ適用し、macOSまたは未注入時はno-opにする |
-| `SystemAudioInputStreamBackend` | `AVAudioEngine.inputNode` のtapを PCM stream eventへ正規化する標準backend |
+| `SystemAudioInputStreamBackend` | `AVAudioEngine.inputNode` のtapとvoice processing更新を PCM stream event/reportへ正規化する標準backend |
 | `SystemAudioOutputStreamBackend` | `AVAudioPlayerNode` で PCM stream frame を出力へscheduleする標準backend |
 
 ## OS差分の扱い
@@ -72,11 +72,11 @@
 | CoreAudio device ID入力 | 利用可能入力IDと一致する場合だけ適用する | default input deviceへ適用する | 共通の `.device(id)` を使う |
 | CoreAudio device ID出力 | `ignored(.unsupportedSelection)` | default output deviceへ適用する | macOS向け指定をiOSで呼んでも失敗しない |
 | 入出力変更通知 | `AVAudioSession.routeChangeNotification` を route change 理由付きsnapshot変更に正規化する | CoreAudio devices / default device listener をsnapshot変更に正規化する | OS別通知を購読せず、同じsnapshot変更handlerを見る |
-| voice processing / advanced ducking / input mute | `AVAudioInputNode` 注入時だけ適用する | no-op | `SystemAudioInputVoiceProcessingBackend(inputNode:)` または空初期化を同じように使う |
+| voice processing / advanced ducking / input mute | `AudioInputStreamCapture.updateVoiceProcessing(_:)` から `AVAudioInputNode` に適用する | `ignored(.unsupportedOnCurrentPlatform)` として扱う | stream facadeへ同じ `AudioInputVoiceProcessingConfiguration` を渡す |
 | input capture | `AVAudioEngine.inputNode.installTap` でPCM frameを通知する | 同じAPIで `AVAudioEngine.inputNode.installTap` を使う | OS別tap実装を持たず、同じ `AudioInputStreamCapture` を使う |
 | output render | `AVAudioPlayerNode.scheduleBuffer` でPCM frameを出力へ送る | 同じAPIで `AVAudioPlayerNode.scheduleBuffer` を使う | OS別renderer実装を持たず、同じ `AudioOutputStreamRenderer` を使う |
 
-補足: no-opは「そのOSに対応する実体がない操作を例外として外へ出さない」ための扱いである。Manager は no-op、device不在、継続可能な失敗を `AudioSessionOperationReport` と `AudioSessionRuntimeEvent` で返す。App は OS 分岐せず、適用結果だけを見る。
+補足: no-opは「そのOSに対応する実体がない操作を例外として外へ出さない」ための扱いである。Session / Stream facade は no-op、device不在、継続可能な失敗を `AudioSessionOperationReport`、`AudioStreamOperationReport`、各 runtime event で返す。App は OS 分岐せず、適用結果だけを見る。
 
 ## Session設定マトリクス
 
@@ -127,7 +127,7 @@
 
 補足: `voiceChat` は他アプリ音声や出力経路へ大きく影響する可能性があるため、アプリが明示した場合だけ使う。
 
-補足: `setPrefersEchoCancelledInput` と `AVAudioInputNode.setVoiceProcessingEnabled` は別の適用点である。SessionManagerは両方を扱うが、session設定とinput node設定を別managerに分け、再構成タイミングをアプリが制御できるようにする。
+補足: `setPrefersEchoCancelledInput` と `AVAudioInputNode.setVoiceProcessingEnabled` は別の適用点である。SessionManagerは両方を扱うが、アプリの主入口は session facade と input stream facade に分ける。input node の manager / backend 構成は package 内に隠し、アプリは start 前も start 後も `AudioInputStreamCapture.updateVoiceProcessing(_:)` だけを呼ぶ。
 
 ## 入出力デバイス選択
 
@@ -150,8 +150,9 @@
 | input node | 2 | `setAdvancedDucking(enabled:level:)` | voice processingが有効な間にadvanced duckingを設定する |
 | input node | 3 | `setVoiceProcessingBypassed(...)` | sound isolationだけをbypassし、duckingだけ維持する状態を作る |
 | input node | 4 | `setInputMuted(...)` | 入力を止めずにミュート状態だけ反映する |
-| input stream | 1 | `AudioInputStreamCapture.start()` | voice processingを適用し、input tapをinstallしてengineを開始する |
-| input stream | 2 | `AudioInputStreamCapture.stop()` | input tapをremoveし、engineを停止する |
+| input stream | 1 | `AudioInputStreamCapture.updateVoiceProcessing(...)` | 未開始時も実行中も同じAPIでsound isolation、ducking、input muteの希望設定を受け取り、適用結果をreport/eventにする |
+| input stream | 2 | `AudioInputStreamCapture.start()` | 現在のvoice processing設定を適用してからinput tapをinstallし、engineを開始する。voice processingが非対応または継続可能失敗でもcapture開始は続行する |
+| input stream | 3 | `AudioInputStreamCapture.stop()` | input tapをremoveし、engineを停止する |
 | output stream | 1 | `AudioOutputStreamRenderer.start()` | player nodeをoutputへ接続してengine/playerを開始する |
 | output stream | 2 | `AudioOutputStreamRenderer.schedule(_:)` | format一致を確認し、PCM frameをoutput queueへ渡す |
 | output stream | 3 | `AudioOutputStreamRenderer.stop()` | player nodeとengineを停止する |
@@ -161,6 +162,8 @@
 補足: `AudioSessionManager.configure` は不正な設定組み合わせ以外では、可能な操作を最後まで試行する。環境差による unsupported、device不在、CoreAudioの一時失敗などは操作ごとの report に残し、設定全体を中断しない。
 
 補足: マイクはmedia中に常時ONの入力ノードとして維持する。ミュート切替、ducking level切替、sound isolation切替は入力ノードを停止せず、可能な限りプロパティ更新で反映する。
+
+補足: `AudioInputVoiceProcessingConfiguration` は `AudioInputStreamConfiguration` の一部であり、実行中更新も `AudioInputStreamCapture` が受け付ける。アプリは `AVAudioEngine.inputNode`、`SystemAudioInputStreamBackend`、`AudioInputVoiceProcessingManager` の組み立てを知らない。
 
 ## Runtime report / event
 
@@ -181,12 +184,14 @@
 |---|---|
 | input開始結果 | `AudioInputStreamCapture.start()` は `AudioStreamOperationReport` を返す |
 | input停止結果 | `AudioInputStreamCapture.stop()` は `AudioStreamOperationReport` を返す |
+| input voice processing更新結果 | `AudioInputStreamCapture.updateVoiceProcessing(_:)` は `AudioStreamOperationReport` を返す。未開始時も実行中も同じ呼び出しで使う |
 | output開始結果 | `AudioOutputStreamRenderer.start()` は `AudioStreamOperationReport` を返す |
 | output停止結果 | `AudioOutputStreamRenderer.stop()` は `AudioStreamOperationReport` を返す |
 | output schedule結果 | `AudioOutputStreamRenderer.schedule(_:)` は `AudioStreamOperationReport` を返す |
 | input realtime通知 | capture済み `AudioStreamFrame` は `AudioStreamRuntimeEvent.inputFrame` として届く |
 | output realtime通知 | schedule済み `AudioStreamFrame` は `AudioStreamRuntimeEvent.outputFrameScheduled` として届く |
 | stream snapshot | direction、running状態、format、処理済みframe数を返す |
+| input voice processing snapshot | input stream snapshotは現在要求されている `AudioInputVoiceProcessingConfiguration` を返す。output streamでは `nil` とする |
 | ignored | すでに開始済み、すでに停止済み、platform非対応を表す |
 | failed | frame format不一致、PCM buffer生成失敗、engine start失敗などを表す |
 | frame samples | `AudioStreamFrame.samples` は interleaved Float PCM とする。Codec package の `PCMCodecFrame.samples` と同じ並びで扱える |
@@ -242,23 +247,47 @@ try sessionManager.configure(
 )
 try sessionManager.setActive(true)
 
-let inputManager = AudioInputVoiceProcessingManager(
-    backend: SystemAudioInputVoiceProcessingBackend(inputNode: audioEngine.inputNode)
+let inputCapture = AudioInputStreamCapture(
+    configuration: AudioInputStreamConfiguration(
+        format: AudioStreamFormat(sampleRate: 48_000, channelCount: 1),
+        bufferFrameCount: 128,
+        voiceProcessing: AudioInputVoiceProcessingConfiguration(
+            soundIsolationEnabled: true,
+            otherAudioDuckingEnabled: true,
+            duckingLevel: .normal,
+            inputMuted: false
+        )
+    )
 )
-try inputManager.configure(
+inputCapture.setRuntimeEventHandler { event in
+    // operation report、capture frame、output schedule reportを購読する
+}
+let startReport = inputCapture.start()
+```
+
+マイクミュートやducking変更時は入力エンジンを停止しない。
+
+```swift
+let muteReport = inputCapture.updateVoiceProcessing(
     AudioInputVoiceProcessingConfiguration(
         soundIsolationEnabled: true,
-        otherAudioDuckingEnabled: true,
-        duckingLevel: .normal,
-        inputMuted: false
+        otherAudioDuckingEnabled: false,
+        duckingLevel: .minimum,
+        inputMuted: true
     )
 )
 ```
 
-マイクミュート時は入力エンジンを停止しない。
+macOSなどvoice processing実体がない環境でも同じ呼び出しを使う。
 
 ```swift
-try inputManager.setInputMuted(true)
+switch muteReport.result {
+case .applied, .ignored:
+    break
+case .failed:
+    // 継続可能でない失敗だけUIやdiagnosticsへ反映する
+    break
+}
 ```
 
 `voiceChat` を使う場合は echo cancellation preference を同時指定しない。
@@ -291,6 +320,8 @@ try sessionManager.configure(
 | input mute | 入力停止ではなく `setInputMuted` として反映すること |
 | stream format | sample rate、channel count、buffer frame数が安全域へ正規化されること |
 | input stream report | start/stop、already stopped、unsupported backendがreportへ正規化されること |
+| input stream voice processing update | `AudioInputStreamCapture.updateVoiceProcessing(_:)` が未開始時も実行中も設定を受け取り、report snapshotとruntime eventへ反映すること |
+| input stream voice processing start order | `AudioInputStreamCapture.start()` が現在のvoice processing設定を適用してからcaptureを開始し、voice processing非対応でもcapture開始を継続すること |
 | input stream event | fake backendからのcapture frameがruntime eventとして届くこと |
 | output stream report | start/schedule、format不一致がreportへ正規化されること |
 | output stream buffer | `AudioStreamFrame` が `AVAudioPCMBuffer` とround-tripできること |
