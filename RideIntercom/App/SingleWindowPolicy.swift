@@ -1,10 +1,10 @@
-import Foundation
-
 #if os(macOS)
 import AppKit
 
 @MainActor
 enum SingleWindowPolicy {
+    static let mainWindowID = "main"
+
     private static let preferredContentSize = NSSize(width: 585, height: 844)
     private static var didApplyDefaultSize = false
 

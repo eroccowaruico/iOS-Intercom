@@ -1,12 +1,16 @@
 import Foundation
 import AVFAudio
+import AudioMixer
 
 final class SystemAudioOutputRenderer: AudioOutputRendering {
     private let engine: AVAudioEngine
+    private var mixer: AudioMixer
     private let notificationCenter: NotificationCenter
     private let format: AVAudioFormat
     private var playerNode: AVAudioPlayerNode
+    private var outputBus: MixerBus?
     private var isConfigured = false
+    private var isRoutedToOutput = false
     private var configurationChangeObserver: NSObjectProtocol?
     private var shouldResumeAfterConfigurationChange = false
 
@@ -26,6 +30,7 @@ final class SystemAudioOutputRenderer: AudioOutputRendering {
             channels: channelCount,
             interleaved: false
         )!
+        self.mixer = AudioMixer(engine: engine, format: format)
         configurationChangeObserver = notificationCenter.addObserver(
             forName: .AVAudioEngineConfigurationChange,
             object: engine,
@@ -37,7 +42,7 @@ final class SystemAudioOutputRenderer: AudioOutputRendering {
 
     func start() throws {
         if !isConfigured {
-            configureGraph()
+            try configureGraph()
         }
 
         try startPlaybackIfNeeded()
@@ -46,7 +51,7 @@ final class SystemAudioOutputRenderer: AudioOutputRendering {
     func stop() {
         shouldResumeAfterConfigurationChange = false
         playerNode.stop()
-        engine.stop()
+        mixer.stop()
     }
 
     func schedule(samples: [Float]) {
@@ -70,20 +75,24 @@ final class SystemAudioOutputRenderer: AudioOutputRendering {
         }
     }
 
-    private func configureGraph() {
+    private func configureGraph() throws {
         if engine.attachedNodes.contains(playerNode) {
             engine.disconnectNodeOutput(playerNode)
             engine.detach(playerNode)
         }
-        engine.attach(playerNode)
-        engine.connect(playerNode, to: engine.mainMixerNode, format: format)
+        let bus = try mixer.createBus("output")
+        try bus.addSource(playerNode)
+        if !isRoutedToOutput {
+            try mixer.routeToOutput(bus)
+            isRoutedToOutput = true
+        }
+        outputBus = bus
         isConfigured = true
     }
 
     private func startPlaybackIfNeeded() throws {
         if !engine.isRunning {
-            engine.prepare()
-            try engine.start()
+            try mixer.start()
         }
         if !playerNode.isPlaying {
             playerNode.play()
@@ -93,11 +102,26 @@ final class SystemAudioOutputRenderer: AudioOutputRendering {
     private func handleEngineConfigurationChange() {
         shouldResumeAfterConfigurationChange = engine.isRunning || playerNode.isPlaying || shouldResumeAfterConfigurationChange
         playerNode.stop()
+        if engine.attachedNodes.contains(playerNode) {
+            engine.disconnectNodeOutput(playerNode)
+            engine.detach(playerNode)
+        }
+        if let outputBus {
+            engine.disconnectNodeOutput(outputBus.inputMixer)
+            engine.disconnectNodeOutput(outputBus.faderMixer)
+            engine.disconnectNodeInput(outputBus.inputMixer)
+            engine.disconnectNodeInput(outputBus.faderMixer)
+            engine.detach(outputBus.inputMixer)
+            engine.detach(outputBus.faderMixer)
+        }
         engine.stop()
         engine.reset()
+        mixer = AudioMixer(engine: engine, format: format)
         playerNode = AVAudioPlayerNode()
+        outputBus = nil
+        isRoutedToOutput = false
         isConfigured = false
-        configureGraph()
+        try? configureGraph()
         guard shouldResumeAfterConfigurationChange else { return }
         try? startPlaybackIfNeeded()
     }

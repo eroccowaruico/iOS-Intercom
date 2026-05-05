@@ -10,6 +10,7 @@
 		9306F0282FA8DFBA0030B045 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9306F0272FA8DFBA0030B045 /* AVFoundation.framework */; };
 		9306F02A2FA8DFD30030B045 /* AVFAudio.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9306F0292FA8DFD30030B045 /* AVFAudio.framework */; };
 		9306F0932FA8E0D40030B045 /* Codec in Frameworks */ = {isa = PBXBuildFile; productRef = 9306F0922FA8E0D40030B045 /* Codec */; };
+		9306F0962FA8E5000030B045 /* SessionManager in Frameworks */ = {isa = PBXBuildFile; productRef = 9306F0952FA8E5000030B045 /* SessionManager */; };
 		934630852F9C0001001548C3 /* RTC in Frameworks */ = {isa = PBXBuildFile; productRef = 934630842F9C0001001548C3 /* RTC */; };
 		9374C4B82FA364F000D259B2 /* InMemoryLogging in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4B72FA364F000D259B2 /* InMemoryLogging */; };
 		9374C4BA2FA364F000D259B2 /* Logging in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4B92FA364F000D259B2 /* Logging */; };
@@ -19,7 +20,6 @@
 		9374C4C32FA3657600D259B2 /* PeakLimiter in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4C22FA3657600D259B2 /* PeakLimiter */; };
 		9374C4C52FA3657600D259B2 /* SoundIsolation in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4C42FA3657600D259B2 /* SoundIsolation */; };
 		9374C4C72FA3657600D259B2 /* VADGate in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4C62FA3657600D259B2 /* VADGate */; };
-		9374C4CA2FA3657700D259B2 /* AudioUnit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9374C4C82FA3657700D259B2 /* AudioUnit.framework */; };
 		9374C4CB2FA3657700D259B2 /* AudioToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9374C4C92FA3657700D259B2 /* AudioToolbox.framework */; };
 		9374C4D82FA3670400D259B2 /* MultipeerConnectivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9374C4D72FA3670400D259B2 /* MultipeerConnectivity.framework */; };
 		93C60CE62FA3B46A00841E64 /* SafetyKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 93C60CE52FA3B46A00841E64 /* SafetyKit.framework */; platformFilters = (ios, macos, ); };
@@ -50,7 +50,6 @@
 /* Begin PBXFileReference section */
 		9306F0272FA8DFBA0030B045 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk/System/Library/Frameworks/AVFoundation.framework; sourceTree = DEVELOPER_DIR; };
 		9306F0292FA8DFD30030B045 /* AVFAudio.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFAudio.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk/System/Library/Frameworks/AVFAudio.framework; sourceTree = DEVELOPER_DIR; };
-		9374C4C82FA3657700D259B2 /* AudioUnit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioUnit.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk/System/Library/Frameworks/AudioUnit.framework; sourceTree = DEVELOPER_DIR; };
 		9374C4C92FA3657700D259B2 /* AudioToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioToolbox.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk/System/Library/Frameworks/AudioToolbox.framework; sourceTree = DEVELOPER_DIR; };
 		9374C4D72FA3670400D259B2 /* MultipeerConnectivity.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MultipeerConnectivity.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk/System/Library/Frameworks/MultipeerConnectivity.framework; sourceTree = DEVELOPER_DIR; };
 		93C60CE32FA3B45100841E64 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk/System/Library/Frameworks/Security.framework; sourceTree = DEVELOPER_DIR; };
@@ -119,8 +118,8 @@
 				93DCB0832FA3864000B921FA /* CryptoKit.framework in Frameworks */,
 				9374C4D82FA3670400D259B2 /* MultipeerConnectivity.framework in Frameworks */,
 				9306F0932FA8E0D40030B045 /* Codec in Frameworks */,
+				9306F0962FA8E5000030B045 /* SessionManager in Frameworks */,
 				93C60CF32FA3B58400841E64 /* VADGate in Frameworks */,
-				9374C4CA2FA3657700D259B2 /* AudioUnit.framework in Frameworks */,
 				9374C4CB2FA3657700D259B2 /* AudioToolbox.framework in Frameworks */,
 				9374C4BF2FA3657600D259B2 /* AudioMixer in Frameworks */,
 				9374C4C12FA3657600D259B2 /* DynamicsProcessor in Frameworks */,
@@ -159,7 +158,6 @@
 				93DCB0822FA3864000B921FA /* CryptoKit.framework */,
 				9374C4D72FA3670400D259B2 /* MultipeerConnectivity.framework */,
 				9374C4C92FA3657700D259B2 /* AudioToolbox.framework */,
-				9374C4C82FA3657700D259B2 /* AudioUnit.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -217,6 +215,7 @@
 				93C60CEF2FA3B57100841E64 /* SoundIsolation */,
 				93C60CF22FA3B58400841E64 /* VADGate */,
 				9306F0922FA8E0D40030B045 /* Codec */,
+				9306F0952FA8E5000030B045 /* SessionManager */,
 			);
 			productName = RideIntercom;
 			productReference = 93F300C82F93829C0046716D /* RideIntercom.app */;
@@ -769,6 +768,10 @@
 		9306F0922FA8E0D40030B045 /* Codec */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = Codec;
+		};
+		9306F0952FA8E5000030B045 /* SessionManager */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SessionManager;
 		};
 		934630842F9C0001001548C3 /* RTC */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import AVFAudio
+import SessionManager
 
 struct SystemMicrophonePermissionAuthorizer: MicrophonePermissionAuthorizing {
     func authorizationState() -> MicrophoneAuthorizationState {
@@ -30,26 +31,31 @@ final class SystemAudioInputMonitor: AudioInputMonitoring {
     var onSamples: (([Float]) -> Void)?
     private let engine: AVAudioEngine
     private let microphonePermission: MicrophonePermissionAuthorizing
+    private let voiceProcessingManager: SessionManager.AudioInputVoiceProcessingManager
     private let soundIsolationQueue = DispatchQueue(
         label: "RideIntercom.SystemAudioInputMonitor.soundIsolation",
         qos: .utility
     )
     private let bus: AVAudioNodeBus = 0
     private var isRunning = false
-    private var soundIsolationEnabled = SoundIsolationBackend.defaultSoundIsolationEnabled
+    private var soundIsolationEnabled = true
     private var otherAudioDuckingEnabled = false
+    private var inputMuted = false
 
     init(
         engine: AVAudioEngine = AVAudioEngine(),
-        microphonePermission: MicrophonePermissionAuthorizing = SystemMicrophonePermissionAuthorizer()
+        microphonePermission: MicrophonePermissionAuthorizing = SystemMicrophonePermissionAuthorizer(),
+        voiceProcessingManager: SessionManager.AudioInputVoiceProcessingManager? = nil
     ) {
         self.engine = engine
         self.microphonePermission = microphonePermission
-        self.soundIsolationEnabled = SoundIsolationBackend.defaultSoundIsolationEnabled
+        self.voiceProcessingManager = voiceProcessingManager ?? SessionManager.AudioInputVoiceProcessingManager(
+            backend: SessionManager.SystemAudioInputVoiceProcessingBackend(inputNode: engine.inputNode)
+        )
     }
 
     var supportsSoundIsolation: Bool {
-        SoundIsolationBackend.isSupported
+        true
     }
 
     var isSoundIsolationEnabled: Bool {
@@ -57,7 +63,7 @@ final class SystemAudioInputMonitor: AudioInputMonitoring {
     }
 
     var supportsOtherAudioDucking: Bool {
-        SoundIsolationBackend.supportsOtherAudioDucking
+        true
     }
 
     func setSoundIsolationEnabled(_ enabled: Bool) {
@@ -71,10 +77,9 @@ final class SystemAudioInputMonitor: AudioInputMonitoring {
     }
 
     func setInputMuted(_ muted: Bool) {
+        inputMuted = muted
         guard isRunning else { return }
-        #if os(iOS)
-        engine.inputNode.isVoiceProcessingInputMuted = muted
-        #endif
+        try? voiceProcessingManager.setInputMuted(muted)
     }
 
     func setOtherAudioDuckingEnabled(_ enabled: Bool) {
@@ -135,13 +140,10 @@ final class SystemAudioInputMonitor: AudioInputMonitoring {
 
     private func applyDuckingConfigurationIfRunning() {
         guard isRunning else { return }
-        #if os(iOS)
-        engine.inputNode.voiceProcessingOtherAudioDuckingConfiguration =
-            AVAudioVoiceProcessingOtherAudioDuckingConfiguration(
-                enableAdvancedDucking: ObjCBool(true),
-                duckingLevel: otherAudioDuckingEnabled ? .default : .min
-            )
-        #endif
+        try? configureVoiceProcessing(
+            soundIsolationEnabled: soundIsolationEnabled,
+            otherAudioDuckingEnabled: otherAudioDuckingEnabled
+        )
     }
 
     private func startEngine(
@@ -149,23 +151,21 @@ final class SystemAudioInputMonitor: AudioInputMonitoring {
         otherAudioDuckingEnabled: Bool
     ) throws -> (soundIsolationEnabled: Bool, otherAudioDuckingEnabled: Bool) {
         do {
-            try SoundIsolationBackend.configureVoiceProcessing(
+            try configureVoiceProcessing(
                 soundIsolationEnabled: soundIsolationEnabled,
-                otherAudioDuckingEnabled: otherAudioDuckingEnabled,
-                on: engine.inputNode
+                otherAudioDuckingEnabled: otherAudioDuckingEnabled
             )
             installInputTap()
             engine.prepare()
             try engine.start()
             return (
                 soundIsolationEnabled: soundIsolationEnabled,
-                otherAudioDuckingEnabled: otherAudioDuckingEnabled && SoundIsolationBackend.supportsOtherAudioDucking
+                otherAudioDuckingEnabled: otherAudioDuckingEnabled && supportsOtherAudioDucking
             )
         } catch {
-            try SoundIsolationBackend.configureVoiceProcessing(
+            try configureVoiceProcessing(
                 soundIsolationEnabled: false,
-                otherAudioDuckingEnabled: false,
-                on: engine.inputNode
+                otherAudioDuckingEnabled: false
             )
             installInputTap()
             engine.prepare()
@@ -222,39 +222,16 @@ final class SystemAudioInputMonitor: AudioInputMonitoring {
             }
         }
     }
-}
 
-private enum SoundIsolationBackend {
-    static let isSupported = true
-    static let defaultSoundIsolationEnabled = isSupported
-    static var supportsOtherAudioDucking: Bool {
-        #if os(iOS)
-        true
-        #else
-        false
-        #endif
-    }
-
-    static func configureVoiceProcessing(
+    private func configureVoiceProcessing(
         soundIsolationEnabled: Bool,
-        otherAudioDuckingEnabled: Bool,
-        on inputNode: AVAudioInputNode
+        otherAudioDuckingEnabled: Bool
     ) throws {
-        let shouldEnableVoiceProcessing = soundIsolationEnabled || otherAudioDuckingEnabled
-        if inputNode.isVoiceProcessingEnabled != shouldEnableVoiceProcessing {
-            try inputNode.setVoiceProcessingEnabled(shouldEnableVoiceProcessing)
-        }
-        #if os(iOS)
-        guard shouldEnableVoiceProcessing else { return }
-        inputNode.voiceProcessingOtherAudioDuckingConfiguration =
-            AVAudioVoiceProcessingOtherAudioDuckingConfiguration(
-                enableAdvancedDucking: ObjCBool(true),
-                duckingLevel: otherAudioDuckingEnabled ? .default : .min
-            )
-        inputNode.isVoiceProcessingBypassed = !soundIsolationEnabled
-        #else
-        _ = soundIsolationEnabled
-        _ = otherAudioDuckingEnabled
-        #endif
+        try voiceProcessingManager.configure(SessionManager.AudioInputVoiceProcessingConfiguration(
+            soundIsolationEnabled: soundIsolationEnabled,
+            otherAudioDuckingEnabled: otherAudioDuckingEnabled,
+            duckingLevel: .normal,
+            inputMuted: inputMuted
+        ))
     }
 }

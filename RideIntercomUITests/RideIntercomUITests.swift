@@ -11,7 +11,6 @@ final class RideIntercomUITests: XCTestCase {
 
     private func launchApp(startOnDiagnostics: Bool = false) {
         app = XCUIApplication()
-        app.launchArguments = ["UI-TEST"]
         app.launch()
         app.activate()
 
@@ -43,7 +42,7 @@ final class RideIntercomUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Mute Output"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.buttons["Mute"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.buttons["inviteButton"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["connectButton"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["disconnectButton"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.descendants(matching: .any)["emptyRemoteParticipantsLabel"].waitForExistence(timeout: 3))
         XCTAssertFalse(app.descendants(matching: .any)["callAudioOutputPicker"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["callAudioInputPicker"].exists)
@@ -107,7 +106,7 @@ final class RideIntercomUITests: XCTestCase {
     func testVoiceActivityAndHandoverCanBeExercisedFromUI() throws {
         createTalkGroupAndOpenCall()
 
-        XCTAssertTrue(app.buttons["connectButton"].exists)
+        XCTAssertTrue(app.buttons["disconnectButton"].exists)
         XCTAssertFalse(app.buttons["Refresh"].exists)
         XCTAssertFalse(app.buttons["Simulate Handover"].exists)
         XCTAssertFalse(app.staticTexts["Silent"].exists)
@@ -179,18 +178,18 @@ final class RideIntercomUITests: XCTestCase {
     }
 
     @MainActor
-    func testConnectAndDisconnectButtonsTransitionInCall() throws {
+    func testDisconnectAndReconnectButtonsTransitionInCall() throws {
         createTalkGroupAndOpenCall()
 
-        let connectButton = app.buttons["connectButton"].firstMatch
-        XCTAssertTrue(connectButton.waitForExistence(timeout: 3))
-        connectButton.tap()
-
         let disconnectButton = app.buttons["disconnectButton"].firstMatch
-        XCTAssertTrue(disconnectButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(disconnectButton.waitForExistence(timeout: 3))
         disconnectButton.tap()
 
-        XCTAssertTrue(app.buttons["connectButton"].firstMatch.waitForExistence(timeout: 5))
+        let connectButton = app.buttons["connectButton"].firstMatch
+        XCTAssertTrue(connectButton.waitForExistence(timeout: 5))
+        connectButton.tap()
+
+        XCTAssertTrue(app.buttons["disconnectButton"].firstMatch.waitForExistence(timeout: 5))
     }
 
     @MainActor

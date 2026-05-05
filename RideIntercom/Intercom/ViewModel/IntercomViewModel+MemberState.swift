@@ -1,0 +1,181 @@
+import AVFoundation
+import Codec
+import CryptoKit
+import Foundation
+import OSLog
+import RTC
+import SessionManager
+import VADGate
+
+extension IntercomViewModel {
+    func setVoiceActive(_ isActive: Bool) {
+        isVoiceActive = isActive
+        withActiveGroup { group in
+            guard !group.members.isEmpty else { return }
+            group.members[0].isTalking = isActive
+        }
+    }
+
+    func resetVoiceLevelWindows() {
+        localVoicePeakWindow = VoicePeakWindow()
+        remoteVoicePeakWindows.removeAll()
+    }
+
+    func setLocalVoiceLevel(_ level: Float) {
+        let clampedLevel = min(1, max(0, level))
+        let peakLevel = localVoicePeakWindow.record(clampedLevel)
+        withActiveGroup { group in
+            guard !group.members.isEmpty else { return }
+            group.members[0].voiceLevel = clampedLevel
+            group.members[0].voicePeakLevel = peakLevel
+        }
+    }
+
+    func setRemotePeer(_ peerID: String, isTalking: Bool, voiceLevel: Float? = nil) {
+        var peakLevel: Float?
+        if let voiceLevel {
+            let clampedLevel = min(1, max(0, voiceLevel))
+            peakLevel = remoteVoicePeakWindows[peerID, default: VoicePeakWindow()].record(clampedLevel)
+        } else if !isTalking {
+            remoteVoicePeakWindows.removeValue(forKey: peerID)
+        }
+
+        withActiveGroup { group in
+            guard let memberIndex = group.members.firstIndex(where: { $0.id == peerID }) else { return }
+            group.members[memberIndex].isTalking = isTalking
+            if let voiceLevel {
+                group.members[memberIndex].voiceLevel = min(1, max(0, voiceLevel))
+                group.members[memberIndex].voicePeakLevel = peakLevel ?? 0
+            } else if !isTalking {
+                group.members[memberIndex].voiceLevel = 0
+                group.members[memberIndex].voicePeakLevel = 0
+            }
+        }
+    }
+
+    func setRemotePeerMuteState(peerID: String, isMuted: Bool) {
+        withActiveGroup { group in
+            guard let memberIndex = group.members.firstIndex(where: { $0.id == peerID }) else { return }
+            group.members[memberIndex].isMuted = isMuted
+            if isMuted {
+                group.members[memberIndex].isTalking = false
+                group.members[memberIndex].voiceLevel = 0
+                group.members[memberIndex].voicePeakLevel = 0
+            }
+        }
+    }
+
+    func setLocalActiveCodec(_ codec: AudioCodecIdentifier) {
+        withActiveGroup { group in
+            guard !group.members.isEmpty else { return }
+            group.members[0].activeCodec = codec
+        }
+    }
+
+    func setRemotePeerCodec(_ peerID: String, codec: AudioCodecIdentifier) {
+        withActiveGroup { group in
+            guard let memberIndex = group.members.firstIndex(where: { $0.id == peerID }) else { return }
+            group.members[memberIndex].activeCodec = codec
+        }
+    }
+
+    func markPlayedAudioFrames(_ frames: [JitterBufferedAudioFrame]) {
+        let playedByPeer = Dictionary(grouping: frames, by: \.peerID).mapValues(\.count)
+        withActiveGroup { group in
+            guard !frames.isEmpty else { return }
+            for (peerID, count) in playedByPeer {
+                guard let memberIndex = group.members.firstIndex(where: { $0.id == peerID }) else { continue }
+                group.members[memberIndex].playedAudioFrameCount += count
+                group.members[memberIndex].queuedAudioFrameCount = max(0, group.members[memberIndex].queuedAudioFrameCount - count)
+            }
+        }
+    }
+
+    func markConnectedMembers(peerIDs: [String]) {
+        let connectedPeerIDSet = Set(peerIDs)
+        let authenticatedPeerIDSet = Set(authenticatedPeerIDs)
+        withActiveGroup { group in
+            group.members = group.members.map { member in
+                var updated = member
+                if member.id == localMemberIdentity.memberID {
+                    updated.connectionState = isAudioReady ? .connected : .offline
+                    updated.authenticationState = .open
+                } else if connectedPeerIDSet.contains(member.id) {
+                    updated.connectionState = .connected
+                    updated.authenticationState = authenticatedPeerIDSet.contains(member.id) ? .authenticated : .pending
+                } else {
+                    updated.connectionState = .offline
+                    updated.authenticationState = .offline
+                    updated.isTalking = false
+                    updated.voiceLevel = 0
+                    updated.voicePeakLevel = 0
+                    updated.queuedAudioFrameCount = 0
+                }
+                return updated
+            }
+        }
+    }
+
+    func addDiscoveredMembersIfNeeded(peerIDs: [String]) {
+        withActiveGroup { group in
+            for peerID in peerIDs {
+                guard !group.members.contains(where: { $0.id == peerID }) else { continue }
+
+                if let pendingInviteIndex = group.members.firstIndex(where: { isPendingInviteMemberID($0.id) }) {
+                    let reservedName = group.members[pendingInviteIndex].displayName
+                    group.members[pendingInviteIndex] = GroupMember(id: peerID, displayName: reservedName)
+                    continue
+                }
+
+                guard group.members.count < IntercomGroup.maximumMemberCount else { continue }
+                group.members.append(GroupMember(id: peerID, displayName: peerID))
+            }
+        }
+    }
+
+    func markMembers(_ state: PeerConnectionState) {
+        withActiveGroup { group in
+            group.members = group.members.map { member in
+                var updated = member
+                updated.connectionState = state
+                if member.id == localMemberIdentity.memberID {
+                    updated.authenticationState = .open
+                } else {
+                    switch state {
+                    case .connected:
+                        updated.authenticationState = authenticatedPeerIDs.contains(member.id) ? .authenticated : .pending
+                    case .connecting:
+                        updated.authenticationState = .pending
+                    case .offline:
+                        updated.authenticationState = .offline
+                    }
+                }
+                if state == .offline {
+                    updated.isTalking = false
+                    updated.voiceLevel = 0
+                    updated.voicePeakLevel = 0
+                    updated.queuedAudioFrameCount = 0
+                }
+                return updated
+            }
+        }
+    }
+
+    func replaceSelectedGroup(_ group: IntercomGroup) {
+        guard let index = groups.firstIndex(where: { $0.id == group.id }) else { return }
+        groups[index] = group
+        persistGroups()
+    }
+
+    func persistGroups() {
+        groupStore.saveGroups(groups)
+    }
+
+    func isPendingInviteMemberID(_ memberID: String) -> Bool {
+        memberID.hasPrefix(Self.pendingInviteMemberPrefix)
+    }
+
+    func credential(for group: IntercomGroup) -> GroupAccessCredential {
+        credentialProvider.credential(for: group, store: credentialStore)
+    }
+}
