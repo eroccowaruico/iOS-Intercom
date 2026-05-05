@@ -25,7 +25,7 @@
 | `.standard` | package default | 通常環境 |
 | `.noisy` | package default より大きい threshold offset と長め attack | 走行音や風切り音がある環境 |
 
-具体的な dB 値、attack/release、noise floor の範囲は `docs/spec/packages/Audio/Effectors/VADGate.md` を正とする。App は preset 名と直近 `VADGateAnalysis` だけを表示する。
+具体的な dB 値、attack/release、noise floor の範囲は `docs/spec/packages/Audio/Effectors/VADGate.md` を正とする。Settings は preset 選択だけを扱い、直近 `VADGateAnalysis` は Diagnostics の TX effect chain に表示する。
 
 ## App 画面に出さない値
 

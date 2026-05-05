@@ -26,19 +26,6 @@ extension IntercomViewModel {
         audioSessionModeProfile == .standard && !isSpeakerOutputEnabled
     }
 
-    var audioSessionRequestSummary: String {
-        let modeLabel = audioSessionModeProfile == .voiceChat ? "Stream" : "Burst"
-        let outputLabel = isSpeakerOutputEnabled ? "Speaker" : "Auto"
-        let echoLabel: String
-        if audioSessionModeProfile == .voiceChat {
-            echoLabel = "Echo by mode"
-        } else {
-            echoLabel = isSessionEchoCancellationEnabled ? "Echo ON" : "Echo OFF"
-        }
-        let duckLabel = isOtherAudioDuckingActive ? "Duck Active" : (isDuckOthersEnabled ? "Duck Ready" : "Duck OFF")
-        return "\(modeLabel) / \(outputLabel) / \(echoLabel) / \(duckLabel)"
-    }
-
     func setAudioSessionProfile(_ profile: AudioSessionProfile) {
         audioSessionProfile = profile
         saveAppSettings()

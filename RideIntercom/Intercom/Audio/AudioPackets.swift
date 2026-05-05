@@ -34,7 +34,7 @@ final class AppAudioCodecOptions: @unchecked Sendable {
     private var aacELDv2BitRate: Int
     private var opusBitRate: Int
 
-    init(aacELDv2BitRate: Int = 24_000, opusBitRate: Int = 32_000) {
+    init(aacELDv2BitRate: Int = 32_000, opusBitRate: Int = 32_000) {
         self.aacELDv2BitRate = Codec.AACELDv2Options(bitRate: aacELDv2BitRate).bitRate
         self.opusBitRate = Codec.OpusOptions(bitRate: opusBitRate).bitRate
     }

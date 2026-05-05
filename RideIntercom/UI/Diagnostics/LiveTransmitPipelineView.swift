@@ -217,7 +217,7 @@ struct LiveTransmitPipelineView: View {
             id: "codec",
             package: "Codec",
             title: "Codec",
-            detail: isFallback ? "\(codecLabel) Fallback" : codecLabel,
+            detail: isFallback ? "\(codecPipelineDetail) / Fallback" : codecPipelineDetail,
             icon: isFallback ? "cpu" : "cpu.fill",
             state: isFallback ? .waiting : codecState,
             accessibilityIdentifier: "pipeline-codec-step"
@@ -350,7 +350,7 @@ struct LiveTransmitPipelineView: View {
 
     private var vadEffectDetail: String {
         if viewModel.isMuted { return "Input muted" }
-        return viewModel.vadSensitivity.label
+        return "\(viewModel.vadSensitivity.label) / \(viewModel.vadAnalysisSummary)"
     }
 
     private var vadEffectState: PipelineStepState {
@@ -369,8 +369,14 @@ struct LiveTransmitPipelineView: View {
         "\(Int(format.sampleRate / 1_000))k/\(format.channelCount)ch"
     }
 
-    private var codecLabel: String {
-        let codec = viewModel.selectedTransmitCodec
+    private var codecPipelineDetail: String {
+        let requested = codecShortLabel(viewModel.preferredTransmitCodec)
+        let selected = codecShortLabel(viewModel.selectedTransmitCodec)
+        if requested == selected { return selected }
+        return "\(requested) -> \(selected)"
+    }
+
+    private func codecShortLabel(_ codec: AudioCodecIdentifier) -> String {
         if codec == .pcm16 { return "PCM" }
         if codec == .mpeg4AACELDv2 { return "AAC" }
         if codec == .opus { return "Opus" }

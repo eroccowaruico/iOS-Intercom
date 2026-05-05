@@ -66,10 +66,13 @@ struct AudioSessionPanel: View {
                 .accessibilityIdentifier("duckOthersToggle")
             }
 
-            LabeledContent("Requested", value: viewModel.audioSessionRequestSummary)
-                .accessibilityIdentifier("audioSessionProfileStatus")
         } header: {
             Label("Audio Session", systemImage: "slider.horizontal.3")
+        } footer: {
+            Text("Burst mode uses the default session for intercom-style audio and explicit echo cancellation. Stream mode uses voice-chat routing for continuous conversation.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("audioSessionModeDescription")
         }
         .accessibilityIdentifier("audioSessionPanel")
     }
@@ -137,17 +140,6 @@ struct TransmitCodecPanel: View {
             .pickerStyle(.segmented)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("transmitCodecPicker")
-
-            LabeledContent("Using") {
-                VStack(alignment: .trailing, spacing: AppSpacing.xxs) {
-                    Text(viewModel.codecDisplaySummary)
-                        .font(AppTypography.captionStrongMono)
-                    Text(viewModel.codecFallbackSummary)
-                        .font(AppTypography.caption2)
-                        .foregroundStyle(viewModel.preferredTransmitCodec == viewModel.selectedTransmitCodec ? AppColorPalette.textSecondary : AppColorPalette.warning)
-                }
-            }
-            .accessibilityIdentifier("transmitCodecStatus")
 
             if viewModel.preferredTransmitCodec == .mpeg4AACELDv2 {
                 BitRateStepper(
@@ -299,8 +291,6 @@ struct VoiceActivityPanel: View {
             .pickerStyle(.segmented)
             .accessibilityIdentifier("vadSensitivityPicker")
 
-            LabeledContent("Analysis", value: viewModel.vadAnalysisSummary)
-                .accessibilityIdentifier("vadAnalysisStatus")
         } header: {
             Label("Voice Activity", systemImage: "waveform.badge.mic")
         }

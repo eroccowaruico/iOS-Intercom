@@ -292,6 +292,7 @@ struct RideIntercomTests {
         #expect(harness.viewModel.audioSessionProfile == IntercomViewModel.defaultAudioSessionProfile)
         #expect(harness.viewModel.isDuckOthersEnabled == IntercomViewModel.defaultDuckOthersEnabled)
         #expect(harness.viewModel.vadSensitivity == IntercomViewModel.defaultVADSensitivity)
+        #expect(harness.viewModel.preferredTransmitCodec == IntercomViewModel.defaultTransmitCodec)
         #expect(harness.viewModel.aacELDv2BitRate == IntercomViewModel.defaultAACELDv2BitRate)
         #expect(harness.viewModel.opusBitRate == IntercomViewModel.defaultOpusBitRate)
         #expect(harness.viewModel.masterOutputVolume == 1)
@@ -302,6 +303,12 @@ struct RideIntercomTests {
 
     @Test func viewModelKeepsCodecUISettingsAsRequestedValues() {
         let harness = Self.makeHarness()
+
+        #expect(harness.viewModel.preferredTransmitCodec == .mpeg4AACELDv2)
+        #expect(harness.viewModel.aacELDv2BitRate == 32_000)
+        #expect(harness.viewModel.opusBitRate == 32_000)
+        #expect(harness.callSession.codecOptions.last?.aacELDv2BitRate == 32_000)
+        #expect(harness.callSession.codecOptions.last?.opusBitRate == 32_000)
 
         harness.viewModel.setPreferredTransmitCodec(.mpeg4AACELDv2)
         harness.viewModel.setAACELDv2BitRate(11_000)

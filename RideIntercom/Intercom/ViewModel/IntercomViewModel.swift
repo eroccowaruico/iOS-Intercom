@@ -18,8 +18,8 @@ final class IntercomViewModel {
     nonisolated static let defaultAudioSessionProfile = AudioSessionProfile.echoCancelledInput
     nonisolated static let defaultDuckOthersEnabled = true
     nonisolated static let defaultVADSensitivity = VoiceActivitySensitivity.standard
-    nonisolated static let defaultTransmitCodec: AudioCodecIdentifier = .pcm16
-    nonisolated static let defaultAACELDv2BitRate = 24_000
+    nonisolated static let defaultTransmitCodec: AudioCodecIdentifier = .mpeg4AACELDv2
+    nonisolated static let defaultAACELDv2BitRate = 32_000
     nonisolated static let defaultOpusBitRate = 32_000
     nonisolated static let otherAudioDuckingHoldDuration: TimeInterval = 1.0
     nonisolated static let audibleOutputLevelThreshold: Float = 0.00025

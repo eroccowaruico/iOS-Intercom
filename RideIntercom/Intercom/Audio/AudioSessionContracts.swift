@@ -27,19 +27,6 @@ enum AudioSessionProfile: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    var detail: String {
-        switch self {
-        case .standard:
-            "Burst mode / Intercom Style"
-        case .speakerDefault:
-            "Burst mode / Speaker Intercom Style"
-        case .echoCancelledInput:
-            "Burst mode / Echo-Cancelled Intercom Style"
-        case .voiceChat:
-            "Stream mode / Phone like Style"
-        }
-    }
-
     var settingsModeProfile: AudioSessionProfile {
         switch self {
         case .standard, .speakerDefault, .echoCancelledInput:
