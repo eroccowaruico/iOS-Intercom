@@ -520,7 +520,7 @@ public final class AudioInputVoiceProcessingManager {
     }
 }
 
-public final class SystemAudioSessionBackend: AudioSessionBackend {
+public final class SystemAudioSessionBackend: AudioSessionBackend, @unchecked Sendable {
     #if os(iOS)
     private let session: AVAudioSession
     private let notificationCenter: NotificationCenter
