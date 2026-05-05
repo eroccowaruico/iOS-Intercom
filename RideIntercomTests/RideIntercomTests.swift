@@ -14,6 +14,7 @@ struct RideIntercomTests {
 
         #expect(project.contains("iphoneos iphonesimulator macosx"))
         #expect(project.contains("AudioUnit.framework in Frameworks") == false)
+        #expect(project.contains("RTCNativeWebRTC"))
     }
 
     @Test func appSourcesDoNotContainTestOnlyLaunchSwitchesOrObsoleteAudioPipeline() throws {
@@ -54,6 +55,10 @@ struct RideIntercomTests {
         #expect(contentView.components(separatedBy: .newlines).count < 80)
         #expect(callView.contains("struct CallView"))
         #expect(settingsView.contains("struct SettingsView"))
+        #expect(settingsView.contains("struct CommunicationPanel"))
+        #expect(settingsView.contains("localNetworkRouteToggle"))
+        #expect(settingsView.contains("internetRouteToggle"))
+        #expect(settingsView.contains("internetRouteToggle"))
         #expect(diagnosticsView.contains("struct DiagnosticsView"))
         #expect(callView.contains("masterVoiceIsolationToggle"))
         #expect(callView.contains("RemoteParticipantRowView"))
@@ -91,6 +96,13 @@ struct RideIntercomTests {
         #expect(callSessionAdapter.contains("case remotePeerMetadata(peerID: String, activeCodec: AudioCodecIdentifier?)"))
         #expect(callSessionAdapter.contains("case remoteRuntimeStatus(peerID: String, status: RTCRuntimeStatus)"))
         #expect(callSessionAdapter.contains("updateRuntimePackageReports"))
+        #expect(callSessionAdapter.contains("setEnabledRoutes"))
+        #expect(callSessionAdapter.contains("RTC.CallSessionFactory.makeSession"))
+        #expect(callSessionAdapter.contains("Set(RTC.RouteKind.allCases)"))
+        #expect(callSessionAdapter.contains("import RTCNativeWebRTC"))
+        #expect(callSessionAdapter.contains("WebRTCNativeEngine"))
+        #expect(callSessionAdapter.contains("selectionMode: .singleRoute") == false)
+        #expect(callSessionAdapter.contains("makeRouteConfiguration"))
         #expect(callSessionAdapter.contains("RTCRuntimeStatusTransport.decode(message)"))
         #expect(callSessionAdapter.contains("PeerMetadataApplicationPayload(activeCodec: preferredAudioCodec)"))
         #expect(callSessionAdapter.contains("return .remotePeerMetadata(peerID: peerID, activeCodec: payload.activeCodec)"))
@@ -342,6 +354,8 @@ struct RideIntercomTests {
         harness.viewModel.setRemoteSoundIsolationEnabled(peerID: "member-108", enabled: true)
         harness.viewModel.setReceiveMasterSoundIsolationEnabled(true)
         harness.viewModel.setDuckOthersEnabled(false)
+        harness.viewModel.setRTCTransportRoute(.multipeer, enabled: false)
+        harness.viewModel.setRTCTransportRoute(.webRTC, enabled: false)
         harness.viewModel.toggleOutputMute()
         harness.viewModel.resetAllSettings()
 
@@ -355,10 +369,12 @@ struct RideIntercomTests {
         #expect(harness.viewModel.remoteOutputVolumes.isEmpty)
         #expect(harness.viewModel.remoteSoundIsolationEnabled.isEmpty)
         #expect(harness.viewModel.receiveMasterSoundIsolationEnabled == IntercomViewModel.defaultReceiveSoundIsolationEnabled)
+        #expect(harness.viewModel.enabledRTCTransportRoutes == IntercomViewModel.defaultEnabledRTCTransportRoutes)
         #expect(!harness.viewModel.isOutputMuted)
         #expect(harness.viewModel.groups.count == IntercomSeedData.recentGroups.count)
         #expect(harness.callSession.remoteOutputVolumeValues.last?.peerID == "member-108")
         #expect(harness.callSession.remoteOutputVolumeValues.last?.volume == IntercomViewModel.defaultRemoteOutputVolume)
+        #expect(harness.callSession.enabledRouteValues.last == IntercomViewModel.defaultEnabledRTCTransportRoutes)
         #expect(harness.callSession.outputMuteValues.last == false)
     }
 
@@ -654,6 +670,59 @@ struct RideIntercomTests {
         #expect(saved.opusBitRate == 128_000)
     }
 
+    @Test func viewModelLoadsPersistsAndAppliesRTCTransportRouteOptOut() {
+        let defaultHarness = Self.makeHarness()
+        #expect(defaultHarness.viewModel.enabledRTCTransportRoutes == Set(RTC.RouteKind.allCases))
+        #expect(defaultHarness.callSession.enabledRouteValues.last == Set(RTC.RouteKind.allCases))
+
+        let settingsStore = InMemoryAppSettingsStore(settings: AppSettings(
+            enabledRTCTransportRoutes: []
+        ))
+        let harness = Self.makeHarness(appSettingsStore: settingsStore)
+
+        #expect(harness.viewModel.enabledRTCTransportRoutes.isEmpty)
+        #expect(harness.callSession.enabledRouteValues.last?.isEmpty == true)
+        #expect(!harness.viewModel.isRTCTransportRouteEnabled(.multipeer))
+        #expect(harness.viewModel.canToggleRTCTransportRoute(.multipeer))
+        #expect(harness.viewModel.canToggleRTCTransportRoute(.webRTC))
+
+        harness.viewModel.setRTCTransportRoute(.webRTC, enabled: true)
+
+        #expect(harness.viewModel.enabledRTCTransportRoutes == [.webRTC])
+        #expect(settingsStore.load().enabledRTCTransportRoutes == [.webRTC])
+        #expect(harness.callSession.enabledRouteValues.last == [.webRTC])
+
+        harness.viewModel.setRTCTransportRoute(.multipeer, enabled: true)
+
+        #expect(harness.viewModel.enabledRTCTransportRoutes == Set(RTC.RouteKind.allCases))
+        #expect(settingsStore.load().enabledRTCTransportRoutes == Set(RTC.RouteKind.allCases))
+        #expect(harness.callSession.enabledRouteValues.last == Set(RTC.RouteKind.allCases))
+
+        harness.viewModel.setRTCTransportRoute(.webRTC, enabled: false)
+
+        #expect(harness.viewModel.enabledRTCTransportRoutes == [.multipeer])
+        #expect(settingsStore.load().enabledRTCTransportRoutes == [.multipeer])
+        #expect(harness.callSession.enabledRouteValues.last == [.multipeer])
+
+        harness.viewModel.setRTCTransportRoute(.multipeer, enabled: false)
+
+        #expect(harness.viewModel.enabledRTCTransportRoutes.isEmpty)
+        #expect(settingsStore.load().enabledRTCTransportRoutes.isEmpty)
+        #expect(harness.callSession.enabledRouteValues.last?.isEmpty == true)
+    }
+
+    @Test func changingRTCTransportRoutesStopsActiveConnectionBeforeApplyingPolicy() {
+        let harness = Self.makeHarness()
+
+        harness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
+        harness.viewModel.setRTCTransportRoute(.webRTC, enabled: false)
+
+        #expect(harness.callSession.disconnectCallCount == 1)
+        #expect(harness.viewModel.connectionState == .idle)
+        #expect(harness.callSession.connectedGroup == nil)
+        #expect(harness.callSession.enabledRouteValues.last == [.multipeer])
+    }
+
     @Test func diagnosticsSnapshotSummarizesCurrentAppState() {
         let harness = Self.makeHarness()
         let snapshot = harness.viewModel.diagnosticsSnapshot
@@ -775,6 +844,7 @@ private final class RecordingCallSession: RideIntercom.CallSession {
     private(set) var localMuteValues: [Bool] = []
     private(set) var outputMuteValues: [Bool] = []
     private(set) var remoteOutputVolumeValues: [(peerID: String, volume: Float)] = []
+    private(set) var enabledRouteValues: [Set<RTC.RouteKind>] = []
     private(set) var runtimePackageReports: [[RTCRuntimePackageReport]] = []
     private(set) var sentAudioPackets: [OutboundAudioPacket] = []
     private(set) var sentControlMessages: [ControlMessage] = []
@@ -824,6 +894,10 @@ private final class RecordingCallSession: RideIntercom.CallSession {
 
     func setRemoteOutputVolume(peerID: String, volume: Float) {
         remoteOutputVolumeValues.append((peerID, volume))
+    }
+
+    func setEnabledRoutes(_ routes: Set<RTC.RouteKind>) {
+        enabledRouteValues.append(routes)
     }
 
     func updateRuntimePackageReports(_ reports: [RTCRuntimePackageReport]) {

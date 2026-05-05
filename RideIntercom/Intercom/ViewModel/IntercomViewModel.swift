@@ -23,6 +23,8 @@ final class IntercomViewModel {
     nonisolated static let defaultTransmitCodec: AudioCodecIdentifier = .mpeg4AACELDv2
     nonisolated static let defaultAACELDv2BitRate = 32_000
     nonisolated static let defaultOpusBitRate = 32_000
+    nonisolated static let supportedRTCTransportRoutes = AppRTCTransportRoutePolicy.supportedRoutes
+    nonisolated static let defaultEnabledRTCTransportRoutes: Set<RTC.RouteKind> = supportedRTCTransportRoutes
     nonisolated static let defaultMasterOutputVolume: Float = 1
     nonisolated static let defaultRemoteOutputVolume: Float = 1
     nonisolated static let receiveMasterPeakLimiterCeiling: Float = 1
@@ -48,6 +50,7 @@ final class IntercomViewModel {
     var preferredTransmitCodec: AudioCodecIdentifier = IntercomViewModel.defaultTransmitCodec
     var aacELDv2BitRate = IntercomViewModel.defaultAACELDv2BitRate
     var opusBitRate = IntercomViewModel.defaultOpusBitRate
+    var enabledRTCTransportRoutes = IntercomViewModel.defaultEnabledRTCTransportRoutes
     var masterOutputVolume: Float = IntercomViewModel.defaultMasterOutputVolume
     var isOutputMuted = false
     var remoteOutputVolumes: [String: Float] = [:]
@@ -200,10 +203,12 @@ final class IntercomViewModel {
         self.preferredTransmitCodec = appSettings.preferredTransmitCodec
         self.aacELDv2BitRate = appSettings.aacELDv2BitRate
         self.opusBitRate = appSettings.opusBitRate
+        self.enabledRTCTransportRoutes = Self.normalizedRTCTransportRoutes(appSettings.enabledRTCTransportRoutes)
         self.selectedInputPort = AudioPortInfo(device: audioSessionSnapshot.currentInput)
         self.selectedOutputPort = AudioPortInfo(device: audioSessionSnapshot.currentOutput)
         self.audioTransmissionController.applyVADSensitivity(vadSensitivity)
         self.refreshPackageRuntimeSnapshots()
+        self.callSession.setEnabledRoutes(enabledRTCTransportRoutes)
         self.callSession.setPreferredAudioCodec(preferredTransmitCodec)
         self.callSession.setAudioCodecOptions(aacELDv2BitRate: aacELDv2BitRate, opusBitRate: opusBitRate)
 

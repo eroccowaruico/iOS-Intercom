@@ -54,6 +54,7 @@ Diagnostics の値は画面上の状態確認用として扱う。
 
 | 表示 | 読み方 |
 |---|---|
+| Communication | RTC へ渡す有効 route のユーザー希望を確認する。active / available route は Diagnostics を正とする |
 | Audio Session | Mode、Use Speaker、Echo Cancellation、Duck Other Audio の組み合わせを確認する |
 | 入力デバイス | どの入力を使う設定になっているかを確認する |
 | 出力デバイス | どの出力を使う設定になっているかを確認する |

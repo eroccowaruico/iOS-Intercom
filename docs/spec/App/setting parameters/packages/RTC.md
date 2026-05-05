@@ -10,16 +10,27 @@
 
 | package 設定 | App から渡す値 | 種別 | Diagnostics で確認する値 |
 |---|---|---|---|
-| `enabledRoutes` | `[.multipeer]` | adapter policy | route capabilities |
-| `preferredRoute` | `.multipeer` | 固定 | active / preferred route |
-| `selectionMode` | `.singleRoute` | adapter policy | selection mode / handover state |
+| `enabledRoutes` | Settings の `enabledRTCTransportRoutes`。既定は `[.multipeer, .webRTC]`、空集合を許可 | App 設定 | route capabilities / runtime status |
+| `preferredRoute` | `enabledRoutes` に `.multipeer` があれば `.multipeer`。`.webRTC` のみなら `.webRTC`。空集合時は package 正規化に委ねるため `.multipeer` を渡す | adapter policy | active / preferred route |
+| `selectionMode` | package default の `.automaticFallbackAndRestore` | package default | selection mode / handover state |
 | `fallbackDelay` | package default | package default | runtime status の route configuration |
 | `restoreProbeDuration` | package default | package default | runtime status の route configuration |
 | `handoverFadeDuration` | package default | package default | runtime status の route configuration |
-| `keepsPreferredRouteInStandby` | `false` | adapter policy | standby route state |
-| `keepsFallbackRouteWarm` | `false` | adapter policy | handover / fallback state |
+| `keepsPreferredRouteInStandby` | package default の `true` | package default | standby route state |
+| `keepsFallbackRouteWarm` | package default の `false` | package default | handover / fallback state |
 
-WebRTC の credential、Cloudflare signaling、native adapter が揃うまでは UI から route を選ばせない。App は package が返す route availability、failure reason、media ownership を Diagnostics または runtime status の入力として扱う。WebRTC を有効化するときは App UI ではなく adapter policy と `docs/spec/packages/RTC.md` を更新する。
+App は実体 route を直接構築しない。`CallSessionFactoryConfiguration` に display name、`CallRouteConfiguration`、packet audio codec registry、WebRTC native engine factory を渡し、RTC package の `CallSessionFactory` が `.multipeer` と `.webRTC` の route set を構築する。route 設定変更時は active RTC connection を止め、次回 `prepare` / `startConnection` では更新後の `enabledRoutes` と RTC package の fallback / restore policy を正とする。全 route OFF の次回接続要求は RTC package の `noEnabledRoute` に委ねる。App は package が返す route availability、failure reason、media ownership を Diagnostics または runtime status の入力として扱う。
+
+## Settings route opt-out
+
+| App 状態 | package へ渡す `enabledRoutes` | App の即時動作 |
+|---|---|---|
+| Local Network ON、Internet ON | `[.multipeer, .webRTC]` | active RTC connection があれば停止する。次回 standby / connect は RTC package が両 route を構築し、自動 fallback / restore を扱う |
+| Local Network ON、Internet OFF | `[.multipeer]` | active RTC connection があれば停止する。次回 standby / connect は Multipeer route だけを有効にする |
+| Local Network OFF、Internet ON | `[.webRTC]` | active RTC connection があれば停止する。次回 standby / connect は WebRTC route だけを有効にする |
+| Local Network OFF、Internet OFF | `[]` | active RTC connection があれば停止する。次回 standby / connect は RTC package の `noEnabledRoute` に委ねる |
+
+App は RTC package の route manager、route state、runtime status を置き換えない。Settings は `CallSession.setEnabledRoutes(_:)` で App-owned adapter policy を更新し、adapter は次回の RTC session / `CallStartRequest.configuration` へ渡すだけである。
 
 ## CallStartRequest / RTC 入力
 

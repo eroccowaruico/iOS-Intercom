@@ -180,6 +180,50 @@ extension IntercomViewModel {
         publishRuntimePackageReports(force: true)
     }
 
+    nonisolated static func normalizedRTCTransportRoutes(_ routes: Set<RTC.RouteKind>) -> Set<RTC.RouteKind> {
+        routes.intersection(supportedRTCTransportRoutes)
+    }
+
+    func isRTCTransportRouteEnabled(_ route: RTC.RouteKind) -> Bool {
+        enabledRTCTransportRoutes.contains(route)
+    }
+
+    func canToggleRTCTransportRoute(_ route: RTC.RouteKind) -> Bool {
+        Self.supportedRTCTransportRoutes.contains(route)
+    }
+
+    func setRTCTransportRoute(_ route: RTC.RouteKind, enabled: Bool) {
+        guard canToggleRTCTransportRoute(route) else { return }
+
+        var routes = enabledRTCTransportRoutes
+        if enabled {
+            routes.insert(route)
+        } else {
+            routes.remove(route)
+        }
+        setRTCTransportRoutes(routes)
+    }
+
+    func setRTCTransportRoutes(_ routes: Set<RTC.RouteKind>) {
+        let normalizedRoutes = Self.normalizedRTCTransportRoutes(routes)
+        guard normalizedRoutes != enabledRTCTransportRoutes else { return }
+
+        if hasAnyActiveGroupConnection {
+            disconnect()
+        }
+
+        enabledRTCTransportRoutes = normalizedRoutes
+        callSession.setEnabledRoutes(normalizedRoutes)
+        saveAppSettings()
+        AppLoggers.settings.info(
+            "settings.rtc_routes.changed",
+            metadata: .event("settings.rtc_routes.changed", [
+                "enabledRoutes": "\(normalizedRoutes.map(\.rawValue).sorted().joined(separator: ","))"
+            ])
+        )
+        publishRuntimePackageReports(force: true)
+    }
+
     func setVADSensitivity(_ sensitivity: VoiceActivitySensitivity) {
         vadSensitivity = sensitivity
         audioTransmissionController.applyVADSensitivity(sensitivity)
@@ -321,6 +365,7 @@ extension IntercomViewModel {
         setPreferredTransmitCodec(Self.defaultTransmitCodec)
         setAACELDv2BitRate(Self.defaultAACELDv2BitRate)
         setOpusBitRate(Self.defaultOpusBitRate)
+        setRTCTransportRoutes(Self.defaultEnabledRTCTransportRoutes)
         setMasterOutputVolume(Self.defaultMasterOutputVolume)
         let resetRemoteOutputPeerIDs = Array(remoteOutputVolumes.keys)
         remoteOutputVolumes.removeAll()
@@ -347,7 +392,8 @@ extension IntercomViewModel {
             vadSensitivity: vadSensitivity,
             preferredTransmitCodec: preferredTransmitCodec,
             aacELDv2BitRate: aacELDv2BitRate,
-            opusBitRate: opusBitRate
+            opusBitRate: opusBitRate,
+            enabledRTCTransportRoutes: enabledRTCTransportRoutes
         ))
     }
 

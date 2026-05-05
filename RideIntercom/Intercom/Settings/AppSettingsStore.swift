@@ -8,19 +8,22 @@ struct AppSettings: Equatable {
     var preferredTransmitCodec: AudioCodecIdentifier
     var aacELDv2BitRate: Int
     var opusBitRate: Int
+    var enabledRTCTransportRoutes: Set<RTC.RouteKind>
 
     init(
         audioSessionProfile: AudioSessionProfile = IntercomViewModel.defaultAudioSessionProfile,
         vadSensitivity: VoiceActivitySensitivity = IntercomViewModel.defaultVADSensitivity,
         preferredTransmitCodec: AudioCodecIdentifier = IntercomViewModel.defaultTransmitCodec,
         aacELDv2BitRate: Int = IntercomViewModel.defaultAACELDv2BitRate,
-        opusBitRate: Int = IntercomViewModel.defaultOpusBitRate
+        opusBitRate: Int = IntercomViewModel.defaultOpusBitRate,
+        enabledRTCTransportRoutes: Set<RTC.RouteKind> = IntercomViewModel.defaultEnabledRTCTransportRoutes
     ) {
         self.audioSessionProfile = audioSessionProfile
         self.vadSensitivity = vadSensitivity
         self.preferredTransmitCodec = preferredTransmitCodec
         self.aacELDv2BitRate = Codec.AACELDv2Options(bitRate: aacELDv2BitRate).bitRate
         self.opusBitRate = Codec.OpusOptions(bitRate: opusBitRate).bitRate
+        self.enabledRTCTransportRoutes = enabledRTCTransportRoutes
     }
 }
 
@@ -52,6 +55,7 @@ final class UserDefaultsAppSettingsStore: AppSettingsStoring {
     private let preferredTransmitCodecKey = "RideIntercom.settings.preferredTransmitCodec"
     private let aacELDv2BitRateKey = "RideIntercom.settings.aacELDv2BitRate"
     private let opusBitRateKey = "RideIntercom.settings.opusBitRate"
+    private let enabledRTCTransportRoutesKey = "RideIntercom.settings.enabledRTCTransportRoutes"
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -69,7 +73,8 @@ final class UserDefaultsAppSettingsStore: AppSettingsStoring {
             opusBitRate: loadInt(
                 forKey: opusBitRateKey,
                 defaultValue: IntercomViewModel.defaultOpusBitRate
-            )
+            ),
+            enabledRTCTransportRoutes: loadEnabledRTCTransportRoutes()
         )
     }
 
@@ -79,6 +84,10 @@ final class UserDefaultsAppSettingsStore: AppSettingsStoring {
         defaults.set(settings.preferredTransmitCodec.rawValue, forKey: preferredTransmitCodecKey)
         defaults.set(settings.aacELDv2BitRate, forKey: aacELDv2BitRateKey)
         defaults.set(settings.opusBitRate, forKey: opusBitRateKey)
+        defaults.set(
+            settings.enabledRTCTransportRoutes.map(\.rawValue).sorted(),
+            forKey: enabledRTCTransportRoutesKey
+        )
     }
 
     private func loadAudioSessionProfile() -> AudioSessionProfile {
@@ -113,5 +122,16 @@ final class UserDefaultsAppSettingsStore: AppSettingsStoring {
             return defaultValue
         }
         return value
+    }
+
+    private func loadEnabledRTCTransportRoutes() -> Set<RTC.RouteKind> {
+        guard let rawValues = defaults.object(forKey: enabledRTCTransportRoutesKey) as? [String] else {
+            return IntercomViewModel.defaultEnabledRTCTransportRoutes
+        }
+        let routes = Set(rawValues.compactMap(RTC.RouteKind.init(rawValue:)))
+        if rawValues.isEmpty {
+            return []
+        }
+        return routes.isEmpty ? IntercomViewModel.defaultEnabledRTCTransportRoutes : routes
     }
 }

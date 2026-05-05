@@ -6,6 +6,7 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            CommunicationPanel(viewModel: viewModel)
             AudioSessionPanel(viewModel: viewModel)
             AudioIOPanel(viewModel: viewModel)
             AudioCheckPanel(viewModel: viewModel)
@@ -15,6 +16,41 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .accessibilityIdentifier("settingsScrollView")
+    }
+}
+
+struct CommunicationPanel: View {
+    @Bindable var viewModel: IntercomViewModel
+
+    var body: some View {
+        Section {
+            Toggle(
+                "Local Network",
+                isOn: Binding(
+                    get: { viewModel.isRTCTransportRouteEnabled(.multipeer) },
+                    set: { viewModel.setRTCTransportRoute(.multipeer, enabled: $0) }
+                )
+            )
+            .disabled(!viewModel.canToggleRTCTransportRoute(.multipeer))
+            .accessibilityIdentifier("localNetworkRouteToggle")
+
+            Toggle(
+                "Internet",
+                isOn: Binding(
+                    get: { viewModel.isRTCTransportRouteEnabled(.webRTC) },
+                    set: { viewModel.setRTCTransportRoute(.webRTC, enabled: $0) }
+                )
+            )
+            .disabled(!viewModel.canToggleRTCTransportRoute(.webRTC))
+            .accessibilityIdentifier("internetRouteToggle")
+        } header: {
+            Label("Communication", systemImage: "network")
+        } footer: {
+            Text("Changing routes stops the active RTC connection. The next connection uses only the enabled routes.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityIdentifier("communicationPanel")
     }
 }
 

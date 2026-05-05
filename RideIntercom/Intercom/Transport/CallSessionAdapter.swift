@@ -5,6 +5,7 @@ import Foundation
 import Observation
 import OSLog
 import RTC
+import RTCNativeWebRTC
 import SessionManager
 import VADGate
 
@@ -15,6 +16,10 @@ enum ControlMessage: Equatable {
 
 typealias ApplicationDataDelivery = RTC.ApplicationDataDelivery
 typealias ApplicationDataMessage = RTC.ApplicationDataMessage
+
+enum AppRTCTransportRoutePolicy {
+    nonisolated static let supportedRoutes: Set<RTC.RouteKind> = Set(RTC.RouteKind.allCases)
+}
 
 enum LocalNetworkRejectReason: String, Equatable {
     case groupMismatch = "group mismatch"
@@ -88,6 +93,7 @@ protocol CallSession: AnyObject {
     func disconnect()
     func setPreferredAudioCodec(_ codec: AudioCodecIdentifier)
     func setAudioCodecOptions(aacELDv2BitRate: Int, opusBitRate: Int)
+    func setEnabledRoutes(_ routes: Set<RTC.RouteKind>)
     func setLocalMute(_ muted: Bool)
     func setOutputMute(_ muted: Bool)
     func setRemoteOutputVolume(peerID: String, volume: Float)
@@ -112,43 +118,30 @@ final class RideIntercomCallSessionAdapter: CallSession {
     private nonisolated static let keepaliveNamespace = "rideintercom.keepalive"
     private nonisolated static let peerMuteStateNamespace = "rideintercom.peerMuteState"
     private let memberID: String
-    private let rtcSession: RTC.CallSession
+    private var rtcSession: RTC.CallSession
     private let audioCodecOptions: AppAudioCodecOptions
+    private let ownsRTCSession: Bool
     private var eventTask: Task<Void, Never>?
     private var preferredAudioCodec: AudioCodecIdentifier = .pcm16
+    private var enabledRoutes: Set<RTC.RouteKind> = AppRTCTransportRoutePolicy.supportedRoutes
 
     init(memberID: String) {
         self.memberID = memberID
         let audioCodecOptions = AppAudioCodecOptions()
         self.audioCodecOptions = audioCodecOptions
-        #if canImport(MultipeerConnectivity)
-        self.rtcSession = RTC.RouteManager(
-            routes: [
-                RTC.MultipeerLocalRoute(
-                    displayName: memberID,
-                    codecRegistry: AppAudioCodecBridge.makeRTCCodecRegistry(
-                        format: .intercomPacketAudio,
-                        options: audioCodecOptions
-                    )
-                )
-            ],
-            configuration: RTC.CallRouteConfiguration(
-                enabledRoutes: [.multipeer],
-                preferredRoute: .multipeer,
-                selectionMode: .singleRoute,
-                keepsPreferredRouteInStandby: false,
-                keepsFallbackRouteWarm: false
-            )
+        self.ownsRTCSession = true
+        self.rtcSession = Self.makeRTCSession(
+            memberID: memberID,
+            audioCodecOptions: audioCodecOptions,
+            enabledRoutes: AppRTCTransportRoutePolicy.supportedRoutes
         )
-        #else
-        self.rtcSession = RTC.UnavailableCallSession()
-        #endif
         bindEvents()
     }
 
     init(memberID: String = "member-local", rtcSession: RTC.CallSession) {
         self.memberID = memberID
         self.audioCodecOptions = AppAudioCodecOptions()
+        self.ownsRTCSession = false
         self.rtcSession = rtcSession
         bindEvents()
     }
@@ -194,6 +187,20 @@ final class RideIntercomCallSessionAdapter: CallSession {
 
     func setAudioCodecOptions(aacELDv2BitRate: Int, opusBitRate: Int) {
         audioCodecOptions.update(aacELDv2BitRate: aacELDv2BitRate, opusBitRate: opusBitRate)
+    }
+
+    func setEnabledRoutes(_ routes: Set<RTC.RouteKind>) {
+        let normalizedRoutes = routes.intersection(AppRTCTransportRoutePolicy.supportedRoutes)
+        guard normalizedRoutes != enabledRoutes else { return }
+        enabledRoutes = normalizedRoutes
+        guard ownsRTCSession else { return }
+        rtcSession = Self.makeRTCSession(
+            memberID: memberID,
+            audioCodecOptions: audioCodecOptions,
+            enabledRoutes: normalizedRoutes
+        )
+        activeRouteDebugTypeName = "RTC RouteManager"
+        bindEvents()
     }
 
     func setLocalMute(_ muted: Bool) {
@@ -348,13 +355,7 @@ final class RideIntercomCallSessionAdapter: CallSession {
             localPeer: localPeer,
             expectedPeers: expectedPeers,
             credential: group.accessSecret.map { RTC.RTCCredential.derived(groupID: group.id.uuidString, secret: $0) },
-            configuration: RTC.CallRouteConfiguration(
-                enabledRoutes: [.multipeer],
-                preferredRoute: .multipeer,
-                selectionMode: .singleRoute,
-                keepsPreferredRouteInStandby: false,
-                keepsFallbackRouteWarm: false
-            ),
+            configuration: makeRouteConfiguration(),
             audioFormat: RTC.AudioFormatDescriptor(sampleRate: 16_000, channelCount: 1),
             audioCodecConfiguration: RTC.AudioCodecConfiguration(
                 preferredCodecs: AppAudioCodecBridge.preferredRTCCodecs(
@@ -362,6 +363,46 @@ final class RideIntercomCallSessionAdapter: CallSession {
                     format: .intercomPacketAudio
                 )
             )
+        )
+    }
+
+    private func makeRouteConfiguration() -> RTC.CallRouteConfiguration {
+        Self.makeRouteConfiguration(enabledRoutes: enabledRoutes)
+    }
+
+    private static func makeRTCSession(
+        memberID: String,
+        audioCodecOptions: AppAudioCodecOptions,
+        enabledRoutes: Set<RTC.RouteKind>
+    ) -> RTC.CallSession {
+        RTC.CallSessionFactory.makeSession(
+            RTC.CallSessionFactoryConfiguration(
+                localDisplayName: memberID,
+                routeConfiguration: makeRouteConfiguration(enabledRoutes: enabledRoutes),
+                packetAudioCodecRegistry: AppAudioCodecBridge.makeRTCCodecRegistry(
+                    format: .intercomPacketAudio,
+                    options: audioCodecOptions
+                ),
+                webRTC: RTC.WebRTCRouteFactoryConfiguration(
+                    engineFactory: { WebRTCNativeEngine() }
+                )
+            )
+        )
+    }
+
+    private static func makeRouteConfiguration(enabledRoutes: Set<RTC.RouteKind>) -> RTC.CallRouteConfiguration {
+        let preferredRoute: RTC.RouteKind
+        if enabledRoutes.contains(.multipeer) {
+            preferredRoute = .multipeer
+        } else if enabledRoutes.contains(.webRTC) {
+            preferredRoute = .webRTC
+        } else {
+            preferredRoute = .multipeer
+        }
+
+        return RTC.CallRouteConfiguration(
+            enabledRoutes: enabledRoutes,
+            preferredRoute: preferredRoute
         )
     }
 
