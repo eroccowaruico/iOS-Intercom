@@ -87,6 +87,37 @@ import Testing
     ])
 }
 
+@Test func managerReportsRecoverableConfigurationOperationsWithoutStoppingConfiguration() throws {
+    let backend = FakeAudioSessionBackend()
+    let manager = AudioSessionManager(backend: backend)
+    let missingInput = AudioSessionDevice.ID(rawValue: "missing-input")
+    let output = AudioSessionDevice(id: "speaker-1", name: "Helmet Speaker", direction: .output)
+    backend.inputError = AudioSessionManagerError.deviceNotFound(missingInput)
+    var runtimeEvents: [AudioSessionRuntimeEvent] = []
+    manager.setRuntimeEventHandler { event in
+        runtimeEvents.append(event)
+    }
+
+    let report = try manager.configure(AudioSessionConfiguration(
+        preferredInput: .device(missingInput),
+        preferredOutput: .device(output.id)
+    ))
+
+    #expect(report.operations == [
+        AudioSessionOperationReport(operation: .applyConfiguration, result: .applied),
+        AudioSessionOperationReport(operation: .setPreferredInput(.device(missingInput)), result: .ignored(.unavailableDevice(missingInput))),
+        AudioSessionOperationReport(operation: .setPreferredOutput(.device(output.id)), result: .applied),
+        AudioSessionOperationReport(operation: .setPrefersEchoCancelledInput(false), result: .applied),
+    ])
+    #expect(backend.events == [
+        .applyConfiguration,
+        .setPreferredInput(missingInput),
+        .setPreferredOutput(output.id),
+        .setPrefersEchoCancelledInput(false),
+    ])
+    #expect(runtimeEvents.contains(.configuration(report)))
+}
+
 @Test func managerExposesSnapshotFromBackend() throws {
     let backend = FakeAudioSessionBackend()
     let input = AudioSessionDevice(id: "mic-1", name: "Helmet Mic", direction: .input)
@@ -107,6 +138,45 @@ import Testing
     #expect(snapshot.availableOutputs == [.systemDefaultOutput, output])
     #expect(snapshot.currentInput == input)
     #expect(snapshot.currentOutput == output)
+}
+
+@Test func managerForwardsSnapshotChangeEventsFromBackend() throws {
+    let backend = FakeAudioSessionBackend()
+    let manager = AudioSessionManager(backend: backend)
+    let output = AudioSessionDevice(id: "speaker-1", name: "Helmet Speaker", direction: .output)
+    var changes: [AudioSessionSnapshotChange] = []
+
+    manager.setSnapshotChangeHandler { change in
+        changes.append(change)
+    }
+
+    backend.snapshot.currentOutput = output
+    try backend.emitSnapshotChange(reason: .defaultOutputChanged)
+
+    #expect(changes == [
+        AudioSessionSnapshotChange(
+            reason: .defaultOutputChanged,
+            snapshot: backend.snapshot
+        ),
+    ])
+}
+
+@Test func managerEmitsRuntimeSnapshotChangesFromBackend() throws {
+    let backend = FakeAudioSessionBackend()
+    let manager = AudioSessionManager(backend: backend)
+    var runtimeEvents: [AudioSessionRuntimeEvent] = []
+
+    manager.setRuntimeEventHandler { event in
+        runtimeEvents.append(event)
+    }
+    try backend.emitSnapshotChange(reason: .deviceListChanged)
+
+    #expect(runtimeEvents == [
+        .snapshotChanged(AudioSessionSnapshotChange(
+            reason: .deviceListChanged,
+            snapshot: backend.snapshot
+        )),
+    ])
 }
 
 @Test func voiceProcessingEnablesAdvancedDuckingWithoutStoppingInput() throws {
@@ -187,16 +257,37 @@ import Testing
     #expect(manager.configuration.otherAudioDuckingEnabled)
 }
 
-@Test func systemSessionBackendIgnoresPlatformSpecificSelections() throws {
+@Test func systemSessionManagerReportsPlatformSpecificSelectionsAsIgnored() throws {
     let backend = SystemAudioSessionBackend()
+    let manager = AudioSessionManager(backend: backend)
 
     #if os(macOS)
-    try backend.setPreferredInput(.builtInSpeaker)
-    try backend.setPreferredInput(.builtInReceiver)
-    try backend.setPreferredOutput(.builtInSpeaker)
-    try backend.setPreferredOutput(.builtInReceiver)
+    let report = try manager.configure(AudioSessionConfiguration(
+        preferredInput: .builtInSpeaker,
+        preferredOutput: .builtInReceiver
+    ))
+    #expect(report.operations.contains(AudioSessionOperationReport(
+        operation: .applyConfiguration,
+        result: .ignored(.unsupportedOnCurrentPlatform)
+    )))
+    #expect(report.operations.contains(AudioSessionOperationReport(
+        operation: .setPreferredInput(.builtInSpeaker),
+        result: .ignored(.unsupportedSelection(.builtInSpeaker))
+    )))
+    #expect(report.operations.contains(AudioSessionOperationReport(
+        operation: .setPreferredOutput(.builtInReceiver),
+        result: .ignored(.unsupportedSelection(.builtInReceiver))
+    )))
+    #expect(report.operations.contains(AudioSessionOperationReport(
+        operation: .setPrefersEchoCancelledInput(false),
+        result: .ignored(.unsupportedOnCurrentPlatform)
+    )))
     #elseif os(iOS)
-    try backend.setPreferredOutput(.device("external-output"))
+    let report = try manager.configure(AudioSessionConfiguration(preferredOutput: .device("external-output")))
+    #expect(report.operations.contains(AudioSessionOperationReport(
+        operation: .setPreferredOutput(.device("external-output")),
+        result: .ignored(.unsupportedSelection(.device("external-output")))
+    )))
     #endif
 }
 
@@ -211,6 +302,12 @@ private final class FakeAudioSessionBackend: AudioSessionBackend {
 
     var events: [Event] = []
     var appliedConfigurations: [ResolvedAudioSessionConfiguration] = []
+    var snapshotChangeHandler: AudioSessionSnapshotChangeHandler?
+    var applyError: Error?
+    var activeError: Error?
+    var inputError: Error?
+    var outputError: Error?
+    var echoCancelledInputError: Error?
     var snapshot = AudioSessionSnapshot(
         isActive: false,
         availableInputs: [.systemDefaultInput],
@@ -222,27 +319,53 @@ private final class FakeAudioSessionBackend: AudioSessionBackend {
     func apply(_ configuration: ResolvedAudioSessionConfiguration) throws {
         events.append(.applyConfiguration)
         appliedConfigurations.append(configuration)
+        if let applyError {
+            throw applyError
+        }
     }
 
     func setActive(_ active: Bool) throws {
         events.append(.setActive(active))
+        if let activeError {
+            throw activeError
+        }
         snapshot.isActive = active
     }
 
     func setPreferredInput(_ selection: AudioSessionDeviceSelection) throws {
         events.append(.setPreferredInput(selection.deviceID))
+        if let inputError {
+            throw inputError
+        }
     }
 
     func setPreferredOutput(_ selection: AudioSessionDeviceSelection) throws {
         events.append(.setPreferredOutput(selection.deviceID))
+        if let outputError {
+            throw outputError
+        }
     }
 
     func setPrefersEchoCancelledInput(_ enabled: Bool) throws {
         events.append(.setPrefersEchoCancelledInput(enabled))
+        if let echoCancelledInputError {
+            throw echoCancelledInputError
+        }
     }
 
     func currentSnapshot() throws -> AudioSessionSnapshot {
         snapshot
+    }
+
+    func setSnapshotChangeHandler(_ handler: AudioSessionSnapshotChangeHandler?) {
+        snapshotChangeHandler = handler
+    }
+
+    func emitSnapshotChange(reason: AudioSessionSnapshotChangeReason) throws {
+        snapshotChangeHandler?(AudioSessionSnapshotChange(
+            reason: reason,
+            snapshot: try currentSnapshot()
+        ))
     }
 }
 

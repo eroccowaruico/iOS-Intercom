@@ -81,6 +81,18 @@ import AVFAudio
     }
 }
 
+@Test func addSourceRejectsEngineInternalNode() throws {
+    let mixer = AudioMixer()
+    let bus = try mixer.createBus("voice")
+
+    do {
+        try bus.addSource(mixer.engine.mainMixerNode)
+        Issue.record("engine internal node should throw incompatibleEffectNode")
+    } catch {
+        #expect(error as? AudioMixerError == .incompatibleEffectNode)
+    }
+}
+
 @Test func routeRejectsCycles() throws {
     let mixer = AudioMixer()
     let local = try mixer.createBus("local")
@@ -110,4 +122,29 @@ import AVFAudio
     } catch {
         #expect(error as? AudioMixerError == .busAlreadyRouted("local"))
     }
+}
+
+@Test func mixerSnapshotReportsGraphState() throws {
+    let mixer = AudioMixer()
+    let local = try mixer.createBus("local")
+    let master = try mixer.createBus("master")
+    try local.addSource(AVAudioPlayerNode())
+    try local.addEffect(AVAudioMixerNode())
+    local.volume = 0.5
+    try mixer.route(local, to: master)
+    try mixer.routeToOutput(master)
+
+    let snapshot = mixer.snapshot()
+
+    #expect(snapshot.busIDs == ["local", "master"])
+    #expect(snapshot.buses.contains(MixerBusSnapshot(
+        id: "local",
+        volume: 0.5,
+        sourceCount: 1,
+        effectCount: 1
+    )))
+    #expect(snapshot.routes == [
+        MixerRouteSnapshot(sourceBusID: "local", destinationBusID: "master"),
+    ])
+    #expect(snapshot.outputBusID == "master")
 }

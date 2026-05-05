@@ -10,6 +10,7 @@ import CoreAudio
 
 public enum AudioSessionManagerError: Error, Equatable, Sendable {
     case echoCancelledInputRequiresDefaultMode
+    case operationUnsupportedOnCurrentPlatform
     case inputSelectionUnsupported(AudioSessionDeviceSelection)
     case outputSelectionUnsupported(AudioSessionDeviceSelection)
     case deviceNotFound(AudioSessionDevice.ID)
@@ -118,6 +119,42 @@ public enum AudioSessionDeviceSelection: Equatable, Sendable {
     }
 }
 
+public enum AudioSessionOperation: Equatable, Sendable {
+    case applyConfiguration
+    case setActive(Bool)
+    case setPreferredInput(AudioSessionDeviceSelection)
+    case setPreferredOutput(AudioSessionDeviceSelection)
+    case setPrefersEchoCancelledInput(Bool)
+}
+
+public enum AudioSessionIgnoredReason: Equatable, Sendable {
+    case unsupportedOnCurrentPlatform
+    case unsupportedSelection(AudioSessionDeviceSelection)
+    case unavailableDevice(AudioSessionDevice.ID)
+}
+
+public enum AudioSessionOperationFailure: Equatable, Sendable {
+    case invalidConfiguration(String)
+    case coreAudioOperationFailed(String)
+    case unexpected(String)
+}
+
+public enum AudioSessionOperationResult: Equatable, Sendable {
+    case applied
+    case ignored(AudioSessionIgnoredReason)
+    case failed(AudioSessionOperationFailure)
+}
+
+public struct AudioSessionOperationReport: Equatable, Sendable {
+    public var operation: AudioSessionOperation
+    public var result: AudioSessionOperationResult
+
+    public init(operation: AudioSessionOperation, result: AudioSessionOperationResult) {
+        self.operation = operation
+        self.result = result
+    }
+}
+
 public struct AudioSessionConfiguration: Equatable, Sendable {
     public var mode: AudioSessionMode
     public var defaultToSpeaker: Bool
@@ -216,6 +253,64 @@ public struct AudioSessionSnapshot: Equatable, Sendable {
     }
 }
 
+public enum AudioSessionRouteChangeReason: Equatable, Sendable {
+    case newDeviceAvailable
+    case oldDeviceUnavailable
+    case categoryChanged
+    case routeOverride
+    case wakeFromSleep
+    case noSuitableRouteForCategory
+    case routeConfigurationChanged
+    case unknown
+}
+
+public enum AudioSessionSnapshotChangeReason: Equatable, Sendable {
+    case routeChanged(AudioSessionRouteChangeReason)
+    case deviceListChanged
+    case defaultInputChanged
+    case defaultOutputChanged
+    case unknown
+}
+
+public struct AudioSessionSnapshotChange: Equatable, Sendable {
+    public var reason: AudioSessionSnapshotChangeReason
+    public var snapshot: AudioSessionSnapshot
+
+    public init(reason: AudioSessionSnapshotChangeReason, snapshot: AudioSessionSnapshot) {
+        self.reason = reason
+        self.snapshot = snapshot
+    }
+}
+
+public typealias AudioSessionSnapshotChangeHandler = (AudioSessionSnapshotChange) -> Void
+
+public struct AudioSessionConfigurationReport: Equatable, Sendable {
+    public var requestedConfiguration: AudioSessionConfiguration
+    public var resolvedConfiguration: ResolvedAudioSessionConfiguration
+    public var operations: [AudioSessionOperationReport]
+    public var snapshot: AudioSessionSnapshot?
+
+    public init(
+        requestedConfiguration: AudioSessionConfiguration,
+        resolvedConfiguration: ResolvedAudioSessionConfiguration,
+        operations: [AudioSessionOperationReport],
+        snapshot: AudioSessionSnapshot?
+    ) {
+        self.requestedConfiguration = requestedConfiguration
+        self.resolvedConfiguration = resolvedConfiguration
+        self.operations = operations
+        self.snapshot = snapshot
+    }
+}
+
+public enum AudioSessionRuntimeEvent: Equatable, Sendable {
+    case operation(AudioSessionOperationReport)
+    case configuration(AudioSessionConfigurationReport)
+    case snapshotChanged(AudioSessionSnapshotChange)
+}
+
+public typealias AudioSessionRuntimeEventHandler = (AudioSessionRuntimeEvent) -> Void
+
 public struct AudioInputVoiceProcessingConfiguration: Equatable, Sendable {
     public var soundIsolationEnabled: Bool
     public var otherAudioDuckingEnabled: Bool
@@ -254,6 +349,13 @@ public protocol AudioSessionBackend: AnyObject {
     func setPreferredOutput(_ selection: AudioSessionDeviceSelection) throws
     func setPrefersEchoCancelledInput(_ enabled: Bool) throws
     func currentSnapshot() throws -> AudioSessionSnapshot
+    func setSnapshotChangeHandler(_ handler: AudioSessionSnapshotChangeHandler?)
+}
+
+public extension AudioSessionBackend {
+    func setSnapshotChangeHandler(_ handler: AudioSessionSnapshotChangeHandler?) {
+        _ = handler
+    }
 }
 
 public protocol AudioInputVoiceProcessingBackend: AnyObject {
@@ -265,6 +367,8 @@ public protocol AudioInputVoiceProcessingBackend: AnyObject {
 
 public final class AudioSessionManager {
     private let backend: AudioSessionBackend
+    private var runtimeEventHandler: AudioSessionRuntimeEventHandler?
+    private var snapshotChangeHandler: AudioSessionSnapshotChangeHandler?
     public private(set) var configuration: AudioSessionConfiguration
     public private(set) var resolvedConfiguration: ResolvedAudioSessionConfiguration
 
@@ -278,24 +382,103 @@ public final class AudioSessionManager {
         self.backend = backend
     }
 
-    public func configure(_ configuration: AudioSessionConfiguration) throws {
+    @discardableResult
+    public func configure(_ configuration: AudioSessionConfiguration) throws -> AudioSessionConfigurationReport {
         let resolved = try configuration.resolved()
-        try backend.apply(resolved)
-        try backend.setPreferredInput(resolved.preferredInput)
-        try backend.setPreferredOutput(resolved.preferredOutput)
+        var operations: [AudioSessionOperationReport] = []
+        operations.append(record(.applyConfiguration) {
+            try backend.apply(resolved)
+        })
+        operations.append(record(.setPreferredInput(resolved.preferredInput)) {
+            try backend.setPreferredInput(resolved.preferredInput)
+        })
+        operations.append(record(.setPreferredOutput(resolved.preferredOutput)) {
+            try backend.setPreferredOutput(resolved.preferredOutput)
+        })
         if let prefersEchoCancelledInput = resolved.prefersEchoCancelledInput {
-            try backend.setPrefersEchoCancelledInput(prefersEchoCancelledInput)
+            operations.append(record(.setPrefersEchoCancelledInput(prefersEchoCancelledInput)) {
+                try backend.setPrefersEchoCancelledInput(prefersEchoCancelledInput)
+            })
         }
         self.configuration = configuration
         resolvedConfiguration = resolved
+        let report = AudioSessionConfigurationReport(
+            requestedConfiguration: configuration,
+            resolvedConfiguration: resolved,
+            operations: operations,
+            snapshot: try? backend.currentSnapshot()
+        )
+        emit(.configuration(report))
+        return report
     }
 
-    public func setActive(_ active: Bool) throws {
-        try backend.setActive(active)
+    @discardableResult
+    public func setActive(_ active: Bool) throws -> AudioSessionOperationReport {
+        record(.setActive(active)) {
+            try backend.setActive(active)
+        }
     }
 
     public func snapshot() throws -> AudioSessionSnapshot {
         try backend.currentSnapshot()
+    }
+
+    public func setSnapshotChangeHandler(_ handler: AudioSessionSnapshotChangeHandler?) {
+        snapshotChangeHandler = handler
+        updateBackendSnapshotChangeHandler()
+    }
+
+    public func setRuntimeEventHandler(_ handler: AudioSessionRuntimeEventHandler?) {
+        runtimeEventHandler = handler
+        updateBackendSnapshotChangeHandler()
+    }
+
+    private func record(
+        _ operation: AudioSessionOperation,
+        body: () throws -> Void
+    ) -> AudioSessionOperationReport {
+        let result: AudioSessionOperationResult
+        do {
+            try body()
+            result = .applied
+        } catch {
+            result = Self.operationResult(for: error)
+        }
+        let report = AudioSessionOperationReport(operation: operation, result: result)
+        emit(.operation(report))
+        return report
+    }
+
+    private static func operationResult(for error: Error) -> AudioSessionOperationResult {
+        switch error as? AudioSessionManagerError {
+        case .operationUnsupportedOnCurrentPlatform:
+            .ignored(.unsupportedOnCurrentPlatform)
+        case .inputSelectionUnsupported(let selection), .outputSelectionUnsupported(let selection):
+            .ignored(.unsupportedSelection(selection))
+        case .deviceNotFound(let deviceID):
+            .ignored(.unavailableDevice(deviceID))
+        case .coreAudioOperationFailed(let message):
+            .failed(.coreAudioOperationFailed(message))
+        case .echoCancelledInputRequiresDefaultMode:
+            .failed(.invalidConfiguration("echo cancelled input requires default mode"))
+        case nil:
+            .failed(.unexpected(String(describing: error)))
+        }
+    }
+
+    private func updateBackendSnapshotChangeHandler() {
+        guard runtimeEventHandler != nil || snapshotChangeHandler != nil else {
+            backend.setSnapshotChangeHandler(nil)
+            return
+        }
+        backend.setSnapshotChangeHandler { [weak self] change in
+            self?.snapshotChangeHandler?(change)
+            self?.emit(.snapshotChanged(change))
+        }
+    }
+
+    private func emit(_ event: AudioSessionRuntimeEvent) {
+        runtimeEventHandler?(event)
     }
 }
 
@@ -340,13 +523,23 @@ public final class AudioInputVoiceProcessingManager {
 public final class SystemAudioSessionBackend: AudioSessionBackend {
     #if os(iOS)
     private let session: AVAudioSession
+    private let notificationCenter: NotificationCenter
+    private var routeChangeObserver: NSObjectProtocol?
 
-    public init(session: AVAudioSession = .sharedInstance()) {
+    public init(session: AVAudioSession = .sharedInstance(), notificationCenter: NotificationCenter = .default) {
         self.session = session
+        self.notificationCenter = notificationCenter
     }
+    #elseif os(macOS)
+    private let coreAudioListenerQueue = DispatchQueue(label: "SessionManager.SystemAudioSessionBackend.CoreAudio")
+    private var coreAudioPropertyListener: AudioObjectPropertyListenerBlock?
+
+    public init() {}
     #else
     public init() {}
     #endif
+
+    private var snapshotChangeHandler: AudioSessionSnapshotChangeHandler?
 
     public func apply(_ configuration: ResolvedAudioSessionConfiguration) throws {
         #if os(iOS)
@@ -357,6 +550,7 @@ public final class SystemAudioSessionBackend: AudioSessionBackend {
         )
         #else
         _ = configuration
+        throw AudioSessionManagerError.operationUnsupportedOnCurrentPlatform
         #endif
     }
 
@@ -369,6 +563,7 @@ public final class SystemAudioSessionBackend: AudioSessionBackend {
         }
         #else
         _ = active
+        throw AudioSessionManagerError.operationUnsupportedOnCurrentPlatform
         #endif
     }
 
@@ -392,10 +587,11 @@ public final class SystemAudioSessionBackend: AudioSessionBackend {
         case .device(let deviceID):
             try setDefaultMacDevice(deviceID, selector: kAudioHardwarePropertyDefaultInputDevice)
         case .builtInSpeaker, .builtInReceiver:
-            return
+            throw AudioSessionManagerError.inputSelectionUnsupported(selection)
         }
         #else
         _ = selection
+        throw AudioSessionManagerError.operationUnsupportedOnCurrentPlatform
         #endif
     }
 
@@ -407,7 +603,7 @@ public final class SystemAudioSessionBackend: AudioSessionBackend {
         case .builtInSpeaker:
             try session.overrideOutputAudioPort(.speaker)
         case .device:
-            return
+            throw AudioSessionManagerError.outputSelectionUnsupported(selection)
         }
         #elseif os(macOS)
         switch selection {
@@ -416,10 +612,11 @@ public final class SystemAudioSessionBackend: AudioSessionBackend {
         case .device(let deviceID):
             try setDefaultMacDevice(deviceID, selector: kAudioHardwarePropertyDefaultOutputDevice)
         case .builtInSpeaker, .builtInReceiver:
-            return
+            throw AudioSessionManagerError.outputSelectionUnsupported(selection)
         }
         #else
         _ = selection
+        throw AudioSessionManagerError.operationUnsupportedOnCurrentPlatform
         #endif
     }
 
@@ -428,6 +625,7 @@ public final class SystemAudioSessionBackend: AudioSessionBackend {
         try session.setPrefersEchoCancelledInput(enabled)
         #else
         _ = enabled
+        throw AudioSessionManagerError.operationUnsupportedOnCurrentPlatform
         #endif
     }
 
@@ -459,6 +657,54 @@ public final class SystemAudioSessionBackend: AudioSessionBackend {
             currentOutput: .systemDefaultOutput
         )
         #endif
+    }
+
+    public func setSnapshotChangeHandler(_ handler: AudioSessionSnapshotChangeHandler?) {
+        snapshotChangeHandler = handler
+        #if os(iOS)
+        if let routeChangeObserver {
+            notificationCenter.removeObserver(routeChangeObserver)
+            self.routeChangeObserver = nil
+        }
+        guard handler != nil else { return }
+        routeChangeObserver = notificationCenter.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            self?.notifySnapshotChanged(reason: .routeChanged(Self.iOSRouteChangeReason(from: notification)))
+        }
+        #elseif os(macOS)
+        removeCoreAudioListeners()
+        guard handler != nil else { return }
+        let listener: AudioObjectPropertyListenerBlock = { [weak self] count, addresses in
+            let reason = Self.snapshotChangeReason(count: count, addresses: addresses)
+            self?.notifySnapshotChanged(reason: reason)
+        }
+        coreAudioPropertyListener = listener
+        addCoreAudioListener(selector: kAudioHardwarePropertyDevices, listener: listener)
+        addCoreAudioListener(selector: kAudioHardwarePropertyDefaultInputDevice, listener: listener)
+        addCoreAudioListener(selector: kAudioHardwarePropertyDefaultOutputDevice, listener: listener)
+        #else
+        _ = handler
+        #endif
+    }
+
+    deinit {
+        #if os(iOS)
+        if let routeChangeObserver {
+            notificationCenter.removeObserver(routeChangeObserver)
+        }
+        #elseif os(macOS)
+        removeCoreAudioListeners()
+        #endif
+    }
+
+    private func notifySnapshotChanged(reason: AudioSessionSnapshotChangeReason) {
+        guard let snapshotChangeHandler,
+              let snapshot = try? currentSnapshot()
+        else { return }
+        snapshotChangeHandler(AudioSessionSnapshotChange(reason: reason, snapshot: snapshot))
     }
 }
 
@@ -564,6 +810,39 @@ private extension AudioSessionDuckingLevel {
 }
 
 private extension SystemAudioSessionBackend {
+    static func iOSRouteChangeReason(from notification: Notification) -> AudioSessionRouteChangeReason {
+        let rawValue: UInt?
+        if let value = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? NSNumber {
+            rawValue = value.uintValue
+        } else {
+            rawValue = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+        }
+        guard let rawValue,
+              let reason = AVAudioSession.RouteChangeReason(rawValue: rawValue)
+        else { return .unknown }
+
+        switch reason {
+        case .newDeviceAvailable:
+            return .newDeviceAvailable
+        case .oldDeviceUnavailable:
+            return .oldDeviceUnavailable
+        case .categoryChange:
+            return .categoryChanged
+        case .override:
+            return .routeOverride
+        case .wakeFromSleep:
+            return .wakeFromSleep
+        case .noSuitableRouteForCategory:
+            return .noSuitableRouteForCategory
+        case .routeConfigurationChange:
+            return .routeConfigurationChanged
+        case .unknown:
+            return .unknown
+        @unknown default:
+            return .unknown
+        }
+    }
+
     func iOSAvailableInputs() -> [AudioSessionDevice] {
         [.systemDefaultInput] + (session.availableInputs ?? []).map {
             AudioSessionDevice(id: .init(rawValue: $0.uid), name: $0.portName, direction: .input)
@@ -585,6 +864,67 @@ private extension SystemAudioSessionBackend {
 
 #if os(macOS)
 private extension SystemAudioSessionBackend {
+    static func snapshotChangeReason(
+        count: UInt32,
+        addresses: UnsafePointer<AudioObjectPropertyAddress>
+    ) -> AudioSessionSnapshotChangeReason {
+        for index in 0..<Int(count) {
+            switch addresses[index].mSelector {
+            case kAudioHardwarePropertyDevices:
+                return .deviceListChanged
+            case kAudioHardwarePropertyDefaultInputDevice:
+                return .defaultInputChanged
+            case kAudioHardwarePropertyDefaultOutputDevice:
+                return .defaultOutputChanged
+            default:
+                continue
+            }
+        }
+        return .unknown
+    }
+
+    func addCoreAudioListener(
+        selector: AudioObjectPropertySelector,
+        listener: @escaping AudioObjectPropertyListenerBlock
+    ) {
+        var address = AudioObjectPropertyAddress(
+            mSelector: selector,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            coreAudioListenerQueue,
+            listener
+        )
+    }
+
+    func removeCoreAudioListeners() {
+        guard let listener = coreAudioPropertyListener else { return }
+        removeCoreAudioListener(selector: kAudioHardwarePropertyDevices, listener: listener)
+        removeCoreAudioListener(selector: kAudioHardwarePropertyDefaultInputDevice, listener: listener)
+        removeCoreAudioListener(selector: kAudioHardwarePropertyDefaultOutputDevice, listener: listener)
+        coreAudioPropertyListener = nil
+    }
+
+    func removeCoreAudioListener(
+        selector: AudioObjectPropertySelector,
+        listener: @escaping AudioObjectPropertyListenerBlock
+    ) {
+        var address = AudioObjectPropertyAddress(
+            mSelector: selector,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        AudioObjectRemovePropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            coreAudioListenerQueue,
+            listener
+        )
+    }
+
     func macDevices(scope: AudioObjectPropertyScope) -> [AudioSessionDevice] {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDevices,

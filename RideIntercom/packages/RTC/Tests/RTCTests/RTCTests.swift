@@ -49,7 +49,11 @@ import Testing
         credential: nil,
         audioCodecConfiguration: AudioCodecConfiguration(preferredCodecs: [codecID, .pcm16])
     )
-    let session = try MultipeerPacketMediaSession(request: request, codecRegistry: registry)
+    let session = try MultipeerPacketMediaSession(
+        request: request,
+        codecRegistry: registry,
+        receiveConfiguration: PacketAudioReceiveConfiguration(playoutDelay: 0)
+    )
     session.isActive = true
 
     let sentFrame = AudioFrame(sequenceNumber: 3, samples: [0.1, -0.25, 0.5])
@@ -61,7 +65,12 @@ import Testing
         return
     }
 
-    let received = try #require(try session.accept(envelope, from: PeerID(rawValue: "remote")))
+    let report = try #require(try session.accept(
+        envelope,
+        from: PeerID(rawValue: "remote"),
+        receivedAt: 10
+    ))
+    let received = try #require(report.readyFrames.first)
     #expect(envelope.frame.codec == codecID)
     #expect(envelope.frame.format == sentFrame.format)
     #expect(envelope.frame.sampleCount == sentFrame.samples.count)
@@ -80,6 +89,61 @@ import Testing
         #expect(preferred == [.opus])
         #expect(supported == [.pcm16])
     }
+}
+
+@Test func packetAudioReceiveBufferDrainsFramesAfterDelayInStableOrder() {
+    var buffer = PacketAudioReceiveBuffer(configuration: PacketAudioReceiveConfiguration(
+        playoutDelay: 0.08,
+        packetLifetime: 1.0
+    ))
+
+    buffer.enqueue(makeFilteredPacketAudioFrame(peerID: "remote", sequenceNumber: 2), receivedAt: 10.00)
+    buffer.enqueue(makeFilteredPacketAudioFrame(peerID: "remote", sequenceNumber: 1), receivedAt: 10.01)
+
+    #expect(buffer.drainReadyFrames(now: 10.05).isEmpty)
+
+    let ready = buffer.drainReadyFrames(now: 10.10)
+
+    #expect(ready.map(\.frame.sequenceNumber) == [1, 2])
+    #expect(buffer.queuedFrameCount == 0)
+}
+
+@Test func packetAudioReceiveFilterDropsDuplicateFramesBeforeJitterBuffer() throws {
+    let request = makeRequest()
+    let sequencer = PacketAudioSequencer(
+        sessionID: request.sessionID,
+        senderID: request.localPeer.id,
+        codecID: .pcm16,
+        codecRegistry: .packetAudioDefault
+    )
+    let envelope = try sequencer.makeEnvelope(from: AudioFrame(sequenceNumber: 1, samples: [0.4]))
+    var filter = PacketAudioReceiveFilter(sessionID: request.sessionID, codecRegistry: .packetAudioDefault)
+
+    let first = try filter.accept(envelope, from: PeerID(rawValue: "remote"))
+    let duplicate = try filter.accept(envelope, from: PeerID(rawValue: "remote"))
+
+    #expect(first?.received.frame.sequenceNumber == 1)
+    #expect(duplicate == nil)
+}
+
+@Test func packetAudioReceiveBufferDropsExpiredFrames() {
+    var buffer = PacketAudioReceiveBuffer(configuration: PacketAudioReceiveConfiguration(
+        playoutDelay: 0.01,
+        packetLifetime: 0.50
+    ))
+
+    buffer.enqueue(makeFilteredPacketAudioFrame(peerID: "remote", sequenceNumber: 1), receivedAt: 20.00)
+    buffer.enqueue(makeFilteredPacketAudioFrame(peerID: "remote", sequenceNumber: 2), receivedAt: 20.00)
+
+    let report = buffer.drain(now: 20.60)
+
+    #expect(report.readyFrames.isEmpty)
+    #expect(report.expiredFrameCount == 2)
+    #expect(report.receivedFrameCount == 2)
+    #expect(report.droppedFrameCount == 2)
+    #expect(report.queuedFrameCount == 0)
+    #expect(buffer.queuedFrameCount == 0)
+    #expect(buffer.droppedFrameCount == 2)
 }
 
 @Test func routeManagerFiltersOptedOutRoutes() async {
@@ -225,6 +289,18 @@ private func makeCloudflareConfiguration() -> CloudflareRealtimeConfiguration {
         sfuEndpoint: URL(string: "https://realtime.cloudflare.test")!,
         roomID: "test-room",
         participantToken: "test-token"
+    )
+}
+
+private func makeFilteredPacketAudioFrame(
+    peerID: String,
+    sequenceNumber: UInt64
+) -> FilteredPacketAudioFrame {
+    FilteredPacketAudioFrame(
+        received: ReceivedAudioFrame(
+            peerID: PeerID(rawValue: peerID),
+            frame: AudioFrame(sequenceNumber: sequenceNumber, samples: [Float(sequenceNumber)])
+        )
     )
 }
 

@@ -63,19 +63,31 @@ public struct RouteMetrics: Equatable, Sendable {
     public var jitter: TimeInterval?
     public var packetLoss: Double?
     public var activePeerCount: Int
+    public var audioPlayoutDelay: TimeInterval?
+    public var receivedAudioFrameCount: Int
+    public var droppedAudioFrameCount: Int
+    public var queuedAudioFrameCount: Int
 
     public init(
         route: RouteKind,
         rtt: TimeInterval? = nil,
         jitter: TimeInterval? = nil,
         packetLoss: Double? = nil,
-        activePeerCount: Int = 0
+        activePeerCount: Int = 0,
+        audioPlayoutDelay: TimeInterval? = nil,
+        receivedAudioFrameCount: Int = 0,
+        droppedAudioFrameCount: Int = 0,
+        queuedAudioFrameCount: Int = 0
     ) {
         self.route = route
         self.rtt = rtt
         self.jitter = jitter
         self.packetLoss = packetLoss
         self.activePeerCount = activePeerCount
+        self.audioPlayoutDelay = audioPlayoutDelay
+        self.receivedAudioFrameCount = receivedAudioFrameCount
+        self.droppedAudioFrameCount = droppedAudioFrameCount
+        self.queuedAudioFrameCount = queuedAudioFrameCount
     }
 }
 

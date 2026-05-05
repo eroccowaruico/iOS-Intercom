@@ -74,14 +74,12 @@ public extension AudioCodecRegistry {
 struct PacketAudioEnvelope: Codable, Equatable, Sendable {
     var sessionID: String
     var senderID: PeerID
-    var streamID: UUID
     var frame: EncodedAudioFrame
 }
 
 struct PacketAudioSequencer: Sendable {
     private let sessionID: String
     private let senderID: PeerID
-    private let streamID: UUID
     private let codecID: AudioCodecIdentifier
     private let codecRegistry: AudioCodecRegistry
 
@@ -89,21 +87,18 @@ struct PacketAudioSequencer: Sendable {
         sessionID: String,
         senderID: PeerID,
         codecID: AudioCodecIdentifier,
-        codecRegistry: AudioCodecRegistry,
-        streamID: UUID = UUID()
+        codecRegistry: AudioCodecRegistry
     ) {
         self.sessionID = sessionID
         self.senderID = senderID
         self.codecID = codecID
         self.codecRegistry = codecRegistry
-        self.streamID = streamID
     }
 
     func makeEnvelope(from frame: AudioFrame) throws -> PacketAudioEnvelope {
         PacketAudioEnvelope(
             sessionID: sessionID,
             senderID: senderID,
-            streamID: streamID,
             frame: try codecRegistry.encode(frame, using: codecID)
         )
     }
@@ -119,20 +114,146 @@ struct PacketAudioReceiveFilter: Sendable {
         self.codecRegistry = codecRegistry
     }
 
-    mutating func accept(_ envelope: PacketAudioEnvelope, from peerID: PeerID) throws -> ReceivedAudioFrame? {
+    mutating func accept(_ envelope: PacketAudioEnvelope, from peerID: PeerID) throws -> FilteredPacketAudioFrame? {
         guard envelope.sessionID == sessionID else { return nil }
-        let packetID = PacketID(streamID: envelope.streamID, sequenceNumber: envelope.frame.sequenceNumber)
+        let packetID = PacketID(peerID: peerID, sequenceNumber: envelope.frame.sequenceNumber)
         guard !seenPackets.contains(packetID) else { return nil }
         seenPackets.insert(packetID)
-        return ReceivedAudioFrame(
-            peerID: peerID,
-            frame: try codecRegistry.decode(envelope.frame)
+        return FilteredPacketAudioFrame(
+            received: ReceivedAudioFrame(
+                peerID: peerID,
+                frame: try codecRegistry.decode(envelope.frame)
+            )
         )
     }
 
     private struct PacketID: Hashable {
-        var streamID: UUID
+        var peerID: PeerID
         var sequenceNumber: UInt64
+    }
+}
+
+struct FilteredPacketAudioFrame: Equatable, Sendable {
+    var received: ReceivedAudioFrame
+}
+
+public struct PacketAudioReceiveConfiguration: Equatable, Sendable {
+    public var playoutDelay: TimeInterval
+    public var packetLifetime: TimeInterval
+
+    public init(playoutDelay: TimeInterval = 0.015, packetLifetime: TimeInterval = 2.0) {
+        self.playoutDelay = max(0, playoutDelay)
+        self.packetLifetime = max(0, packetLifetime)
+    }
+}
+
+struct PacketAudioReceiveBufferReport: Equatable, Sendable {
+    var readyFrames: [ReceivedAudioFrame]
+    var expiredFrameCount: Int
+    var receivedFrameCount: Int
+    var droppedFrameCount: Int
+    var queuedFrameCount: Int
+
+    init(
+        readyFrames: [ReceivedAudioFrame],
+        expiredFrameCount: Int,
+        receivedFrameCount: Int,
+        droppedFrameCount: Int,
+        queuedFrameCount: Int
+    ) {
+        self.readyFrames = readyFrames
+        self.expiredFrameCount = expiredFrameCount
+        self.receivedFrameCount = receivedFrameCount
+        self.droppedFrameCount = droppedFrameCount
+        self.queuedFrameCount = queuedFrameCount
+    }
+}
+
+struct PacketAudioReceiveBuffer: Sendable {
+    let configuration: PacketAudioReceiveConfiguration
+    private var queuedFrames: [QueuedFrame] = []
+    private(set) var receivedFrameCount = 0
+    private(set) var droppedFrameCount = 0
+
+    var queuedFrameCount: Int {
+        queuedFrames.count
+    }
+
+    init(configuration: PacketAudioReceiveConfiguration = PacketAudioReceiveConfiguration()) {
+        self.configuration = configuration
+    }
+
+    mutating func enqueue(_ filtered: FilteredPacketAudioFrame, receivedAt: TimeInterval) {
+        receivedFrameCount += 1
+        queuedFrames.append(QueuedFrame(filtered: filtered, receivedAt: receivedAt))
+    }
+
+    mutating func drain(now: TimeInterval) -> PacketAudioReceiveBufferReport {
+        let queuedCountBeforeExpiration = queuedFrames.count
+        queuedFrames.removeAll { queuedFrame in
+            now - queuedFrame.receivedAt >= configuration.packetLifetime
+        }
+        let expiredFrameCount = queuedCountBeforeExpiration - queuedFrames.count
+        droppedFrameCount += expiredFrameCount
+
+        var readyFrames: [QueuedFrame] = []
+        var pendingFrames: [QueuedFrame] = []
+        for queuedFrame in queuedFrames {
+            if now - queuedFrame.receivedAt >= configuration.playoutDelay {
+                readyFrames.append(queuedFrame)
+            } else {
+                pendingFrames.append(queuedFrame)
+            }
+        }
+        queuedFrames = pendingFrames
+
+        let ready = readyFrames
+            .sorted { left, right in
+                left.sortKey < right.sortKey
+            }
+            .map(\.filtered.received)
+
+        return PacketAudioReceiveBufferReport(
+            readyFrames: ready,
+            expiredFrameCount: expiredFrameCount,
+            receivedFrameCount: receivedFrameCount,
+            droppedFrameCount: droppedFrameCount,
+            queuedFrameCount: queuedFrames.count
+        )
+    }
+
+    mutating func drainReadyFrames(now: TimeInterval) -> [ReceivedAudioFrame] {
+        drain(now: now).readyFrames
+    }
+
+    func timeUntilNextReadyFrame(now: TimeInterval) -> TimeInterval? {
+        queuedFrames
+            .map { max(0, configuration.playoutDelay - (now - $0.receivedAt)) }
+            .min()
+    }
+
+    private struct QueuedFrame: Sendable {
+        var filtered: FilteredPacketAudioFrame
+        var receivedAt: TimeInterval
+
+        var sortKey: SortKey {
+            SortKey(
+                peerID: filtered.received.peerID.rawValue,
+                sequenceNumber: filtered.received.frame.sequenceNumber
+            )
+        }
+    }
+
+    private struct SortKey: Comparable, Sendable {
+        var peerID: String
+        var sequenceNumber: UInt64
+
+        static func < (left: SortKey, right: SortKey) -> Bool {
+            if left.peerID != right.peerID {
+                return left.peerID < right.peerID
+            }
+            return left.sequenceNumber < right.sequenceNumber
+        }
     }
 }
 

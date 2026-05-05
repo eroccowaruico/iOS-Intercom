@@ -10,6 +10,44 @@ public enum AudioMixerError: Error, Equatable, Sendable {
 	case incompatibleEffectNode
 }
 
+public struct AudioMixerSnapshot: Equatable, Sendable {
+	public var busIDs: [String]
+	public var buses: [MixerBusSnapshot]
+	public var routes: [MixerRouteSnapshot]
+	public var outputBusID: String?
+
+	public init(busIDs: [String], buses: [MixerBusSnapshot], routes: [MixerRouteSnapshot], outputBusID: String?) {
+		self.busIDs = busIDs
+		self.buses = buses
+		self.routes = routes
+		self.outputBusID = outputBusID
+	}
+}
+
+public struct MixerBusSnapshot: Equatable, Sendable {
+	public var id: String
+	public var volume: Float
+	public var sourceCount: Int
+	public var effectCount: Int
+
+	public init(id: String, volume: Float, sourceCount: Int, effectCount: Int) {
+		self.id = id
+		self.volume = volume
+		self.sourceCount = sourceCount
+		self.effectCount = effectCount
+	}
+}
+
+public struct MixerRouteSnapshot: Equatable, Sendable {
+	public var sourceBusID: String
+	public var destinationBusID: String
+
+	public init(sourceBusID: String, destinationBusID: String) {
+		self.sourceBusID = sourceBusID
+		self.destinationBusID = destinationBusID
+	}
+}
+
 public final class AudioMixer {
 	public static let defaultFormat = AVAudioFormat(
 		commonFormat: .pcmFormatFloat32,
@@ -32,6 +70,23 @@ public final class AudioMixer {
 
 	public var busIDs: [String] {
 		buses.keys.sorted()
+	}
+
+	public func snapshot() -> AudioMixerSnapshot {
+		let ids = busIDs
+		return AudioMixerSnapshot(
+			busIDs: ids,
+			buses: ids.compactMap { buses[$0]?.snapshot() },
+			routes: parentByChildID
+				.map { MixerRouteSnapshot(sourceBusID: $0.key, destinationBusID: $0.value) }
+				.sorted {
+					if $0.sourceBusID != $1.sourceBusID {
+						return $0.sourceBusID < $1.sourceBusID
+					}
+					return $0.destinationBusID < $1.destinationBusID
+				},
+			outputBusID: outputBusID
+		)
 	}
 
 	@discardableResult
@@ -150,6 +205,9 @@ public final class MixerBus {
 		guard !sourceNodeIDs.contains(nodeID) else {
 			throw AudioMixerError.invalidRoute(id)
 		}
+		guard !isEngineInternalNode(node) else {
+			throw AudioMixerError.incompatibleEffectNode
+		}
 
 		engine.attach(node)
 		let inputBus = inputMixer.nextAvailableInputBus
@@ -157,10 +215,22 @@ public final class MixerBus {
 		sourceNodeIDs.insert(nodeID)
 	}
 
+	public func snapshot() -> MixerBusSnapshot {
+		MixerBusSnapshot(
+			id: id,
+			volume: volume,
+			sourceCount: sourceNodeIDs.count,
+			effectCount: effects.count
+		)
+	}
+
 	public func addEffect(_ node: AVAudioNode) throws {
 		let nodeID = ObjectIdentifier(node)
 		guard !effectNodeIDs.contains(nodeID) else {
 			throw AudioMixerError.invalidRoute(id)
+		}
+		guard !isEngineInternalNode(node) else {
+			throw AudioMixerError.incompatibleEffectNode
 		}
 
 		// Nodes with no output bus cannot pass audio downstream
@@ -186,6 +256,10 @@ public final class MixerBus {
 		effects.append(node)
 		effectNodeIDs.insert(nodeID)
 		rebuildChain()
+	}
+
+	private func isEngineInternalNode(_ node: AVAudioNode) -> Bool {
+		node === engine.inputNode || node === engine.outputNode || node === engine.mainMixerNode
 	}
 
 	public func removeEffect(at index: Int) throws {
