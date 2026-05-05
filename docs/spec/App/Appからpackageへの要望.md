@@ -16,6 +16,12 @@ App を作り直す前提では、App 側の暫定実装や既存コードの棚
 |---|---|---|---|
 | SessionManager | `mode == .default` で `defaultToSpeaker = true` の場合、`prefersEchoCancelledInput = true` を package 側で自動的に解決してほしい。speaker 出力は echo cancellation と組で扱うべきで、App がこの結合を毎回補う設計にしたくない | OS 差分吸収と設定受け取りに関わる。App は `Use Speaker` というユーザー希望だけを渡し、SessionManager が default mode の speaker 向け session 設定を一貫して解決するのが責務境界として自然 | `AudioSessionConfiguration.resolved()` または `AudioSessionManager.configure(_:)` が `defaultToSpeaker = true && mode == .default` を受けたときに `prefersEchoCancelledInput = true` を resolved/report に含める。`mode == .voiceChat` では既存通り明示的な `prefersEchoCancelledInput` を適用しない |
 
+
+パッケージ全体として、docs/spec/App/UI/Diagnostics.md を組む際に必要な情報は全て、App側の設定などで作らせずに、package側でリアルタイムに渡せるようにすること。
+App側で作るべき情報があるとすれば、package側で必要な設定だけであり、表示用の情報は全てpackage側で渡せるようにすること。
+特にmixerの経路や、エフェクトチェーン、RTCの接続状態など、OS差分や継続可能な準異常系の処理も含めて全てをリアルタイムに渡せるようにすること。
+受信情報でなければイベントである必要はないが、それ含めて理想的な設計をすること。
+
 ## 追記ルール
 
 | 記録する項目 | 内容 |
