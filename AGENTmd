@@ -5,7 +5,7 @@
 - 曖昧な表現を避け、実装時に判断可能な文で記述する。
 
 ## 基本要求
-- iOSとmacOS両方をサポートすること。
+- iOSとmacOS両方をサポートすること。iOSがメインのターゲットで、macOSはiOSの単純移植で済ませないこと。
 - docs/requirements/requirements.md に記載の要求を満たすこと。
 - 指示と docs/requirements/requirements.md に差異がある場合は、質問して指示を仰ぐこと。
 
