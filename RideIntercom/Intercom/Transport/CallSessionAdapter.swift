@@ -190,7 +190,8 @@ final class RideIntercomCallSessionAdapter: CallSession {
     }
 
     func setEnabledRoutes(_ routes: Set<RTC.RouteKind>) {
-        let normalizedRoutes = routes.intersection(AppRTCTransportRoutePolicy.supportedRoutes)
+        let requestedRoutes = routes.intersection(AppRTCTransportRoutePolicy.supportedRoutes)
+        let normalizedRoutes = requestedRoutes.isEmpty ? AppRTCTransportRoutePolicy.supportedRoutes : requestedRoutes
         guard normalizedRoutes != enabledRoutes else { return }
         enabledRoutes = normalizedRoutes
         guard ownsRTCSession else { return }
@@ -294,8 +295,21 @@ final class RideIntercomCallSessionAdapter: CallSession {
             onEvent?(.routeMetrics(metrics))
         case .localAudioLevelChanged, .remoteAudioLevelChanged:
             break
-        case .error:
+        case .error(let error):
+            handleRTCError(error)
+        }
+    }
+
+    private func handleRTCError(_ error: RTC.CallSessionError) {
+        switch error {
+        case .noEnabledRoute:
             onEvent?(.linkFailed(internetAvailable: false))
+        case .routeUnavailable,
+             .signalingUnavailable,
+             .connectionFailed,
+             .unsupportedApplicationDataDelivery,
+             .unsupportedAudioCodec:
+            break
         }
     }
 

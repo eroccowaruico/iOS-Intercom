@@ -23,7 +23,7 @@ struct AppSettings: Equatable {
         self.preferredTransmitCodec = preferredTransmitCodec
         self.aacELDv2BitRate = Codec.AACELDv2Options(bitRate: aacELDv2BitRate).bitRate
         self.opusBitRate = Codec.OpusOptions(bitRate: opusBitRate).bitRate
-        self.enabledRTCTransportRoutes = enabledRTCTransportRoutes
+        self.enabledRTCTransportRoutes = IntercomViewModel.normalizedRTCTransportRoutes(enabledRTCTransportRoutes)
     }
 }
 
@@ -56,6 +56,8 @@ final class UserDefaultsAppSettingsStore: AppSettingsStoring {
     private let aacELDv2BitRateKey = "RideIntercom.settings.aacELDv2BitRate"
     private let opusBitRateKey = "RideIntercom.settings.opusBitRate"
     private let enabledRTCTransportRoutesKey = "RideIntercom.settings.enabledRTCTransportRoutes"
+    private let rtcTransportRoutesSchemaVersionKey = "RideIntercom.settings.enabledRTCTransportRoutes.schemaVersion"
+    private let currentRTCTransportRoutesSchemaVersion = 1
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -88,6 +90,7 @@ final class UserDefaultsAppSettingsStore: AppSettingsStoring {
             settings.enabledRTCTransportRoutes.map(\.rawValue).sorted(),
             forKey: enabledRTCTransportRoutesKey
         )
+        defaults.set(currentRTCTransportRoutesSchemaVersion, forKey: rtcTransportRoutesSchemaVersionKey)
     }
 
     private func loadAudioSessionProfile() -> AudioSessionProfile {
@@ -128,10 +131,10 @@ final class UserDefaultsAppSettingsStore: AppSettingsStoring {
         guard let rawValues = defaults.object(forKey: enabledRTCTransportRoutesKey) as? [String] else {
             return IntercomViewModel.defaultEnabledRTCTransportRoutes
         }
-        let routes = Set(rawValues.compactMap(RTC.RouteKind.init(rawValue:)))
-        if rawValues.isEmpty {
-            return []
+        guard defaults.integer(forKey: rtcTransportRoutesSchemaVersionKey) >= currentRTCTransportRoutesSchemaVersion else {
+            return IntercomViewModel.defaultEnabledRTCTransportRoutes
         }
-        return routes.isEmpty ? IntercomViewModel.defaultEnabledRTCTransportRoutes : routes
+        let routes = Set(rawValues.compactMap(RTC.RouteKind.init(rawValue:)))
+        return IntercomViewModel.normalizedRTCTransportRoutes(routes)
     }
 }

@@ -181,7 +181,8 @@ extension IntercomViewModel {
     }
 
     nonisolated static func normalizedRTCTransportRoutes(_ routes: Set<RTC.RouteKind>) -> Set<RTC.RouteKind> {
-        routes.intersection(supportedRTCTransportRoutes)
+        let normalizedRoutes = routes.intersection(supportedRTCTransportRoutes)
+        return normalizedRoutes.isEmpty ? defaultEnabledRTCTransportRoutes : normalizedRoutes
     }
 
     func isRTCTransportRouteEnabled(_ route: RTC.RouteKind) -> Bool {
@@ -189,7 +190,8 @@ extension IntercomViewModel {
     }
 
     func canToggleRTCTransportRoute(_ route: RTC.RouteKind) -> Bool {
-        Self.supportedRTCTransportRoutes.contains(route)
+        guard Self.supportedRTCTransportRoutes.contains(route) else { return false }
+        return enabledRTCTransportRoutes.count > 1 || !enabledRTCTransportRoutes.contains(route)
     }
 
     func setRTCTransportRoute(_ route: RTC.RouteKind, enabled: Bool) {

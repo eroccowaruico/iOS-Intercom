@@ -102,6 +102,8 @@ struct RideIntercomTests {
         #expect(callSessionAdapter.contains("import RTCNativeWebRTC"))
         #expect(callSessionAdapter.contains("WebRTCNativeEngine"))
         #expect(callSessionAdapter.contains("selectionMode: .singleRoute") == false)
+        #expect(callSessionAdapter.contains("handleRTCError"))
+        #expect(callSessionAdapter.contains("case .noEnabledRoute"))
         #expect(callSessionAdapter.contains("makeRouteConfiguration"))
         #expect(callSessionAdapter.contains("RTCRuntimeStatusTransport.decode(message)"))
         #expect(callSessionAdapter.contains("PeerMetadataApplicationPayload(activeCodec: preferredAudioCodec)"))
@@ -130,8 +132,12 @@ struct RideIntercomTests {
             PropertyListSerialization.propertyList(from: plistData, options: [], format: nil) as? [String: Any]
         )
         let backgroundModes = try #require(plist["UIBackgroundModes"] as? [String])
+        let bonjourServices = try #require(plist["NSBonjourServices"] as? [String])
+        let localNetworkUsage = try #require(plist["NSLocalNetworkUsageDescription"] as? String)
 
         #expect(backgroundModes.contains("audio"))
+        #expect(bonjourServices.contains("_ride-intercom._tcp"))
+        #expect(!localNetworkUsage.isEmpty)
     }
 
     @Test func currentProcessUsesPackageBackedRTCRouteManager() {
@@ -139,6 +145,27 @@ struct RideIntercomTests {
 
         #expect(viewModel.callSessionDebugTypeName == "RTC RouteManager")
         #expect(viewModel.transportDebugSummary == "TRANSPORT RTC RouteManager")
+    }
+
+    @Test func callSessionAdapterIgnoresFallbackRouteFailureUntilSessionFails() async {
+        let rtcSession = FakeRTCCallSession()
+        let adapter = RideIntercomCallSessionAdapter(memberID: "member-local", rtcSession: rtcSession)
+        defer { withExtendedLifetime(adapter) {} }
+        let recorder = TransportEventRecorder()
+        adapter.onEvent = { event in
+            recorder.append(event)
+        }
+
+        await Self.waitUntil { rtcSession.hasSubscriber }
+        rtcSession.emit(.error(.connectionFailed(.webRTC, "WebRTC route configuration is unavailable")))
+        await Self.waitUntil(timeout: .milliseconds(50)) { recorder.containsLinkFailure }
+
+        #expect(!recorder.containsLinkFailure)
+
+        rtcSession.emit(.stateChanged(.failed))
+        await Self.waitUntil { recorder.containsLinkFailure }
+
+        #expect(recorder.containsLinkFailure)
     }
 
     @Test func groupInviteTokenRoundTripsAndRejectsTampering() throws {
@@ -670,23 +697,41 @@ struct RideIntercomTests {
         #expect(saved.opusBitRate == 128_000)
     }
 
+    @Test func userDefaultsSettingsStoreMigratesLegacyRTCTransportRouteSettingsToDefault() {
+        let suiteName = "RideIntercomTests.legacy-routes.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defaults.set(
+            [RTC.RouteKind.webRTC.rawValue],
+            forKey: "RideIntercom.settings.enabledRTCTransportRoutes"
+        )
+        let settingsStore = UserDefaultsAppSettingsStore(defaults: defaults)
+
+        #expect(settingsStore.load().enabledRTCTransportRoutes == IntercomViewModel.defaultEnabledRTCTransportRoutes)
+
+        settingsStore.save(AppSettings(enabledRTCTransportRoutes: [.webRTC]))
+
+        #expect(settingsStore.load().enabledRTCTransportRoutes == [.webRTC])
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
     @Test func viewModelLoadsPersistsAndAppliesRTCTransportRouteOptOut() {
         let defaultHarness = Self.makeHarness()
         #expect(defaultHarness.viewModel.enabledRTCTransportRoutes == Set(RTC.RouteKind.allCases))
         #expect(defaultHarness.callSession.enabledRouteValues.last == Set(RTC.RouteKind.allCases))
 
         let settingsStore = InMemoryAppSettingsStore(settings: AppSettings(
-            enabledRTCTransportRoutes: []
+            enabledRTCTransportRoutes: [.webRTC]
         ))
         let harness = Self.makeHarness(appSettingsStore: settingsStore)
 
-        #expect(harness.viewModel.enabledRTCTransportRoutes.isEmpty)
-        #expect(harness.callSession.enabledRouteValues.last?.isEmpty == true)
+        #expect(harness.viewModel.enabledRTCTransportRoutes == [.webRTC])
+        #expect(harness.callSession.enabledRouteValues.last == [.webRTC])
         #expect(!harness.viewModel.isRTCTransportRouteEnabled(.multipeer))
         #expect(harness.viewModel.canToggleRTCTransportRoute(.multipeer))
-        #expect(harness.viewModel.canToggleRTCTransportRoute(.webRTC))
+        #expect(!harness.viewModel.canToggleRTCTransportRoute(.webRTC))
 
-        harness.viewModel.setRTCTransportRoute(.webRTC, enabled: true)
+        harness.viewModel.setRTCTransportRoute(.webRTC, enabled: false)
 
         #expect(harness.viewModel.enabledRTCTransportRoutes == [.webRTC])
         #expect(settingsStore.load().enabledRTCTransportRoutes == [.webRTC])
@@ -706,9 +751,26 @@ struct RideIntercomTests {
 
         harness.viewModel.setRTCTransportRoute(.multipeer, enabled: false)
 
-        #expect(harness.viewModel.enabledRTCTransportRoutes.isEmpty)
-        #expect(settingsStore.load().enabledRTCTransportRoutes.isEmpty)
-        #expect(harness.callSession.enabledRouteValues.last?.isEmpty == true)
+        #expect(harness.viewModel.enabledRTCTransportRoutes == [.multipeer])
+        #expect(settingsStore.load().enabledRTCTransportRoutes == [.multipeer])
+        #expect(harness.callSession.enabledRouteValues.last == [.multipeer])
+    }
+
+    @Test func viewModelRepairsEmptyRTCTransportRoutesBeforeConnecting() {
+        let settingsStore = InMemoryAppSettingsStore(settings: AppSettings(
+            enabledRTCTransportRoutes: []
+        ))
+        let harness = Self.makeHarness(appSettingsStore: settingsStore)
+
+        #expect(harness.viewModel.enabledRTCTransportRoutes == IntercomViewModel.defaultEnabledRTCTransportRoutes)
+        #expect(harness.callSession.enabledRouteValues.last == IntercomViewModel.defaultEnabledRTCTransportRoutes)
+
+        harness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
+
+        #expect(harness.viewModel.enabledRTCTransportRoutes == IntercomViewModel.defaultEnabledRTCTransportRoutes)
+        #expect(settingsStore.load().enabledRTCTransportRoutes == IntercomViewModel.defaultEnabledRTCTransportRoutes)
+        #expect(harness.callSession.enabledRouteValues.last == IntercomViewModel.defaultEnabledRTCTransportRoutes)
+        #expect(harness.callSession.connectedGroup?.id == IntercomSeedData.recentGroups[0].id)
     }
 
     @Test func changingRTCTransportRoutesStopsActiveConnectionBeforeApplyingPolicy() {
@@ -926,6 +988,70 @@ private final class RecordingCallSession: RideIntercom.CallSession {
 
     func publishMetrics(_ metrics: RTC.RouteMetrics) {
         onEvent?(.routeMetrics(metrics))
+    }
+}
+
+private final class FakeRTCCallSession: RTC.CallSession {
+    var events: AsyncStream<RTC.CallSessionEvent> {
+        lock.lock()
+        hasSubscriberValue = true
+        lock.unlock()
+        return eventStream
+    }
+
+    var hasSubscriber: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return hasSubscriberValue
+    }
+
+    private let eventStream: AsyncStream<RTC.CallSessionEvent>
+    private let continuation: AsyncStream<RTC.CallSessionEvent>.Continuation
+    private let lock = NSLock()
+    private var hasSubscriberValue = false
+
+    init() {
+        var continuation: AsyncStream<RTC.CallSessionEvent>.Continuation?
+        self.eventStream = AsyncStream { continuation = $0 }
+        self.continuation = continuation!
+    }
+
+    func emit(_ event: RTC.CallSessionEvent) {
+        continuation.yield(event)
+    }
+
+    func prepare(_ request: RTC.CallStartRequest) async {}
+    func startConnection() async {}
+    func stopConnection() async {}
+    func startMedia() async {}
+    func stopMedia() async {}
+    func sendAudioFrame(_ frame: RTC.AudioFrame) async {}
+    func sendApplicationData(_ message: RTC.ApplicationDataMessage) async {}
+    func updateRuntimePackageReports(_ reports: [RTC.RTCRuntimePackageReport]) async {}
+    func setLocalMute(_ muted: Bool) async {}
+    func setOutputMute(_ muted: Bool) async {}
+    func setRemoteOutputVolume(peerID: RTC.PeerID, volume: Float) async {}
+}
+
+private final class TransportEventRecorder {
+    private let lock = NSLock()
+    private var events: [TransportEvent] = []
+
+    var containsLinkFailure: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return events.contains {
+            if case .linkFailed = $0 {
+                return true
+            }
+            return false
+        }
+    }
+
+    func append(_ event: TransportEvent) {
+        lock.lock()
+        events.append(event)
+        lock.unlock()
     }
 }
 

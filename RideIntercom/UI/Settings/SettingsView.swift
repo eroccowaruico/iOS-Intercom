@@ -46,7 +46,7 @@ struct CommunicationPanel: View {
         } header: {
             Label("Communication", systemImage: "network")
         } footer: {
-            Text("Changing routes stops the active RTC connection. The next connection uses only the enabled routes.")
+            Text("At least one route stays enabled. Changing routes stops the active RTC connection.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
