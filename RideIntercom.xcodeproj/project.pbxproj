@@ -13,6 +13,7 @@
 		9306F0962FA8E5000030B045 /* SessionManager in Frameworks */ = {isa = PBXBuildFile; productRef = 9306F0952FA8E5000030B045 /* SessionManager */; };
 		934630852F9C0001001548C3 /* RTC in Frameworks */ = {isa = PBXBuildFile; productRef = 934630842F9C0001001548C3 /* RTC */; };
 		934630872F9C0001001548C3 /* RTCNativeWebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 934630882F9C0001001548C3 /* RTCNativeWebRTC */; };
+		934E4A8B2FAD040600A1EDFC /* AudioCore in Frameworks */ = {isa = PBXBuildFile; productRef = 934E4A8A2FAD040600A1EDFC /* AudioCore */; };
 		9374C4B82FA364F000D259B2 /* InMemoryLogging in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4B72FA364F000D259B2 /* InMemoryLogging */; };
 		9374C4BA2FA364F000D259B2 /* Logging in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4B92FA364F000D259B2 /* Logging */; };
 		9374C4BD2FA3652B00D259B2 /* InMemoryLogging in Frameworks */ = {isa = PBXBuildFile; productRef = 9374C4BC2FA3652B00D259B2 /* InMemoryLogging */; };
@@ -143,6 +144,7 @@
 				934630852F9C0001001548C3 /* RTC in Frameworks */,
 				934630872F9C0001001548C3 /* RTCNativeWebRTC in Frameworks */,
 				93C60CF02FA3B57100841E64 /* SoundIsolation in Frameworks */,
+				934E4A8B2FAD040600A1EDFC /* AudioCore in Frameworks */,
 				93C60CE92FA3B53300841E64 /* AudioMixer in Frameworks */,
 				9374C4C32FA3657600D259B2 /* PeakLimiter in Frameworks */,
 				9374C4C52FA3657600D259B2 /* SoundIsolation in Frameworks */,
@@ -236,6 +238,7 @@
 				93C60CF22FA3B58400841E64 /* VADGate */,
 				9306F0922FA8E0D40030B045 /* Codec */,
 				9306F0952FA8E5000030B045 /* SessionManager */,
+				934E4A8A2FAD040600A1EDFC /* AudioCore */,
 			);
 			productName = RideIntercom;
 			productReference = 93F300C82F93829C0046716D /* RideIntercom.app */;
@@ -802,6 +805,10 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 934630862F9C0001001548C3 /* XCLocalSwiftPackageReference "RTC" */;
 			productName = RTCNativeWebRTC;
+		};
+		934E4A8A2FAD040600A1EDFC /* AudioCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AudioCore;
 		};
 		9374C4B72FA364F000D259B2 /* InMemoryLogging */ = {
 			isa = XCSwiftPackageProductDependency;
